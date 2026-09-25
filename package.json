@@ -1,0 +1,26 @@
+{
+  "name": "imex-selfservice-poc",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "setup:tb": "tsx scripts/setup-tb.ts",
+    "backfill": "tsx scripts/backfill.ts",
+    "simulator": "tsx scripts/simulator.ts",
+    "teardown": "tsx scripts/teardown.ts",
+    "build:browser": "esbuild scripts/browser/entry.ts --bundle --format=iife --global-name=POC --target=es2020 --outfile=scripts/output/poc-browser.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "esbuild": "^0.23.0",
+    "tsx": "^4.16.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5"
+  }
+}

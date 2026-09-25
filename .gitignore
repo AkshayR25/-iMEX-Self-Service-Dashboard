@@ -1,0 +1,5 @@
+node_modules/
+.env
+scripts/output/*
+!scripts/output/.gitkeep
+*.db
