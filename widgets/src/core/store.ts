@@ -15,6 +15,7 @@
 
 import * as api from './api';
 import { Dashboard, checkDashboard, newId } from './schema';
+import { metaLookup } from './compat';
 import type { UserContext } from './scope';
 import * as scope from './scope';
 
@@ -92,7 +93,7 @@ export async function saveDashboard(
 ): Promise<Dashboard> {
   const store = requireStore(ctx);
   const parsed = Dashboard.parse(doc);
-  const problems = checkDashboard(parsed);
+  const problems = checkDashboard(parsed, metaLookup(ctx, parsed));
   if (problems.length) throw new Error(problems.join(' '));
   const cur = await api.getAttrs(store, [D(doc.id), H(doc.id)]);
   const existing = Dashboard.safeParse(cur[D(doc.id)]);
@@ -127,7 +128,7 @@ export function blankDashboard(ctx: UserContext, name: string, profile: string |
     name,
     kind: profile ? 'device' : 'standalone',
     profile,
-    timeRange: '24h',
+    timeRange: 'realtime',
     widgets: [],
     ownerId: ctx.userId,
     ownerName: ctx.displayName,

@@ -396,6 +396,8 @@ export function styleEditor(host: HTMLElement, o: StyleEditorOptions) {
   const w = o.widget;
   const st: CardStyle = { ...(w.settings.style ?? {}) };
   const isValue = ['value', 'kpi', 'progress', 'summary', 'multivalue', 'gauge'].includes(w.type);
+  /** Widgets whose values/labels can be aligned (charts and tables lay themselves out). */
+  const hasLayout = ['value', 'kpi', 'progress', 'summary', 'multivalue', 'status'].includes(w.type);
   const seg = (f: keyof CardStyle, opts: [string, string][], cur: string | undefined, def: string) =>
     `<div class="dbb-seg sm">${opts.map(([v, l]) => `<button data-seg="${f}" data-v="${v}" class="${(cur ?? def) === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
   host.innerHTML = `<div class="dbb-form">
@@ -411,6 +413,14 @@ export function styleEditor(host: HTMLElement, o: StyleEditorOptions) {
       <label class="dbb-field half"><span>Title font</span><select data-st="titleFont"><option value="">Theme font</option>${FONTS.map((f) => `<option ${st.titleFont === f ? 'selected' : ''}>${f}</option>`).join('')}</select></label>
       <div class="dbb-field half"><span>Align</span>${seg('titleAlign', [['left', 'Left'], ['center', 'Centre'], ['right', 'Right']], st.titleAlign, 'left')}</div>
     </div>
+    ${
+      hasLayout
+        ? `<div class="dbb-sec">Layout</div>
+    <div class="dbb-field"><span>Values &amp; labels · horizontal</span>${seg('align', [['left', '⇤ Left'], ['center', '↔ Centre'], ['right', 'Right ⇥']], st.align, 'left')}</div>
+    ${w.type === 'multivalue' ? '' : `<div class="dbb-field"><span>Values &amp; labels · vertical</span>${seg('valign', [['top', '⤒ Top'], ['middle', '↕ Middle'], ['bottom', 'Bottom ⤓']], st.valign, w.type === 'kpi' ? 'top' : 'middle')}</div>`}
+    <div class="dbb-field"><span>Title position</span>${seg('titlePos', [['top', 'Above'], ['bottom', 'Below']], st.titlePos, 'top')}</div>`
+        : `<div class="dbb-sec">Layout</div><div class="dbb-field"><span>Title position</span>${seg('titlePos', [['top', 'Above'], ['bottom', 'Below']], st.titlePos, 'top')}</div>`
+    }
     <div class="dbb-sec">Card</div>
     <div class="dbb-row"><div class="dbb-field half"><span>Background</span>${colorInput('bg', st.bg, '#ffffff')}</div><div class="dbb-field half"><span>Accent bar</span>${colorInput('accentBar', st.accentBar, '#2a78d6')}</div></div>
     <label class="dbb-check"><input type="checkbox" data-st="gradient" ${st.gradient ? 'checked' : ''} ${st.bg ? '' : 'disabled'}/> Gradient background</label>
@@ -425,7 +435,7 @@ export function styleEditor(host: HTMLElement, o: StyleEditorOptions) {
     <label class="dbb-field"><span>Value size · <b data-vv>${st.valueSize ?? 'auto'}</b></span><input type="range" min="12" max="72" data-st="valueSize" value="${st.valueSize ?? 30}"/></label>
     <div class="dbb-row"><div class="dbb-field half"><span>Value colour</span>${colorInput('valueColor', st.valueColor, '#0b0b0b')}</div>
       <label class="dbb-field half"><span>Value font</span><select data-st="valueFont"><option value="">Theme font</option>${FONTS.map((f) => `<option ${st.valueFont === f ? 'selected' : ''}>${f}</option>`).join('')}</select></label></div>
-    <div class="dbb-field"><span>Alignment</span>${seg('align', [['left', 'Left'], ['center', 'Centre'], ['right', 'Right']], st.align, 'left')}</div>`
+`
         : ''
     }
     <div class="dbb-sec">Help text</div>

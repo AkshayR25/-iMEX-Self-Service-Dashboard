@@ -166,8 +166,8 @@ window.DBB_DEPLOY = async function (opts) {
       schema: {
         type: 'object',
         properties: {
-          label: { title: 'Button label', type: 'string', default: 'Dashboard Builder' },
-          adminOnly: { title: 'Show the button to admins only (Role = Admin)', type: 'boolean', default: true },
+          label: { title: 'Edit icon tooltip', type: 'string', default: 'Edit dashboards' },
+          adminOnly: { title: 'Show the edit icon to admins only (Role = Admin)', type: 'boolean', default: true },
           homeState: { title: 'Home (map) state id', type: 'string', default: 'default' },
           homeLabel: { title: 'Home link label', type: 'string', default: 'Map page' },
           listingState: { title: 'Listing state id', type: 'string', default: 'listing' },
@@ -177,10 +177,10 @@ window.DBB_DEPLOY = async function (opts) {
           customerId: { title: 'Customer id to show when a tenant admin opens the app', type: 'string', default: '' },
           navbar: { title: 'Render as full navbar (stand-in app)', type: 'boolean', default: false },
           appName: { title: 'App name (navbar mode)', type: 'string', default: 'iMEX' },
-          lightStyle: { title: 'Light button (for light headers)', type: 'boolean', default: false },
+          lightStyle: { title: 'Light icon button (for light headers)', type: 'boolean', default: false },
           chatEnabled: { title: 'Enable chat', type: 'boolean', default: true },
           chatEnabledRoles: { title: 'Chat only for roles (comma separated, empty = all)', type: 'string', default: '' },
-          hideForRoles: { title: 'Hide button for roles (comma separated)', type: 'string', default: '' },
+          hideForRoles: { title: 'Hide the edit icon for roles (comma separated)', type: 'string', default: '' },
         },
       },
       form: ['label', 'adminOnly', 'navbar', 'appName', 'homeState', 'homeLabel', 'listingState', 'listingLabel', 'machineState', 'machineLabel', 'customerId', 'lightStyle', 'chatEnabled', 'chatEnabledRoles', 'hideForRoles'],
@@ -206,7 +206,7 @@ window.DBB_DEPLOY = async function (opts) {
       form: ['mode', 'machineState', 'dashboardState', 'title', 'buttonLabel', 'listingState', 'siteProfile', 'customerId'],
     },
   };
-  const names = { launcher: 'iMEX Dashboard Builder button', renderer: 'iMEX Machine dashboard', listing: 'iMEX Listing / Map page (stand-in)' };
+  const names = { launcher: 'iMEX Navbar / edit menu', renderer: 'iMEX Machine dashboard', listing: 'iMEX Listing / Map page (stand-in)' };
   const sizes = { launcher: [6, 1], renderer: [24, 12], listing: [24, 12] };
   const fqns = [];
   for (const k of ['launcher', 'renderer', 'listing']) {
@@ -234,7 +234,7 @@ window.DBB_DEPLOY = async function (opts) {
   // --- stand-in app dashboard
   const wid = (n) => `dbb-${n}-0000-0000-000000000000`.slice(0, 36);
   const W = {
-    nav: { key: 'nav', fqn: 'tenant.imex_dbb_launcher', settings: { navbar: true, appName: o.appName, label: 'Dashboard Builder', adminOnly: true, homeState: 'default', homeLabel: 'Map page', listingState: 'listing', listingLabel: 'Listing page', machineState: 'machine', machineLabel: 'Machine page', customerId: cid }, bg: '#0a2458' },
+    nav: { key: 'nav', fqn: 'tenant.imex_dbb_launcher', settings: { navbar: true, appName: o.appName, label: 'Edit dashboards', adminOnly: true, homeState: 'default', homeLabel: 'Map page', listingState: 'listing', listingLabel: 'Listing page', machineState: 'machine', machineLabel: 'Machine page', customerId: cid }, bg: '#0a2458' },
     map: { key: 'map', fqn: 'tenant.imex_dbb_listing', settings: { mode: 'map', title: 'Map page', buttonLabel: 'Go to machine listing', listingState: 'listing', siteProfile: 'Site', customerId: cid }, bg: '#f6f6f4' },
     list: { key: 'list', fqn: 'tenant.imex_dbb_listing', settings: { machineState: 'machine', dashboardState: '', customerId: cid }, bg: '#f6f6f4' },
     mach: { key: 'mach', fqn: 'tenant.imex_dbb_renderer', settings: { refreshSeconds: 10, customerId: cid }, bg: '#f6f6f4' },

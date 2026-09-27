@@ -4,7 +4,7 @@ import * as scope from '../core/scope';
 import type { UserContext } from '../core/scope';
 import * as store from '../core/store';
 import * as chat from '../core/chat';
-import { Dashboard, Widget, WidgetType, WIDGET_TYPES, WIDGET_LABELS, WIDGET_CAPS, WIDGET_GROUPS, CONTENT_TYPES, DEFAULT_SIZE, TIME_RANGES, MAX_WIDGETS, MAX_SERIES, checkDashboard, dashboardKind, newId } from '../core/schema';
+import { Dashboard, Widget, WidgetType, WIDGET_TYPES, WIDGET_LABELS, WIDGET_CAPS, WIDGET_GROUPS, CONTENT_TYPES, DEFAULT_SIZE, TIME_RANGES, HISTORIC_RANGES, MAX_WIDGETS, MAX_KEYS, MAX_DEVICES, normalizeRange, rangeLabel, checkDashboard, dashboardKind, newId } from '../core/schema';
 import { Grid, GRID_CSS, firstFit, resolveCollisions } from '../render/grid';
 import { CSS, ensureCss, esc, el, applyTheme, PRESETS, miniMarkdown as miniToHtml } from '../render/theme';
 import { bindingLabel, defaultWidgets, keyMeta } from '../render/widgets';
@@ -14,6 +14,8 @@ import { richEditor, ruleEditor, styleEditor, themeEditor, initialRules } from '
 import { BUILDER_CSS } from './styles';
 import { modal, confirmModal, toast } from './ui';
 import { audit } from '../core/audit';
+import { compatible, metaLookup, propKind } from '../core/compat';
+import type { KeyMeta } from '../core/types';
 
 export interface BuilderOptions {
   ctx: UserContext;
@@ -251,11 +253,14 @@ class Builder {
     if (this.draft.widgets.length >= MAX_WIDGETS) return toast(this.root, `A dashboard can have at most ${MAX_WIDGETS} widgets.`, 'warn');
     const size = DEFAULT_SIZE[type];
     const profile = this.draft.profile ?? (this.deviceId ? this.ctx.nodes.get(this.deviceId)?.profile ?? null : null);
-    const keys = profile ? (this.ctx.profileKeys[profile] ?? []).map((k) => k.key) : [];
-    const statusKey = keys.find((k) => /status|state/i.test(k));
-    const numKeys = keys.filter((k) => !/status|state|hours/i.test(k));
-    const firstKey = ['status', 'timeline'].includes(type) || (type === 'donut' && !!this.deviceId) ? statusKey ?? keys[0] : numKeys[0] ?? keys[0];
+    const metas = profile ? this.ctx.profileKeys[profile] ?? [] : [];
+    const keys = metas.map((k) => k.key);
     const content = CONTENT_TYPES.has(type);
+    const mode = type === 'donut' ? 'state' : undefined;
+    const ok = metas.filter((m) => compatible(type, m, { donutMode: mode }).ok);
+    if (!content && type !== 'alarms' && profile && metas.length && !ok.length) return toast(this.root, this.paletteBlock(type) ?? `No property of ${profile} fits this widget.`, 'warn');
+    const firstKey = (ok.find((m) => !/hours/i.test(m.key)) ?? ok[0])?.key;
+    const statusKey = ok.find((m) => compatible('status', m).ok)?.key;
     const w: Widget = {
       id: newId(),
       type,
@@ -265,7 +270,7 @@ class Builder {
       w: size.w,
       h: size.h,
       binding: content ? { mode: 'none' } : this.deviceId ? { mode: 'current' } : { mode: 'none' },
-      keys: WIDGET_CAPS[type].keys[1] === 0 || !firstKey || !this.deviceId ? [] : type === 'multivalue' ? keys.slice(0, 4) : [firstKey],
+      keys: WIDGET_CAPS[type].keys[1] === 0 || !firstKey || !this.deviceId ? [] : type === 'multivalue' ? keys.slice(0, MAX_KEYS) : [firstKey],
       settings:
         type === 'text'
           ? { html: '<h2>Heading</h2><p>Write something here. Insert live values like {{machine}}.</p>' }
@@ -284,7 +289,7 @@ class Builder {
         { op: 'isTrue', color: '#0ca30c', label: 'Running' },
         { op: 'isFalse', color: '#8a8983', label: 'Stopped' },
       ];
-    if (w.keys.length === 1 && profile && !content) w.title = keyMeta(this.ctx, profile, w.keys[0]).displayName + (type === 'timeline' ? ' · timeline' : type === 'heatmap' ? ' · hour × day' : '');
+    if (w.keys.length === 1 && profile && !content) w.title = keyMeta(this.ctx, profile, w.keys[0]).displayName + (type === 'timeline' ? ' · timeline' : type === 'heatmap' ? ' · heatmap' : '');
     if (at) {
       w.x = Math.min(at.x, 12 - w.w);
       w.y = at.y;
@@ -425,7 +430,10 @@ class Builder {
       <div class="dbb-brand"><span class="dbb-logo">${U('<rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="5" rx="2"/><rect x="13" y="10" width="8" height="11" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/>')}</span><span>Dashboard Builder</span></div>
       <label class="dbb-field"><span>Machine</span><select data-a="machine">${this.machineOptions()}</select></label>
       <label class="dbb-field grow"><span>Dashboard name</span><input data-a="name" maxlength="120" value="${esc(d.name)}"/></label>
-      <label class="dbb-field"><span>Time range</span><select data-a="range">${TIME_RANGES.map((r) => `<option ${r === d.timeRange ? 'selected' : ''}>${r}</option>`).join('')}</select></label>
+      <div class="dbb-field"><span>Time range</span><div class="dbb-range"><div class="dbb-seg sm" role="radiogroup" aria-label="Time range">
+        <button data-rng="realtime" class="${d.timeRange === 'realtime' ? 'on' : ''}" title="Latest values, updated every 10 s. Charts show a rolling last hour."><span class="dbb-live"></span>Realtime</button>
+        <button data-rng="hist" class="${d.timeRange !== 'realtime' ? 'on' : ''}" title="A fixed window ending now: 1 to 8 hours">Historic</button></div>
+        ${d.timeRange !== 'realtime' ? `<select data-a="range" aria-label="Historic duration">${HISTORIC_RANGES.map((r) => `<option value="${r}" ${r === d.timeRange ? 'selected' : ''}>Last ${r.replace('h', ' h')}</option>`).join('')}</select>` : ''}</div></div>
       <div class="dbb-tools">
         <button class="dbb-btn" data-a="open" title="Open an existing dashboard">${U('<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>')}Open</button>
         <button class="dbb-btn" data-a="templates" title="Start from a template">${U('<path d="M12 3l2.4 5 5.6.8-4 3.9 1 5.5L12 15.6 7 18.2l1-5.5-4-3.9 5.6-.8z"/>')}Templates</button>
@@ -443,7 +451,13 @@ class Builder {
     const q = (a: string) => top.querySelector(`[data-a="${a}"]`) as HTMLElement;
     (q('machine') as HTMLSelectElement).onchange = (e) => void this.selectMachine((e.target as HTMLSelectElement).value || null);
     (q('name') as HTMLInputElement).onchange = (e) => this.mutate((x) => (x.name = (e.target as HTMLInputElement).value.trim() || 'Untitled dashboard'));
-    (q('range') as HTMLSelectElement).onchange = (e) => this.mutate((x) => (x.timeRange = (e.target as HTMLSelectElement).value as any));
+    q('range')?.addEventListener('change', (e) => this.mutate((x) => (x.timeRange = normalizeRange((e.target as HTMLSelectElement).value))));
+    top.querySelectorAll<HTMLElement>('[data-rng]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const next = b.dataset.rng === 'realtime' ? 'realtime' : this.draft.timeRange === 'realtime' ? '1h' : this.draft.timeRange;
+        if (next !== this.draft.timeRange) this.mutate((x) => (x.timeRange = next));
+      }),
+    );
     q('undo').onclick = () => this.undoLast();
     q('redo').onclick = () => this.redoLast();
     q('preview').onclick = () => {
@@ -471,10 +485,15 @@ class Builder {
         const ts = g.types.filter(match);
         if (!ts.length) return '';
         return `<div class="dbb-sec">${esc(g.title)}</div><div class="dbb-palette">${ts
-          .map((t) => `<button class="dbb-pal" draggable="true" data-t="${t}" title="${esc(HELP[t])} — drag onto the canvas or click to add">${ICON[t]}<span>${WIDGET_LABELS[t]}</span></button>`)
+          .map((t) => {
+            const why = this.paletteBlock(t);
+            return why
+              ? `<button class="dbb-pal off" data-t="${t}" aria-disabled="true" title="${esc(why)}">${ICON[t]}<span>${WIDGET_LABELS[t]}</span></button>`
+              : `<button class="dbb-pal" draggable="true" data-t="${t}" title="${esc(HELP[t])} — drag onto the canvas or click to add">${ICON[t]}<span>${WIDGET_LABELS[t]}</span></button>`;
+          })
           .join('')}</div>`;
       }).join('') || '<div class="dbb-hint">No widget matches.</div>'}
-      <div class="dbb-count">${this.draft.widgets.length} / ${MAX_WIDGETS} widgets</div>`;
+      <div class="dbb-count ${this.draft.widgets.length >= MAX_WIDGETS ? 'full' : ''}">${this.draft.widgets.length} / ${MAX_WIDGETS} widgets on this page</div>`;
     const inp = left.querySelector('.dbb-pal-search input') as HTMLInputElement;
     inp.oninput = () => {
       this.palFilter = inp.value;
@@ -484,7 +503,8 @@ class Builder {
       n.focus();
       n.setSelectionRange(pos, pos);
     };
-    left.querySelectorAll<HTMLElement>('.dbb-pal').forEach((p) => {
+    left.querySelectorAll<HTMLElement>('.dbb-pal.off').forEach((p) => (p.onclick = () => toast(this.root, p.title, 'warn')));
+    left.querySelectorAll<HTMLElement>('.dbb-pal:not(.off)').forEach((p) => {
       p.ondragstart = (e) => {
         e.dataTransfer!.setData('text/dbb-widget', p.dataset.t!);
         e.dataTransfer!.effectAllowed = 'copy';
@@ -553,7 +573,27 @@ class Builder {
       });
     }
     const cnt = this.root.querySelector('.dbb-count');
-    if (cnt) cnt.textContent = `${this.draft.widgets.length} / ${MAX_WIDGETS} widgets`;
+    if (cnt) {
+      cnt.textContent = `${this.draft.widgets.length} / ${MAX_WIDGETS} widgets on this page`;
+      cnt.classList.toggle('full', this.draft.widgets.length >= MAX_WIDGETS);
+    }
+    if (this.palFull !== this.draft.widgets.length >= MAX_WIDGETS) this.renderLeft();
+  }
+
+  palFull = false;
+
+  /** Why a palette widget can't be added right now (page full, or no property of this machine type fits), or null. */
+  paletteBlock(t: WidgetType): string | null {
+    this.palFull = this.draft.widgets.length >= MAX_WIDGETS;
+    if (this.palFull) return `This page already has ${MAX_WIDGETS} widgets (the limit, to keep it fast). Remove one to add another.`;
+    if (CONTENT_TYPES.has(t) || t === 'alarms') return null;
+    const profile = this.draft.profile ?? (this.deviceId ? this.ctx.nodes.get(this.deviceId)?.profile ?? null : null);
+    const metas = profile ? this.ctx.profileKeys[profile] ?? [] : [];
+    if (!metas.length) return null;
+    const fits = metas.some((m) => compatible(t, m, { donutMode: t === 'donut' ? 'state' : undefined }).ok || (t === 'donut' && compatible(t, m, { donutMode: 'devices' }).ok));
+    if (fits) return null;
+    const c = compatible(t, metas[0], { donutMode: 'state' });
+    return `${WIDGET_LABELS[t]} isn't available for ${profile}: ${c.reason?.split(';')[0].replace(WIDGET_LABELS[t] + ' needs', 'it needs')} and no ${profile} property is one.`;
   }
 
   duplicate(id: string) {
@@ -589,6 +629,7 @@ class Builder {
       d.profile = n.profile;
       d.widgets = ws;
       d.theme = { ...t.theme };
+      d.timeRange = t.timeRange;
       if (!d.version && (/^(Untitled|.* dashboard)$/.test(d.name) || TEMPLATES.some((x) => d.name === `${n.profile} · ${x.name}`))) d.name = `${n.profile} · ${t.name}`;
     });
     this.selected = null;
@@ -744,24 +785,38 @@ class Builder {
     const nodes = [...this.ctx.nodes.values()].filter((n) => n.entityType === 'ASSET');
     const devices = scope.allDevices(this.ctx);
     const b = w.binding;
+    const metas = this.metasFor(w);
     const keyRows = (() => {
       if (cap.keys[1] === 0) return '';
-      const keyset = new Map<string, { name: string; unit: string }>();
-      for (const p of profiles) for (const k of this.ctx.profileKeys[p] ?? []) keyset.set(k.key, { name: k.displayName, unit: k.unit });
-      if (!keyset.size) return `<div class="dbb-hint">Choose a data source first.</div>`;
+      if (!metas.length) return `<div class="dbb-hint">Choose a data source first.</div>`;
       const multi = cap.keys[1] > 1;
-      return `<div class="dbb-keys">${[...keyset.entries()]
-        .map(
-          ([k, m]) =>
-            `<label class="dbb-check"><input type="${multi ? 'checkbox' : 'radio'}" name="k-${w.id}" value="${esc(k)}" ${w.keys.includes(k) ? 'checked' : ''}/> ${esc(m.name)}${m.unit ? ` <span class="dbb-muted">(${esc(m.unit)})</span>` : ''}</label>`,
-        )
-        .join('')}</div>${multi ? `<div class="dbb-hint">Up to ${cap.keys[1]} properties${cap.multiDevice ? `; ${MAX_SERIES} series in total` : ''}.</div>` : ''}`;
+      const full = multi && w.keys.length >= cap.keys[1];
+      const rows = metas.map((m) => {
+        const c = this.fits(w.type, m, w);
+        const on = w.keys.includes(m.key);
+        const off = !on && (!c.ok || full);
+        const why = !c.ok ? c.reason! : full ? `At most ${cap.keys[1]} properties per widget (keeps the dashboard fast). Untick one first.` : '';
+        return `<label class="dbb-check ${off ? 'off' : ''} ${!c.ok ? 'bad' : ''}" ${why ? `title="${esc(why)}"` : ''}><input type="${multi ? 'checkbox' : 'radio'}" name="k-${w.id}" value="${esc(m.key)}" ${on ? 'checked' : ''} ${off ? 'disabled' : ''}/> ${esc(m.displayName)}${m.unit ? ` <span class="dbb-muted">(${esc(m.unit)})</span>` : ''}${!c.ok ? ` <span class="dbb-na">${esc(this.kindWord(m))}</span>` : ''}</label>`;
+      });
+      const bad = metas.filter((m) => !this.fits(w.type, m, w).ok).length;
+      return `<div class="dbb-keys">${rows.join('')}</div>${
+        multi ? `<div class="dbb-hint">${w.keys.length} of ${cap.keys[1]} selected · at most ${cap.keys[1]} per widget.</div>` : ''
+      }${bad ? `<div class="dbb-hint">Greyed out: can't be shown as ${esc(WIDGET_LABELS[w.type].toLowerCase())}. Hover for why.</div>` : ''}`;
     })();
 
     const srcOpt = (mode: string, label: string, allowed = true) =>
       allowed ? `<label class="dbb-check"><input type="radio" name="src-${w.id}" value="${mode}" ${b.mode === mode ? 'checked' : ''}/> <span>${label}</span></label>` : '';
     const profSel = (cur: string | undefined, a: string) => `<select data-s="${a}">${allProfiles.map((p) => `<option ${p === cur ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select>`;
-    const typeOpts = WIDGET_GROUPS.map((g) => `<optgroup label="${esc(g.title)}">${g.types.map((t) => `<option value="${t}" ${t === w.type ? 'selected' : ''}>${WIDGET_LABELS[t]}</option>`).join('')}</optgroup>`).join('');
+    // A type is greyed out when none of the source's properties can be shown with it.
+    const typeOpts = WIDGET_GROUPS.map(
+      (g) =>
+        `<optgroup label="${esc(g.title)}">${g.types
+          .map((t) => {
+            const bad = t !== w.type && !CONTENT_TYPES.has(t) && t !== 'alarms' && metas.length > 0 && !metas.some((m) => this.fits(t, m, w, true).ok);
+            return `<option value="${t}" ${t === w.type ? 'selected' : ''} ${bad ? 'disabled' : ''}>${WIDGET_LABELS[t]}${bad ? ' — no suitable property' : ''}</option>`;
+          })
+          .join('')}</optgroup>`,
+    ).join('');
 
     panel.innerHTML = `
       <div class="dbb-form">
@@ -775,8 +830,12 @@ class Builder {
           ${srcOpt('current', 'This machine <span class="dbb-muted">(whichever machine the dashboard is opened for)</span>', !!(this.deviceId || this.draft.profile))}
           ${srcOpt('fixed', 'Specific machines')}
           ${b.mode === 'fixed' ? `<div class="dbb-sub"><div class="dbb-keys">${devices
-            .map((d) => `<label class="dbb-check"><input type="${cap.multiDevice ? 'checkbox' : 'radio'}" data-s="dev" value="${d.id}" ${b.deviceIds.includes(d.id) ? 'checked' : ''}/> ${esc(d.label)} <span class="dbb-muted">${esc(d.profile)}</span></label>`)
-            .join('')}</div>${b.deviceIds.some((id) => !this.ctx.nodes.has(id)) ? `<div class="dbb-hint">Includes machines outside your access (kept).</div>` : ''}</div>` : ''}
+            .map((d) => {
+              const on = b.deviceIds.includes(d.id);
+              const off = cap.multiDevice && !on && b.deviceIds.length >= MAX_DEVICES;
+              return `<label class="dbb-check ${off ? 'off' : ''}" ${off ? `title="At most ${MAX_DEVICES} machines per widget"` : ''}><input type="${cap.multiDevice ? 'checkbox' : 'radio'}" data-s="dev" value="${d.id}" ${on ? 'checked' : ''} ${off ? 'disabled' : ''}/> ${esc(d.label)} <span class="dbb-muted">${esc(d.profile)}</span></label>`;
+            })
+            .join('')}</div>${cap.multiDevice ? `<div class="dbb-hint">At most ${MAX_DEVICES} machines.</div>` : ''}${b.deviceIds.some((id) => !this.ctx.nodes.has(id)) ? `<div class="dbb-hint">Includes machines outside your access (kept).</div>` : ''}</div>` : ''}
           ${cap.multiDevice ? srcOpt('siblings', "Same-type machines at this machine's location", !!this.deviceId) : ''}
           ${b.mode === 'siblings' ? `<div class="dbb-sub">Type ${profSel(b.profile, 'sprof')}</div>` : ''}
           ${!cap.multiDevice ? srcOpt('nearest', 'Nearest machine of a type (e.g. the site weather station)', !!this.deviceId) : ''}
@@ -825,7 +884,7 @@ class Builder {
         }
         if (!c.multiDevice && x.binding.mode === 'fixed') x.binding.deviceIds = x.binding.deviceIds.slice(0, 1);
         if (!c.multiDevice && (x.binding.mode === 'siblings' || x.binding.mode === 'nodeQuery')) x.binding = this.deviceId ? { mode: 'current' } : x.binding;
-        if (c.keys[0] > 0 && !x.keys.length) this.fixKeys(x);
+        if (!CONTENT_TYPES.has(t)) this.fixKeys(x);
         const size = DEFAULT_SIZE[t];
         if (size.w === 12) {
           x.x = 0;
@@ -848,7 +907,7 @@ class Builder {
     );
     on('[data-s="dev"]', 'change', () =>
       this.updateWidget(w.id, (x) => {
-        const ids = [...panel.querySelectorAll<HTMLInputElement>('[data-s="dev"]:checked')].map((i) => i.value).slice(0, MAX_SERIES);
+        const ids = [...panel.querySelectorAll<HTMLInputElement>('[data-s="dev"]:checked')].map((i) => i.value).slice(0, WIDGET_CAPS[x.type].multiDevice ? MAX_DEVICES : 1);
         const hidden = x.binding.mode === 'fixed' ? x.binding.deviceIds.filter((id) => !this.ctx.nodes.has(id)) : [];
         if (ids.length || hidden.length) x.binding = { mode: 'fixed', deviceIds: [...hidden, ...ids] };
         this.fixKeys(x);
@@ -863,7 +922,7 @@ class Builder {
     on('[data-s="node"]', 'change', (e) => this.updateWidget(w.id, (x) => x.binding.mode === 'nodeQuery' && (x.binding.nodeId = e.target.value)));
     on(`input[name="k-${w.id}"]`, 'change', () =>
       this.updateWidget(w.id, (x) => {
-        const ks = [...panel.querySelectorAll<HTMLInputElement>(`input[name="k-${w.id}"]:checked`)].map((i) => i.value).slice(0, WIDGET_CAPS[x.type].keys[1]);
+        const ks = [...panel.querySelectorAll<HTMLInputElement>(`input[name="k-${w.id}"]:checked`)].map((i) => i.value).slice(0, Math.min(MAX_KEYS, WIDGET_CAPS[x.type].keys[1]));
         const wasAuto = !x.title || x.title === WIDGET_LABELS[x.type] || profiles.some((p) => x.keys[0] && x.title.startsWith(keyMeta(this.ctx, p, x.keys[0]).displayName));
         x.keys = ks;
         if (wasAuto && ks.length === 1 && profiles[0]) x.title = keyMeta(this.ctx, profiles[0], ks[0]).displayName;
@@ -1002,11 +1061,11 @@ class Builder {
       if (w.type === 'area') f.push(chk('stacked', 'Stack series (same unit only)', !!s.stacked));
       f.push(chk('showLegend', 'Show legend', s.showLegend !== false));
     }
-    if (w.type === 'bar') f.push(sel('groupBy', 'Group by', [['day', 'Day'], ['hour', 'Hour'], ['device', 'Compare machines']], s.groupBy ?? 'day'));
+    if (w.type === 'bar') f.push(sel('groupBy', 'Group by', [['15m', 'Every 15 minutes'], ['hour', 'Hour'], ['device', 'Compare machines']], s.groupBy === 'day' ? 'hour' : s.groupBy ?? 'hour'));
     if (w.type === 'donut') f.push(sel('donutMode', 'Show', [['state', 'Time in each state (one machine)'], ['devices', 'Share by machine']], s.donutMode ?? 'state'));
     if (w.type === 'heatmap') f.push(sel('heatColor', 'Colours', [['blue', 'Blue scale'], ['orange', 'Orange scale'], ['rules', 'Use the Colours rules']], s.heatColor ?? 'blue'));
     if (['line', 'area', 'bar', 'alarms', 'kpi', 'summary', 'donut', 'timeline', 'heatmap'].includes(w.type))
-      f.push(sel('timeRange', 'Time range', [['', `Dashboard (${this.draft.timeRange})`], ...TIME_RANGES.map((r) => [r, r] as [string, string])], s.timeRange ?? ''));
+      f.push(sel('timeRange', 'Time range', [['', `Same as dashboard (${rangeLabel(this.draft.timeRange)})`], ...TIME_RANGES.map((r) => [r, r === 'realtime' ? 'Realtime (rolling 1 h)' : rangeLabel(r)] as [string, string])], s.timeRange ? normalizeRange(s.timeRange) : ''));
     if (w.type === 'alarms') {
       f.push(`<div class="dbb-field"><span>Severities</span><div class="dbb-row wrap">${['CRITICAL', 'MAJOR', 'MINOR', 'WARNING']
         .map((v) => `<label class="dbb-check"><input type="checkbox" data-sev value="${v}" ${!s.severities || s.severities.includes(v as any) ? 'checked' : ''}/> ${v.toLowerCase()}</label>`)
@@ -1036,6 +1095,7 @@ class Builder {
           } else if (v === '') delete s[a];
           else s[a] = v;
           if (a === 'donutMode' && v === 'devices' && x.binding.mode === 'current') x.binding = this.deviceId ? { mode: 'siblings', profile: this.ctx.nodes.get(this.deviceId)!.profile } : x.binding;
+          if (a === 'donutMode') this.fixKeys(x);
         }),
       ),
     );
@@ -1050,13 +1110,47 @@ class Builder {
     );
   }
 
+  /** Properties that can be chosen for this widget's data source. */
+  metasFor(w: Widget): KeyMeta[] {
+    const seen = new Map<string, KeyMeta>();
+    for (const p of this.profilesForBinding(w)) for (const k of this.ctx.profileKeys[p] ?? []) if (!seen.has(k.key)) seen.set(k.key, k);
+    return [...seen.values()];
+  }
+
+  /** Donut mode as the renderer will use it. */
+  donutMode(w: Widget): 'state' | 'devices' {
+    if (w.settings.donutMode) return w.settings.donutMode;
+    const b = w.binding;
+    return b.mode === 'current' || b.mode === 'nearest' || (b.mode === 'fixed' && b.deviceIds.length === 1) ? 'state' : 'devices';
+  }
+
+  /** Can this property be shown with widget type t? anyDonutMode: a donut fits if either of its modes fits. */
+  fits(t: WidgetType, m: KeyMeta, w: Widget, anyDonutMode = false) {
+    if (t === 'donut' && anyDonutMode) {
+      const a = compatible(t, m, { donutMode: 'state' });
+      return a.ok ? a : compatible(t, m, { donutMode: 'devices' });
+    }
+    return compatible(t, m, { donutMode: t === 'donut' ? this.donutMode(w) : undefined });
+  }
+
+  kindWord(m: KeyMeta): string {
+    return { number: 'number', boolean: 'on/off', string: 'text', coded: 'state' }[propKind(m)];
+  }
+
+  /** Keep only known properties that fit the widget type (at most MAX_KEYS); pick a fitting one if none are left. */
   fixKeys(x: Widget) {
-    const profs = this.profilesForBinding(x);
-    const known = new Set(profs.flatMap((p) => (this.ctx.profileKeys[p] ?? []).map((k) => k.key)));
-    x.keys = x.keys.filter((k) => known.has(k));
-    if (!x.keys.length && WIDGET_CAPS[x.type].keys[0] > 0) {
-      const first = [...known].find((k) => !/status|hours/i.test(k)) ?? [...known][0];
-      if (first) x.keys = [first];
+    const metas = this.metasFor(x);
+    const cap = WIDGET_CAPS[x.type];
+    if (x.type === 'donut' && !x.settings.donutMode) {
+      // a number can only be shown as "share by machine"; states as "time in each state"
+      const cur = metas.find((m) => m.key === x.keys[0]);
+      if (cur && !compatible('donut', cur, { donutMode: this.donutMode(x) }).ok && compatible('donut', cur, { donutMode: 'devices' }).ok) x.settings.donutMode = 'devices';
+    }
+    x.keys = x.keys.filter((k) => metas.some((m) => m.key === k && this.fits(x.type, m, x).ok)).slice(0, Math.min(MAX_KEYS, cap.keys[1]));
+    if (!x.keys.length && cap.keys[0] > 0) {
+      const ok = metas.filter((m) => this.fits(x.type, m, x).ok);
+      const first = ok.find((m) => !/hours/i.test(m.key)) ?? ok[0];
+      if (first) x.keys = [first.key];
     }
   }
 
@@ -1190,7 +1284,7 @@ class Builder {
     const d: Dashboard = JSON.parse(JSON.stringify(this.draft));
     d.kind = dashboardKind(d.widgets);
     if (d.kind === 'device' && !d.profile && this.deviceId) d.profile = this.ctx.nodes.get(this.deviceId)!.profile;
-    const problems = checkDashboard(d);
+    const problems = checkDashboard(d, metaLookup(this.ctx, d));
     if (!d.widgets.length) problems.push('Add at least one widget.');
     if (problems.length) return toast(this.root, problems.join(' '), 'err');
     if (asCopy) {

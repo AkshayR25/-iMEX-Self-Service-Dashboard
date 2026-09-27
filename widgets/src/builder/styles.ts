@@ -43,6 +43,14 @@ export const BUILDER_CSS = `
 .dbb-hint code,.dbb-tip-row code{font-size:11px;background:#f1f0ec;padding:0 4px;border-radius:4px}
 .dbb-muted{color:var(--ink-3);font-size:11px}
 .dbb-count{font-size:11px;color:var(--ink-3);margin-top:14px;text-align:center}
+.dbb-count.full{color:#b3541e;font-weight:600}
+.dbb-pal.off{opacity:.42;cursor:not-allowed;filter:grayscale(1)}
+.dbb-pal.off:hover{transform:none;box-shadow:none;border-color:var(--line);background:#fff}
+.dbb-check.off{opacity:.45;cursor:not-allowed}
+.dbb-na{font-size:10.5px;font-weight:600;color:var(--ink-3);background:#eceae4;border-radius:999px;padding:1px 7px;margin-left:2px;white-space:nowrap}
+.dbb-range{display:flex;align-items:center;gap:6px}
+.dbb-range select{padding:5px 8px}
+.dbb-live{display:inline-block;width:7px;height:7px;border-radius:50%;background:#0ca30c;margin-right:6px;box-shadow:0 0 0 3px rgba(12,163,12,.18);vertical-align:1px}
 .dbb-sel-h{display:flex;align-items:center;gap:10px;padding:12px 14px 4px}
 .dbb-sel-h .ic{width:34px;height:34px;border-radius:10px;background:color-mix(in srgb,var(--accent) 12%,#fff);color:var(--accent);display:inline-flex;align-items:center;justify-content:center;flex:none}
 .dbb-sel-h .ic svg{width:20px;height:20px}

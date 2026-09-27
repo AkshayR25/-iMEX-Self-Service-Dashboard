@@ -1,12 +1,13 @@
 // Machine dashboard widget: shows the dashboard resolved for the machine in the dashboard state
-// (personal > machine > location > customer-wide > default layout). Admins also get the source chip,
-// a switcher, customise / reset, thresholds and an Edit button; everyone else only views (scope decision
-// 27 Sep 2026: building is admin-only).
+// (personal > machine > location > customer-wide > default layout). The page itself shows no editing
+// controls: for admins, edit / customise / reset / thresholds / dashboard switcher are published to the
+// navbar's edit menu (user decision 27 Sep 2026). Everyone else only views.
 // Also renders a standalone dashboard when the state carries `dbbDashboardId`.
 import * as api from '../core/api';
 import * as scope from '../core/scope';
 import * as store from '../core/store';
 import type { UserContext } from '../core/scope';
+import { rangeLabel, normalizeRange } from '../core/schema';
 import type { Dashboard } from '../core/schema';
 import { Grid, GRID_CSS } from '../render/grid';
 import { CSS, ensureCss, esc, STATUS, ago, applyTheme } from '../render/theme';
@@ -15,7 +16,7 @@ import { openBuilder } from '../builder/builder';
 import { BUILDER_CSS } from '../builder/styles';
 import { modal, confirmModal, toast } from '../builder/ui';
 import { audit } from '../core/audit';
-import { userContext, stateEntity, stateParam, CHANGED_EVENT, notifyChanged } from './common';
+import { userContext, stateEntity, stateParam, CHANGED_EVENT, notifyChanged, publishActions, EditAction } from './common';
 
 const R_CSS = `
 .dbb-rend{height:100%;display:flex;flex-direction:column;background:var(--plane);position:relative}
@@ -23,6 +24,9 @@ const R_CSS = `
 .dbb-rtitle{font-size:19px;font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap;letter-spacing:-.01em}
 .dbb-crumb{font-size:12px;color:var(--ink-3);margin-bottom:2px}
 .dbb-src-chip{font-size:12px;color:var(--ink-2);background:var(--grid);border-radius:999px;padding:4px 11px}
+.dbb-range-chip{margin-left:auto;display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:var(--ink-2);background:var(--grid);border-radius:999px;padding:4px 11px}
+.dbb-range-chip.live::before{content:"";width:7px;height:7px;border-radius:50%;background:#0ca30c;box-shadow:0 0 0 3px rgba(12,163,12,.2);animation:dbb-pulse 2s ease-in-out infinite}
+@keyframes dbb-pulse{50%{box-shadow:0 0 0 6px rgba(12,163,12,0)}}
 .dbb-status-pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;border-radius:999px;padding:3px 10px 3px 8px;background:color-mix(in srgb,var(--pill) 14%,transparent);color:var(--ink)}
 .dbb-status-pill .dbb-dot{width:8px;height:8px;background:var(--pill);box-shadow:0 0 0 3px color-mix(in srgb,var(--pill) 25%,transparent)}
 .dbb-rtools{margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
@@ -47,6 +51,8 @@ export function init(tbCtx: any) {
     override?: string | null; // dashboard picked in the switcher
     timer?: any;
     lastKey?: string;
+    range?: string;
+    ticks?: number;
   } = {};
   (tbCtx as any).__dbb = st;
   host.innerHTML = `<div class="dbb-root dbb-rend" id="${id}"><div class="dbb-rhead"><div class="dbb-ph" style="height:auto">Loading…</div></div><div class="dbb-rbody"><div class="dbb-rgrid"></div></div></div>`;
@@ -68,6 +74,7 @@ export function init(tbCtx: any) {
       else {
         head.innerHTML = `<div class="dbb-ph" style="height:auto">Open a machine to see its dashboard.</div>`;
         st.grid?.render([]);
+        publishActions(id, null);
       }
     } catch (e: any) {
       head.innerHTML = `<div class="dbb-banner err">Could not load the dashboard: ${esc(e.message ?? e)}</div>`;
@@ -95,6 +102,7 @@ export function init(tbCtx: any) {
     if (!node) {
       head.innerHTML = `<div class="dbb-banner warn">This machine is outside your access.</div>`;
       st.grid?.render([]);
+      publishActions(id, null);
       return;
     }
     const res = await store.resolveForDevice(ctx, deviceId, node.profile);
@@ -119,39 +127,46 @@ export function init(tbCtx: any) {
     const admin = ctx.isAdmin;
     const canCustomise = admin && (level === 'node' || level === 'customer');
     const canReset = admin && level === 'device' && res.deviceAssignment?.mode === 'customised';
-    const canThresholds = admin;
+    const range = normalizeRange(dash?.timeRange ?? 'realtime');
+    st.range = range;
     head.innerHTML = `
       <div>
         <div class="dbb-crumb">${esc(scope.ancestors(ctx, deviceId).reverse().map((a) => a.label).join(' › '))}</div>
         <div class="dbb-rtitle">${esc(node.label)} <span class="dbb-muted" style="font-size:13px">${esc(node.profile)}</span>
           <span class="dbb-status-pill" style="--pill:${status[1]}"><span class="dbb-dot"></span>${status[0]}${lastTs ? ` · ${ago(lastTs)}` : ''}</span></div>
       </div>
-      ${admin ? `<span class="dbb-src-chip" title="Where this dashboard comes from">From: ${esc(label)}${dash ? ` · ${esc(dash.name)}` : ''}</span>` : ''}
-      <div class="dbb-rtools">
-        ${
-          admin && res.candidates.length > 1
-            ? `<select data-a="switch" title="Switch dashboard (does not change the assignment)">${res.candidates
-                .map((c) => `<option value="${c.dashboard.id}" ${c.dashboard.id === st.shownId ? 'selected' : ''}>${esc(c.dashboard.name)} — ${esc(c.sourceLabel)}</option>`)
-                .join('')}</select>`
-            : ''
-        }
-        ${level === 'personal' ? `<button class="dbb-btn" data-a="clearp">Clear my view</button>` : ''}
-        ${canCustomise && dash ? `<button class="dbb-btn" data-a="cust">Customise for this machine</button>` : ''}
-        ${canReset ? `<button class="dbb-btn" data-a="reset">Reset to template</button>` : ''}
-        ${canThresholds ? `<button class="dbb-btn" data-a="thr">Thresholds</button>` : ''}
-        ${admin ? `<button class="dbb-btn primary" data-a="edit">${dash ? 'Edit dashboard' : 'Build a dashboard'}</button>` : ''}
-      </div>`;
-    const range = dash?.timeRange ?? '24h';
+      <span class="dbb-range-chip ${range === 'realtime' ? 'live' : ''}" title="${range === 'realtime' ? 'Values update every 10 seconds; charts show the last hour' : 'Charts and summaries cover this window, ending now'}">${esc(rangeLabel(range))}</span>`;
     const grid = ensureGrid(ctx, deviceId, range, dash?.theme);
     grid.render(dash ? dash.widgets : defaultWidgets(ctx, node.profile));
-    const q = (a: string) => head.querySelector(`[data-a="${a}"]`) as HTMLElement | null;
-    q('switch')?.addEventListener('change', (e) => {
-      st.override = (e.target as HTMLSelectElement).value;
-      void load();
+
+    // Editing lives in the navbar's edit menu, not on the page.
+    if (!admin) return publishActions(id, null);
+    const items: EditAction[] = [{ id: 'edit', label: dash ? 'Edit this dashboard' : 'Build a dashboard for this machine', hint: dash ? `Opens “${dash.name}” in the Dashboard Builder` : 'Opens the Dashboard Builder', icon: 'edit' }];
+    if (canCustomise && dash) items.push({ id: 'cust', label: 'Customise for this machine', hint: `Gives ${node.label} its own copy`, icon: 'copy' });
+    if (canReset) items.push({ id: 'reset', label: 'Reset to shared dashboard', hint: 'Deletes the customised copy', icon: 'reset', danger: true });
+    items.push({ id: 'thr', label: 'Alarm thresholds…', hint: 'Limits that raise alarms for this machine', icon: 'sliders' });
+    if (res.candidates.length > 1)
+      for (const c of res.candidates) items.push({ id: `switch:${c.dashboard.id}`, label: c.dashboard.name, hint: c.sourceLabel, group: 'switch', checked: c.dashboard.id === st.shownId, icon: 'eye' });
+    if (level === 'personal') items.push({ id: 'clearp', label: 'Clear my personal view', icon: 'reset' });
+    publishActions(id, {
+      el: root,
+      title: node.label,
+      subtitle: `From: ${label}${dash ? ` · ${dash.name}` : ''}`,
+      items,
+      run: (a) => {
+        if (a === 'edit') openBuilder({ ctx, deviceId, dashboardId: dash?.id ?? null, chatEnabled: tbCtx.settings?.chatEnabled !== false, onClose: (ch) => ch && notifyChanged() });
+        else if (a === 'cust') void customise();
+        else if (a === 'reset') void reset();
+        else if (a === 'thr') void thresholds(ctx, deviceId, node.label);
+        else if (a === 'clearp') void store.clearPersonal(ctx, deviceId).then(notifyChanged);
+        else if (a.startsWith('switch:')) {
+          st.override = a.slice(7);
+          void load();
+        }
+      },
     });
-    q('edit')?.addEventListener('click', () => openBuilder({ ctx, deviceId, dashboardId: dash?.id ?? null, chatEnabled: tbCtx.settings?.chatEnabled !== false, onClose: (ch) => ch && notifyChanged() }));
-    q('cust')?.addEventListener('click', async () => {
-      if (!(await confirmModal(root, 'Customise for this machine?', `${node.label} gets its own copy of “${dash!.name}”. It will stop receiving updates made to the shared dashboard.`, 'Customise'))) return;
+    async function customise() {
+      if (!(await confirmModal(root, 'Customise for this machine?', `${node!.label} gets its own copy of “${dash!.name}”. It will stop receiving updates made to the shared dashboard.`, 'Customise'))) return;
       try {
         const copy = await store.customise(ctx, deviceId, dash!);
         void audit(ctx, 'dashboard.customise', { deviceId, template: dash!.id, copy: copy.id });
@@ -160,23 +175,18 @@ export function init(tbCtx: any) {
       } catch (e: any) {
         toast(root, e.message, 'err');
       }
-    });
-    q('reset')?.addEventListener('click', async () => {
-      if (!(await confirmModal(root, 'Reset to template?', `The customised dashboard for ${node.label} will be deleted and it will show the shared dashboard again.`, 'Reset', true))) return;
+    }
+    async function reset() {
+      if (!(await confirmModal(root, 'Reset to the shared dashboard?', `The customised dashboard for ${node!.label} will be deleted and it will show the shared dashboard again.`, 'Reset', true))) return;
       try {
         await store.resetDevice(ctx, deviceId);
         void audit(ctx, 'dashboard.reset', { deviceId });
-        toast(root, 'Reset to template.', 'ok');
+        toast(root, 'Reset to the shared dashboard.', 'ok');
         notifyChanged();
       } catch (e: any) {
         toast(root, e.message, 'err');
       }
-    });
-    q('clearp')?.addEventListener('click', async () => {
-      await store.clearPersonal(ctx, deviceId);
-      notifyChanged();
-    });
-    q('thr')?.addEventListener('click', () => void thresholds(ctx, deviceId, node.label));
+    }
   }
 
   async function showStandalone(ctx: UserContext, dashboardId: string) {
@@ -186,10 +196,16 @@ export function init(tbCtx: any) {
       head.innerHTML = `<div class="dbb-banner warn">Dashboard not found.</div>`;
       return;
     }
-    head.innerHTML = `<div class="dbb-rtitle">${esc(d.name)}</div><span class="dbb-src-chip">By ${esc(d.ownerName)}</span>
-      <div class="dbb-rtools">${ctx.isAdmin ? `<button class="dbb-btn primary" data-a="edit">Edit dashboard</button>` : ''}</div>`;
-    ensureGrid(ctx, null, d.timeRange, d.theme).render(d.widgets);
-    head.querySelector('[data-a="edit"]')?.addEventListener('click', () => openBuilder({ ctx, dashboardId: d.id, onClose: (ch) => ch && notifyChanged() }));
+    const range = normalizeRange(d.timeRange);
+    st.range = range;
+    head.innerHTML = `<div class="dbb-rtitle">${esc(d.name)}</div><span class="dbb-range-chip ${range === 'realtime' ? 'live' : ''}">${esc(rangeLabel(range))}</span>`;
+    ensureGrid(ctx, null, range, d.theme).render(d.widgets);
+    publishActions(
+      id,
+      ctx.isAdmin
+        ? { el: root, title: d.name, subtitle: `By ${d.ownerName}`, items: [{ id: 'edit', label: 'Edit this dashboard', icon: 'edit' }], run: () => openBuilder({ ctx, dashboardId: d.id, onClose: (ch) => ch && notifyChanged() }) }
+        : null,
+    );
   }
 
   async function thresholds(ctx: UserContext, deviceId: string, label: string) {
@@ -221,13 +237,17 @@ export function init(tbCtx: any) {
 
   const onChanged = () => void load(true);
   window.addEventListener(CHANGED_EVENT, onChanged);
+  // Realtime: refresh every 10 s (settings.refreshSeconds). Historic windows: every 60 s, to keep load down.
   st.timer = setInterval(() => {
     if (document.hidden) return;
-    st.grid?.refreshAll();
+    st.ticks = (st.ticks ?? 0) + 1;
+    const every = st.range && st.range !== 'realtime' ? Math.max(1, Math.round(60 / (tbCtx.settings?.refreshSeconds ?? 10))) : 1;
+    if (st.ticks % every === 0) st.grid?.refreshAll();
   }, (tbCtx.settings?.refreshSeconds ?? 10) * 1000);
   (tbCtx as any).__dbbCleanup = () => {
     window.removeEventListener(CHANGED_EVENT, onChanged);
     clearInterval(st.timer);
+    publishActions(id, null);
     st.grid?.destroy();
   };
   (tbCtx as any).__dbbReload = () => void load();

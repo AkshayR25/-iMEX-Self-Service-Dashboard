@@ -1,8 +1,17 @@
 // Dashboard JSON schema (schemaVersion 1). Shared by builder, renderer and chat validation.
 import { z } from 'zod';
 
-export const MAX_WIDGETS = 40;
-export const MAX_SERIES = 10;
+/** Widgets per dashboard page (load on the demo server; user decision 27 Sep 2026). */
+export const MAX_WIDGETS = 10;
+/** Properties per widget. */
+export const MAX_KEYS = 4;
+/** Specific machines per widget. */
+export const MAX_DEVICES = 4;
+/** Series drawn in one chart (machines x properties). */
+export const MAX_SERIES = 8;
+/** Legacy limits, only so dashboards saved before 27 Sep 2026 still load (checkDashboard enforces the new ones on save). */
+const LEGACY_MAX_WIDGETS = 40;
+const LEGACY_MAX_KEYS = 10;
 export const GRID_COLS = 12;
 
 export const WIDGET_TYPES = [
@@ -26,7 +35,7 @@ export const WIDGET_LABELS: Record<WidgetType, string> = {
   bar: 'Bar chart',
   donut: 'Donut / share',
   timeline: 'State timeline',
-  heatmap: 'Heatmap (hour × day)',
+  heatmap: 'Heatmap (machines × time)',
   table: 'Table',
   alarms: 'Alarm list',
   text: 'Rich text',
@@ -50,15 +59,15 @@ export const WIDGET_CAPS: Record<WidgetType, { keys: [number, number]; multiDevi
   gauge: { keys: [1, 1], multiDevice: false, needsData: true },
   progress: { keys: [1, 1], multiDevice: false, needsData: true },
   status: { keys: [1, 1], multiDevice: false, needsData: true },
-  multivalue: { keys: [1, 8], multiDevice: false, needsData: true },
+  multivalue: { keys: [1, MAX_KEYS], multiDevice: false, needsData: true },
   summary: { keys: [1, 1], multiDevice: false, needsData: true },
-  line: { keys: [1, MAX_SERIES], multiDevice: true, needsData: true },
-  area: { keys: [1, MAX_SERIES], multiDevice: true, needsData: true },
+  line: { keys: [1, MAX_KEYS], multiDevice: true, needsData: true },
+  area: { keys: [1, MAX_KEYS], multiDevice: true, needsData: true },
   bar: { keys: [1, 1], multiDevice: true, needsData: true },
   donut: { keys: [1, 1], multiDevice: true, needsData: true },
   timeline: { keys: [1, 1], multiDevice: true, needsData: true },
-  heatmap: { keys: [1, 1], multiDevice: false, needsData: true },
-  table: { keys: [1, MAX_SERIES], multiDevice: true, needsData: true },
+  heatmap: { keys: [1, 1], multiDevice: true, needsData: true },
+  table: { keys: [1, MAX_KEYS], multiDevice: true, needsData: true },
   alarms: { keys: [0, 0], multiDevice: true, needsData: true },
   text: { keys: [0, 0], multiDevice: false, needsData: false },
   image: { keys: [0, 0], multiDevice: false, needsData: false },
@@ -95,7 +104,7 @@ export const Binding = z.discriminatedUnion('mode', [
   /** The machine the dashboard is opened for. */
   z.object({ mode: z.literal('current') }),
   /** Specific machines. */
-  z.object({ mode: z.literal('fixed'), deviceIds: z.array(z.string()).min(1).max(MAX_SERIES) }),
+  z.object({ mode: z.literal('fixed'), deviceIds: z.array(z.string()).min(1).max(LEGACY_MAX_KEYS) }),
   /** Machines of a profile under the same parent as the current machine (includes current). */
   z.object({ mode: z.literal('siblings'), profile: z.string() }),
   /** Closest machine of a profile found walking up from the current machine. */
@@ -165,7 +174,12 @@ export const CardStyle = z
     valueSize: z.number().int().min(12).max(72).optional(),
     valueColor: Color.optional(),
     valueFont: z.string().max(40).optional(),
+    /** Horizontal alignment of values and labels. */
     align: z.enum(['left', 'center', 'right']).optional(),
+    /** Vertical alignment of values and labels. */
+    valign: z.enum(['top', 'middle', 'bottom']).optional(),
+    /** Title above (default) or below the content. */
+    titlePos: z.enum(['top', 'bottom']).optional(),
   })
   .strict();
 export type CardStyle = z.infer<typeof CardStyle>;
@@ -181,8 +195,10 @@ export const WidgetSettings = z
     /** Status mapping value -> label/colour. */
     statusMap: z.array(z.object({ value: z.union([z.number(), z.string()]), label: z.string(), color: z.string() })).max(8).optional(),
     agg: z.enum(['NONE', 'AVG', 'MIN', 'MAX', 'SUM']).optional(),
-    groupBy: z.enum(['hour', 'day', 'device']).optional(),
-    timeRange: z.string().optional(), // override, e.g. '7d'
+    /** 'day' is legacy (drawn per hour). */
+    groupBy: z.enum(['15m', 'hour', 'day', 'device']).optional(),
+    /** Per-widget override of the dashboard time range ('realtime' | '1h' | '2h' | '4h' | '8h'). */
+    timeRange: z.string().optional(),
     showLegend: z.boolean().optional(),
     severities: z.array(z.enum(['CRITICAL', 'MAJOR', 'MINOR', 'WARNING', 'INDETERMINATE'])).optional(),
     alarmStatus: z.enum(['ACTIVE', 'CLEARED', 'ANY']).optional(),
@@ -238,12 +254,26 @@ export const Widget = z.object({
   w: z.number().int().min(1).max(GRID_COLS),
   h: z.number().int().min(1).max(20),
   binding: Binding,
-  keys: z.array(z.string()).max(MAX_SERIES),
+  keys: z.array(z.string()).max(LEGACY_MAX_KEYS),
   settings: WidgetSettings,
 });
 export type Widget = z.infer<typeof Widget>;
 
-export const TIME_RANGES = ['1h', '6h', '24h', '7d', '30d'] as const;
+/** 'realtime' = latest values, refreshed every 10 s; charts show a rolling last hour. The others are historic windows ending now. */
+export const TIME_RANGES = ['realtime', '1h', '2h', '4h', '8h'] as const;
+export type TimeRange = (typeof TIME_RANGES)[number];
+export const HISTORIC_RANGES = ['1h', '2h', '4h', '8h'] as const;
+/** Ranges longer than 8 h were removed (load time). Older saves are read as 8 h. */
+export function normalizeRange(r: unknown): TimeRange {
+  if (typeof r !== 'string') return 'realtime';
+  if ((TIME_RANGES as readonly string[]).includes(r)) return r as TimeRange;
+  if (r === 'live') return 'realtime';
+  return /^\d+[hd]$/.test(r) ? '8h' : 'realtime';
+}
+export function rangeLabel(r: string): string {
+  const n = normalizeRange(r);
+  return n === 'realtime' ? 'Realtime' : `Last ${n.replace('h', ' h')}`;
+}
 
 export const THEME_PRESETS = ['light', 'dark', 'slate', 'ocean', 'sand'] as const;
 export const FONTS = ['Roboto', 'Inter', 'Poppins', 'Montserrat', 'Source Serif 4', 'JetBrains Mono'] as const;
@@ -270,8 +300,8 @@ export const Dashboard = z.object({
   /** 'device' when any widget uses a current-device-relative binding; needs a target profile. */
   kind: z.enum(['device', 'standalone']),
   profile: z.string().nullable(),
-  timeRange: z.enum(TIME_RANGES),
-  widgets: z.array(Widget).max(MAX_WIDGETS),
+  timeRange: z.preprocess(normalizeRange, z.enum(TIME_RANGES)),
+  widgets: z.array(Widget).max(LEGACY_MAX_WIDGETS),
   theme: DashboardTheme.optional(),
   ownerId: z.string(),
   ownerName: z.string(),
@@ -289,16 +319,24 @@ export function dashboardKind(widgets: Widget[]): 'device' | 'standalone' {
   return widgets.some((w) => RELATIVE_MODES.has(w.binding.mode)) ? 'device' : 'standalone';
 }
 
+/** Window length of a range. Realtime charts use a rolling hour. */
 export function rangeMs(r: string): number {
-  const m = /^(\d+)([hd])$/.exec(r);
-  if (!m) return 24 * 3600e3;
-  return Number(m[1]) * (m[2] === 'h' ? 3600e3 : 86400e3);
+  const n = normalizeRange(r);
+  return n === 'realtime' ? 3600e3 : Number(n.replace('h', '')) * 3600e3;
+}
+
+/** Metadata lookup for a widget's property (for type checks). Undefined = unknown, not checked. */
+export type MetaOf = (w: Widget, key: string) => import('./types').KeyMeta | undefined;
+/** Type check hook, set by core/compat (kept out of this module to avoid an import cycle). */
+let compatCheck: ((w: Widget, metaOf: MetaOf) => string | null) | null = null;
+export function setCompatCheck(fn: typeof compatCheck) {
+  compatCheck = fn;
 }
 
 /** Semantic checks beyond the Zod shape. Returns human-readable problems. */
-export function checkDashboard(d: Dashboard): string[] {
+export function checkDashboard(d: Dashboard, metaOf?: MetaOf): string[] {
   const errs: string[] = [];
-  if (d.widgets.length > MAX_WIDGETS) errs.push(`At most ${MAX_WIDGETS} widgets per dashboard.`);
+  if (d.widgets.length > MAX_WIDGETS) errs.push(`At most ${MAX_WIDGETS} widgets per page (this one has ${d.widgets.length}).`);
   const ids = new Set<string>();
   for (const w of d.widgets) {
     if (ids.has(w.id)) errs.push(`Duplicate widget id ${w.id}.`);
@@ -308,6 +346,11 @@ export function checkDashboard(d: Dashboard): string[] {
     if (w.x + w.w > 12) errs.push(`"${w.title}" is wider than the grid.`);
     if (!cap.multiDevice && w.binding.mode === 'fixed' && w.binding.deviceIds.length > 1)
       errs.push(`"${w.title}": ${WIDGET_LABELS[w.type]} shows one machine only.`);
+    if (w.binding.mode === 'fixed' && w.binding.deviceIds.length > MAX_DEVICES) errs.push(`"${w.title}": at most ${MAX_DEVICES} specific machines per widget.`);
+    if (metaOf && compatCheck) {
+      const why = compatCheck(w, metaOf);
+      if (why) errs.push(`"${w.title || WIDGET_LABELS[w.type]}": ${why}`);
+    }
     if (!CONTENT_TYPES.has(w.type) && w.binding.mode === 'none') errs.push(`"${w.title}" has no data source.`);
     if ((w.type === 'image' || w.type === 'embed') && w.settings.url && !/^https:\/\//i.test(w.settings.url) && !/^data:image\//i.test(w.settings.url))
       errs.push(`"${w.title}": the address must start with https://.`);

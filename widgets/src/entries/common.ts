@@ -60,3 +60,42 @@ export function currentState(tbCtx: any): { id: string; params: any } {
     return { id: '', params: {} };
   }
 }
+
+// ---------- edit actions shown in the navbar's edit menu ----------
+// The navbar (launcher widget) and the machine dashboard (renderer widget) are separate ThingsBoard
+// widgets, each with its own copy of this library, so they talk through `window` and an event.
+
+export interface EditAction {
+  id: string;
+  label: string;
+  hint?: string;
+  /** 'switch' items are listed under "Show dashboard" with a check mark. */
+  group?: 'main' | 'switch';
+  checked?: boolean;
+  danger?: boolean;
+  icon?: 'edit' | 'copy' | 'reset' | 'sliders' | 'eye';
+}
+
+export interface EditActions {
+  owner: string;
+  /** The widget that published the actions; stale once it leaves the page. */
+  el: HTMLElement;
+  title: string;
+  subtitle?: string;
+  items: EditAction[];
+  run(id: string): void;
+}
+
+export const ACTIONS_EVENT = 'imex-dbb:actions';
+
+export function publishActions(owner: string, a: Omit<EditActions, 'owner'> | null) {
+  const w = window as any;
+  if (a) w.__imexDbbActions = { ...a, owner };
+  else if (w.__imexDbbActions?.owner === owner) w.__imexDbbActions = null;
+  window.dispatchEvent(new CustomEvent(ACTIONS_EVENT));
+}
+
+export function currentActions(): EditActions | null {
+  const a = (window as any).__imexDbbActions as EditActions | null | undefined;
+  return a && a.el?.isConnected ? a : null;
+}

@@ -2,6 +2,7 @@
 import { build } from 'esbuild';
 import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
+import { settingsSchemas, names, sizes } from './widget-types.mjs';
 
 mkdirSync('widgets/dist', { recursive: true });
 const version = new Date().toISOString();
@@ -37,3 +38,29 @@ writeFileSync('widgets/dist/glue.json', JSON.stringify(out, null, 2));
 const gz = gzipSync(Buffer.from(lib, 'utf8'), { level: 9 });
 writeFileSync('widgets/dist/imex-dbb.js.gz.b64', gz.toString('base64'));
 console.log(`lib ${(lib.length / 1024).toFixed(1)} KB, gzip+b64 ${(gz.toString('base64').length / 1024).toFixed(1)} KB, version ${version}`);
+
+// One importable widget type per widget (ThingsBoard: Widgets library > Widgets > + > Import widget).
+mkdirSync('widgets/dist/widget-types', { recursive: true });
+for (const k of Object.keys(out)) {
+  const type = {
+    fqn: `imex_dbb_${k}`,
+    name: names[k],
+    deprecated: false,
+    scada: false,
+    description: `iMEX Self-Service POC widget [poc=true] built ${version}`,
+    descriptor: {
+      type: 'static',
+      sizeX: sizes[k][0],
+      sizeY: sizes[k][1],
+      resources: [],
+      templateHtml: '',
+      templateCss: '',
+      controllerScript: lib + '\n' + out[k],
+      settingsSchema: JSON.stringify(settingsSchemas[k]),
+      dataKeySettingsSchema: '{}',
+      defaultConfig: JSON.stringify({ datasources: [], showTitle: false, backgroundColor: 'rgba(0,0,0,0)', color: 'rgba(0,0,0,0.87)', padding: '0px', settings: {}, title: names[k], dropShadow: false, enableFullscreen: false }),
+    },
+  };
+  writeFileSync(`widgets/dist/widget-types/imex_dbb_${k}.json`, JSON.stringify(type, null, 2));
+}
+console.log('widget types: ' + Object.keys(out).map((k) => `widgets/dist/widget-types/imex_dbb_${k}.json`).join(', '));

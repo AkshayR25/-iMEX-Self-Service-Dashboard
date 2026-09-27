@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { sanitizeHtml, fillPlaceholders, placeholderKeys, cleanStyle } from '../src/render/rich';
 import { matchRule, valueType, bandsToRules, thresholdLines, stateLabel } from '../src/render/rules';
-import { Dashboard, checkDashboard, WIDGET_TYPES, WIDGET_GROUPS, WIDGET_CAPS, DEFAULT_SIZE } from '../src/core/schema';
+import { Dashboard, checkDashboard, WIDGET_TYPES, WIDGET_GROUPS, WIDGET_CAPS, DEFAULT_SIZE, MAX_WIDGETS, MAX_KEYS, normalizeRange, rangeMs } from '../src/core/schema';
+import { compatible, propKind, metaLookup } from '../src/core/compat';
+import { defaultWidgets } from '../src/render/widgets';
 import { TEMPLATES } from '../src/render/templates';
 import { FakeTB, ithena, asUser } from './fake-tb';
 import * as scope from '../src/core/scope';
@@ -120,7 +122,9 @@ describe('templates and chat with the new options', () => {
       d.theme = t.theme;
       const p = Dashboard.safeParse(d);
       expect(p.success, `${t.id}: ${!p.success && JSON.stringify(p.error.issues.slice(0, 2))}`).toBe(true);
-      expect(checkDashboard(d), t.id).toEqual([]);
+      expect(checkDashboard(d, metaLookup(ctx, d)), t.id).toEqual([]);
+      expect(d.widgets.length, t.id).toBeLessThanOrEqual(MAX_WIDGETS);
+      expect(Math.max(0, ...d.widgets.map((w) => w.keys.length)), t.id).toBeLessThanOrEqual(MAX_KEYS);
       for (const a of d.widgets)
         for (const b of d.widgets) if (a !== b) expect(a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h, `${t.id}: ${a.title} overlaps ${b.title}`).toBe(false);
     }
@@ -155,5 +159,76 @@ describe('image url limits', () => {
   it('accepts an uploaded data URI up to ~150 KB but caps web addresses', () => {
     expect(WidgetSettings.safeParse({ url: 'data:image/png;base64,' + 'A'.repeat(200000) }).success).toBe(true);
     expect(WidgetSettings.safeParse({ url: 'https://x.io/' + 'a'.repeat(2100) }).success).toBe(false);
+  });
+});
+
+describe('27 Sep changes: limits, time ranges, property/widget compatibility', () => {
+  const num = { key: 'dischargePressure', displayName: 'Discharge pressure', unit: 'bar', decimals: 2, min: 0, max: 10 };
+  const bool = { key: 'runStatus', displayName: 'Run status', unit: '', decimals: 0, min: 0, max: 1 };
+  const text = { key: 'mode', displayName: 'Mode', unit: '', decimals: 0, min: 0, max: 0, type: 'string' as const };
+  const coded = { key: 'state', displayName: 'State', unit: '', decimals: 0, min: 0, max: 3, states: { '0': 'Idle', '1': 'Run', '2': 'Fault' } };
+
+  it('classifies property kinds', () => {
+    expect(propKind(num)).toBe('number');
+    expect(propKind(bool)).toBe('boolean');
+    expect(propKind(text)).toBe('string');
+    expect(propKind(coded)).toBe('coded');
+  });
+
+  it('greys out simple impossible combinations', () => {
+    for (const t of ['gauge', 'kpi', 'progress', 'summary', 'line', 'area', 'bar', 'heatmap'] as const) {
+      expect(compatible(t, bool).ok, `${t} + boolean`).toBe(false);
+      expect(compatible(t, text).ok, `${t} + text`).toBe(false);
+      expect(compatible(t, num).ok, `${t} + number`).toBe(true);
+    }
+    expect(compatible('gauge', bool).reason).toMatch(/Gauge needs a number; Run status is on\/off/);
+    for (const t of ['status', 'timeline'] as const) {
+      expect(compatible(t, num).ok).toBe(false);
+      expect(compatible(t, bool).ok).toBe(true);
+      expect(compatible(t, coded).ok).toBe(true);
+    }
+    expect(compatible('donut', bool, { donutMode: 'state' }).ok).toBe(true);
+    expect(compatible('donut', num, { donutMode: 'state' }).ok).toBe(false);
+    expect(compatible('donut', num, { donutMode: 'devices' }).ok).toBe(true);
+    for (const t of ['value', 'multivalue', 'table'] as const) for (const m of [num, bool, text, coded]) expect(compatible(t, m).ok).toBe(true);
+  });
+
+  it('time range: realtime or 1/2/4/8 h; older ranges load as 8 h', () => {
+    expect(normalizeRange('realtime')).toBe('realtime');
+    expect(normalizeRange('4h')).toBe('4h');
+    expect(normalizeRange('24h')).toBe('8h');
+    expect(normalizeRange('7d')).toBe('8h');
+    expect(normalizeRange(undefined)).toBe('realtime');
+    expect(rangeMs('realtime')).toBe(3600e3);
+    expect(rangeMs('8h')).toBe(8 * 3600e3);
+    const old: any = { schemaVersion: 1, id: 'd', name: 'x', kind: 'standalone', profile: null, timeRange: '30d', widgets: [], ownerId: 'u', ownerName: 'u', version: 1, updatedAt: 0, updatedBy: 'u' };
+    const p = Dashboard.safeParse(old);
+    expect(p.success && p.data.timeRange).toBe('8h');
+  });
+
+  it('old dashboards over the limits still load, but cannot be saved until trimmed', () => {
+    const w = (i: number, keys: string[] = ['p']): any => ({ id: `w${i}`, type: 'line', title: `W${i}`, x: 0, y: i * 4, w: 12, h: 4, binding: { mode: 'current' }, keys, settings: {} });
+    const d: any = { schemaVersion: 1, id: 'd', name: 'x', kind: 'device', profile: 'Compressor', timeRange: '24h', widgets: Array.from({ length: 12 }, (_, i) => w(i)), ownerId: 'u', ownerName: 'u', version: 1, updatedAt: 0, updatedBy: 'u' };
+    d.widgets[0].keys = ['a', 'b', 'c', 'd', 'e', 'f'];
+    const p = Dashboard.safeParse(d);
+    expect(p.success).toBe(true);
+    const errs = checkDashboard(p.success ? p.data : d).join(' ');
+    expect(errs).toMatch(/At most 10 widgets per page/);
+    expect(errs).toMatch(/at most 4 properties/);
+  });
+
+  it('checkDashboard rejects a boolean on a gauge when metadata is known', () => {
+    const d: any = { schemaVersion: 1, id: 'd', name: 'x', kind: 'device', profile: 'Compressor', timeRange: 'realtime', ownerId: 'u', ownerName: 'u', version: 0, updatedAt: 0, updatedBy: 'u', widgets: [{ id: 'g', type: 'gauge', title: 'Run', x: 0, y: 0, w: 3, h: 3, binding: { mode: 'current' }, keys: ['runStatus'], settings: {} }] };
+    const ctx: any = { profileKeys: { Compressor: [bool] }, nodes: new Map() };
+    expect(checkDashboard(d, metaLookup(ctx, d)).join(' ')).toMatch(/Gauge needs a number/);
+  });
+
+  it('the default layout stays within the widget limit and puts states on status cards', () => {
+    const many = Array.from({ length: 14 }, (_, i) => ({ ...num, key: `k${i}`, displayName: `K${i}` }));
+    const ctx: any = { profileKeys: { Compressor: [bool, ...many] }, nodes: new Map() };
+    const ws = defaultWidgets(ctx, 'Compressor');
+    expect(ws.length).toBeLessThanOrEqual(MAX_WIDGETS);
+    expect(ws.find((x) => x.keys[0] === 'runStatus')?.type).toBe('status');
+    expect(ws.filter((x) => x.type === 'line').every((x) => x.keys.every((k) => k !== 'runStatus'))).toBe(true);
   });
 });

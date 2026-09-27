@@ -6,7 +6,8 @@ import { z } from 'zod';
 import * as api from './api';
 import type { UserContext, Node } from './scope';
 import * as scope from './scope';
-import { Dashboard, Widget, WIDGET_TYPES, WIDGET_CAPS, DEFAULT_SIZE, TIME_RANGES, MAX_WIDGETS, CONTENT_TYPES, WidgetSettings, DashboardTheme, THEME_PRESETS, ICONS, FONTS, checkDashboard, dashboardKind, newId } from './schema';
+import { Dashboard, Widget, WIDGET_TYPES, WIDGET_CAPS, DEFAULT_SIZE, TIME_RANGES, MAX_WIDGETS, MAX_KEYS, MAX_DEVICES, CONTENT_TYPES, WidgetSettings, DashboardTheme, THEME_PRESETS, ICONS, FONTS, checkDashboard, dashboardKind, newId } from './schema';
+import { metaLookup, propKind } from './compat';
 import { sanitizeHtml } from '../render/rich';
 import { firstFit } from '../render/grid';
 
@@ -17,7 +18,7 @@ export interface Catalog {
   nodeAlias: Map<string, string>; // alias -> assetId
   byId: Map<string, string>; // entity id -> alias
   text: string;
-  profiles: Record<string, { key: string; name: string; unit: string }[]>;
+  profiles: Record<string, { key: string; name: string; unit: string; kind?: string }[]>;
 }
 
 export function buildCatalog(ctx: UserContext): Catalog {
@@ -39,7 +40,7 @@ export function buildCatalog(ctx: UserContext): Catalog {
   }
   const profiles: Catalog['profiles'] = {};
   for (const p of new Set(nodes.filter((x) => x.entityType === 'DEVICE').map((x) => x.profile)))
-    profiles[p] = (ctx.profileKeys[p] ?? []).map((k) => ({ key: k.key, name: k.displayName, unit: k.unit }));
+    profiles[p] = (ctx.profileKeys[p] ?? []).map((k) => ({ key: k.key, name: k.displayName, unit: k.unit, kind: propKind(k) }));
   const row = (x: Node) => ({
     alias: byId.get(x.id),
     label: x.label,
@@ -283,7 +284,7 @@ export function applyOps(ctx: UserContext, draft: Dashboard, out: LlmOutput, cat
   autoPlace(d, new Set(changed.added));
   const parsed = Dashboard.safeParse(d);
   if (!parsed.success) errs.push(...parsed.error.issues.slice(0, 8).map((i) => `${i.path.join('.')}: ${i.message}`));
-  else errs.push(...checkDashboard(parsed.data));
+  else errs.push(...checkDashboard(parsed.data, metaLookup(ctx, parsed.data)));
   if (errs.length) throw new OpsError(errs);
   return { draft: parsed.success ? parsed.data : d, reply: out.reply, clarification: out.clarification ?? null, applyProposal, changed, warnings };
 }
@@ -345,15 +346,18 @@ export function systemPrompt(ctx: UserContext, cat: Catalog, currentMachineAlias
     '- If a request matches more than one machine or widget and you cannot tell which, do not guess: set clarification with the question and 2-6 short options (use labels, not aliases), and return no ops.',
     '- Prefer binding mode "current" (the machine the dashboard is opened for) when the user wants a reusable dashboard for a machine type, and call setMachineType. Use "fixed" for specific named machines, "nodeQuery" for "all X in <node>", "siblings" to compare with other machines at the same location, "nearest" for e.g. the site weather station.',
     '- Widget types (keys = property keys):',
-    '  value (1 key, latest), kpi (1 key: latest + sparkline + % change; settings.sparkline, compare "start"|"none", upIsGood), gauge (1 key; min/max), progress (1 key level bar; min/max, orientation horizontal|vertical), status (1 key; labels via colorRules), multivalue (1-8 keys of one machine), summary (1 key: min/avg/max/now over the range),',
-    '  line (1-10 series; agg, smooth), area (like line, filled; stacked), bar (1 key; groupBy hour|day|device; agg AVG|MIN|MAX|SUM), donut (1 key; donutMode "state" = time in each state of one machine, "devices" = share by machine), timeline (1 key state strip, one row per machine), heatmap (1 key hour x day; heatColor blue|orange|rules),',
+    `  value (1 key, latest), kpi (1 key: latest + sparkline + % change; settings.sparkline, compare "start"|"none", upIsGood), gauge (1 key; min/max), progress (1 key level bar; min/max, orientation horizontal|vertical), status (1 key; labels via colorRules), multivalue (1-${MAX_KEYS} keys of one machine), summary (1 key: min/avg/max/now over the range),`,
+    `  line (1-${MAX_KEYS} keys; agg, smooth), area (like line, filled; stacked), bar (1 key; groupBy 15m|hour|device; agg AVG|MIN|MAX|SUM), donut (1 key; donutMode "state" = time in each state of one machine, "devices" = share by machine), timeline (1 key state strip, one row per machine), heatmap (1 key; machines as rows x time buckets; heatColor blue|orange|rules),`,
+    '- Property kinds (CATALOG "kind"): number, boolean (on/off), string (text states), coded (number with named states). kpi, gauge, progress, summary, line, area, bar, heatmap and donut "devices" need number or coded; status, timeline and donut "state" need boolean, string or coded; value, multivalue and table take any kind. Never put a boolean on a gauge or chart.',
+    `- Limits: at most ${MAX_KEYS} properties per widget, at most ${MAX_DEVICES} machines in a "fixed" binding.`,
+    '- Time range (setTimeRange or settings.timeRange): "realtime" = latest values, updated every 10 s, charts show a rolling last hour; or historic "1h" | "2h" | "4h" | "8h". Nothing longer than 8 hours exists; if asked for more, use "8h" and say so.',
     '  table (keys as columns, machines as rows), alarms (severities, alarmStatus, maxRows),',
     '  text (settings.html: simple HTML with <h1>-<h3>, <p>, <b>, <i>, <u>, <ul>/<li>, <span style="color:#hex;font-size:18px;font-family:Inter">; live values as {{propertyKey}}, {{machine}}, {{location}}, {{time}}), image (settings.url https://), link (button: title = label; settings.linkKind "state"|"url", linkState "default"(map)|"listing"|"machine", linkDevice "current"|"location"|"none", url, buttonStyle filled|outline|card, buttonColor), embed (settings.url https://). Content widgets use binding {"mode":"none"} and no keys.',
     '- Value-based colours: settings.colorRules = [{op, value, value2?, color:"#hex", label?, key?}] — op gt|gte|lt|lte|between|eq|neq for numbers, isTrue|isFalse for on/off values (e.g. runStatus 1/0), eq|neq|contains for text. First match wins; put the most severe first. Use status colours: good #0ca30c, warning #fab219, serious #ec835a, critical #d03b3b, neutral #8a8983. settings.colorTarget "background"|"accent"|"value"|"icon" chooses what a card colours; charts draw number rules as threshold lines; tables colour cells (use rule.key per column).',
-    `- Card look: settings.style = {bg, gradient, border none|thin|thick, borderColor, accentBar, radius 0-28, shadow none|soft|strong, padding compact|normal|roomy, hideTitle, titleColor, titleSize, titleWeight "400"-"700", titleAlign, titleFont, icon (${ICONS.join('|')}), iconColor, valueSize 12-72, valueColor, valueFont, align}. settings.description = help text (simple HTML) shown as an (i) tooltip; settings.footer = short note. Fonts: ${FONTS.join(', ')}.`,
+    `- Card look: settings.style = {bg, gradient, border none|thin|thick, borderColor, accentBar, radius 0-28, shadow none|soft|strong, padding compact|normal|roomy, hideTitle, titleColor, titleSize, titleWeight "400"-"700", titleAlign left|center|right, titlePos top|bottom, titleFont, icon (${ICONS.join('|')}), iconColor, valueSize 12-72, valueColor, valueFont, align left|center|right (values and labels), valign top|middle|bottom}. settings.description = help text (simple HTML) shown as an (i) tooltip; settings.footer = short note. Fonts: ${FONTS.join(', ')}.`,
     `- Dashboard look: op setTheme {theme:{preset ${THEME_PRESETS.join('|')}, accent, font, bg, cardBg, bgImage (https), radius, shadow, density compact|normal|roomy, titleAlign}}. Only change the theme when the user asks about look, colours, style, dark mode or fonts.`,
     '- Do not set positions or sizes; layout is automatic.',
-    `- At most ${MAX_WIDGETS} widgets. If asked for more, build up to the limit and say so.`,
+    `- At most ${MAX_WIDGETS} widgets per page. If asked for more, build up to the limit and say so.`,
     '- For vague requests, build a sensible overview (key values per machine, one trend chart, an alarm list) and say which choices you made.',
     '- To change an existing widget refer to it by its "widget" id from the DRAFT (W1, W2, ...). Do not re-add existing widgets.',
     '- setApplyTarget only proposes where to apply on save; the user confirms. target "customer" or "node" requires an admin; this user is ' +

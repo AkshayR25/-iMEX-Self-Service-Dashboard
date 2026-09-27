@@ -1,17 +1,19 @@
 // Starter dashboards for the builder's template gallery. Each template adapts to the machine type's
 // properties (status key, main numeric keys, power key) so it works for compressors, dryers, weather stations...
 import type { UserContext } from '../core/scope';
-import type { Widget, DashboardTheme, ColorRule } from '../core/schema';
+import type { Widget, DashboardTheme, ColorRule, TimeRange } from '../core/schema';
 import { newId } from '../core/schema';
 import { STATUS } from './theme';
 import { keyMeta } from './widgets';
-import { valueType } from './rules';
+import { propKind } from '../core/compat';
 
 export interface Template {
   id: string;
   name: string;
   description: string;
   theme: DashboardTheme;
+  /** Dashboard time range the template is designed for. */
+  timeRange: TimeRange;
   /** Preview colours for the gallery card. */
   swatch: [string, string, string];
   needsSiblings?: boolean;
@@ -26,10 +28,12 @@ interface Keys {
 
 function pickKeys(ctx: UserContext, profile: string): Keys {
   const all = ctx.profileKeys[profile] ?? [];
-  const status = all.find((k) => valueType(k) === 'boolean' || /status|state/i.test(k.key))?.key;
-  const nums = all.filter((k) => k.key !== status && valueType(k) === 'number' && !/hours|count|total/i.test(k.key)).map((k) => k.key);
-  const power = all.find((k) => /power|kw|energy|current/i.test(k.key))?.key;
-  return { status, nums: nums.length ? nums : all.map((k) => k.key).filter((k) => k !== status), power };
+  // Only properties whose kind fits: states for status/timeline, numbers for KPIs, gauges and charts.
+  const status = all.find((k) => propKind(k) !== 'number')?.key;
+  const numeric = all.filter((k) => k.key !== status && (propKind(k) === 'number' || propKind(k) === 'coded'));
+  const nums = numeric.filter((k) => !/hours|count|total/i.test(k.key)).map((k) => k.key);
+  const power = numeric.find((k) => /power|kw|energy|current/i.test(k.key))?.key;
+  return { status, nums: nums.length ? nums : numeric.map((k) => k.key), power };
 }
 
 const cur = { mode: 'current' as const };
@@ -70,6 +74,7 @@ export const TEMPLATES: Template[] = [
     name: 'Machine overview',
     description: 'Live status, KPI cards with trends, a gauge, an area chart and the run-state timeline.',
     theme: { preset: 'light', font: 'Inter', radius: 14 },
+    timeRange: 'realtime',
     swatch: ['#f4f5f7', '#2a78d6', '#0ca30c'],
     build(ctx, profile) {
       const k = pickKeys(ctx, profile);
@@ -100,8 +105,9 @@ export const TEMPLATES: Template[] = [
   {
     id: 'energy',
     name: 'Energy & performance',
-    description: 'Power KPI, min/avg/max, daily bars, an hour-by-day heatmap and running-time share.',
+    description: 'Power KPI, min/avg/max, hourly bars, a machines × time heatmap and running-time share over the last 8 h.',
     theme: { preset: 'ocean', font: 'Poppins', radius: 12 },
+    timeRange: '8h',
     swatch: ['#eaf1fa', '#256abf', '#eb6834'],
     build(ctx, profile) {
       const k = pickKeys(ctx, profile);
@@ -111,11 +117,11 @@ export const TEMPLATES: Template[] = [
       const ws: Widget[] = [
         W('kpi', m.displayName, 0, 0, 4, 2, [key], { style: { icon: 'bolt', iconColor: '#eb6834' }, upIsGood: false }),
         W('summary', `${m.displayName} · this period`, 4, 0, 8, 2, [key], {}),
-        W('bar', `${m.displayName} by day`, 0, 2, 6, 4, [key], { groupBy: 'day', agg: 'AVG', timeRange: '7d' }),
-        W('heatmap', `${m.displayName} · hour × day`, 6, 2, 6, 4, [key], { timeRange: '7d', heatColor: 'orange' }),
+        W('bar', `${m.displayName} per hour`, 0, 2, 6, 4, [key], { groupBy: 'hour', agg: 'AVG' }),
+        W('heatmap', `${m.displayName} · same-type machines`, 6, 2, 6, 4, [key], { heatColor: 'orange' }, { mode: 'siblings', profile }),
       ];
-      if (k.status) ws.push(W('donut', 'Running time share', 0, 6, 4, 4, [k.status], { donutMode: 'state', colorRules: statusRules, timeRange: '7d' }));
-      ws.push(W('line', `${m.displayName} · 24 h`, k.status ? 4 : 0, 6, k.status ? 8 : 12, 4, [key], { timeRange: '24h', smooth: true }));
+      if (k.status) ws.push(W('donut', 'Running time share', 0, 6, 4, 4, [k.status], { donutMode: 'state', colorRules: statusRules }));
+      ws.push(W('line', `${m.displayName} · trend`, k.status ? 4 : 0, 6, k.status ? 8 : 12, 4, [key], { smooth: true }));
       return ws;
     },
   },
@@ -124,6 +130,7 @@ export const TEMPLATES: Template[] = [
     name: 'Alarm & health board',
     description: 'Dark control-room look: status, colour-coded table of same-type machines, state timelines and the alarm list.',
     theme: { preset: 'slate', font: 'Inter', radius: 10, shadow: 'none' },
+    timeRange: 'realtime',
     swatch: ['#141a23', '#3987e5', '#d03b3b'],
     needsSiblings: true,
     build(ctx, profile) {
@@ -146,6 +153,7 @@ export const TEMPLATES: Template[] = [
     name: 'Compare machines',
     description: 'Side-by-side of every same-type machine at the location: bars, share donut and trend lines.',
     theme: { preset: 'sand', font: 'Montserrat', radius: 16 },
+    timeRange: '4h',
     swatch: ['#f4efe6', '#c9501f', '#1baf7a'],
     needsSiblings: true,
     build(ctx, profile) {
@@ -167,6 +175,7 @@ export const TEMPLATES: Template[] = [
     name: 'Executive summary',
     description: 'Big numbers on coloured cards, a level bar, one trend and a notes panel — made for a wall screen.',
     theme: { preset: 'dark', font: 'Montserrat', radius: 18, density: 'roomy' },
+    timeRange: 'realtime',
     swatch: ['#0d0d0d', '#3987e5', '#1baf7a'],
     build(ctx, profile) {
       const k = pickKeys(ctx, profile);

@@ -138,32 +138,37 @@ export const CSS = `
 .dbb-card-b{flex:1;min-height:0;padding:4px var(--card-pad,var(--pad)) var(--card-pad,var(--pad));position:relative}
 .dbb-card-f{font-size:11px;color:var(--ink-3);padding:0 var(--card-pad,var(--pad)) 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dbb-ph{height:100%;display:flex;align-items:center;justify-content:center;text-align:center;color:var(--ink-3);font-size:12px;padding:6px}
-.dbb-value{display:flex;flex-direction:column;justify-content:center;height:100%;text-align:var(--card-align,left);align-items:var(--card-align-items,flex-start)}
+.dbb-value{display:flex;flex-direction:column;justify-content:var(--card-justify,center);height:100%;text-align:var(--card-align,left);align-items:var(--card-align-items,flex-start)}
 .dbb-value .v{font-size:var(--card-value-size,30px);font-weight:600;line-height:1.1;font-variant-numeric:tabular-nums;color:var(--card-value-color,var(--ink));font-family:var(--card-value-font,inherit);letter-spacing:-.01em}
 .dbb-value .u{font-size:14px;color:var(--ink-2);margin-left:4px;font-weight:400}
 .dbb-value .s{font-size:11px;color:var(--ink-3);margin-top:4px}
 .dbb-value .lbl{display:inline-block;font-size:12px;font-weight:600;border-radius:999px;padding:2px 9px;margin-top:6px;color:#fff}
-.dbb-kpi{display:flex;flex-direction:column;height:100%;justify-content:space-between}
-.dbb-kpi .row{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.dbb-kpi{display:flex;flex-direction:column;height:100%;justify-content:var(--card-justify,space-between);gap:6px}
+.dbb-kpi .dbb-value{flex:0 0 auto}
+.dbb-kpi .row{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;justify-content:var(--card-align-items,flex-start)}
 .dbb-delta{font-size:12px;font-weight:600;border-radius:999px;padding:1px 7px;white-space:nowrap}
 .dbb-delta.up{color:#006300;background:color-mix(in srgb,#0ca30c 14%,transparent)}
 .dbb-delta.down{color:#9c2323;background:color-mix(in srgb,#d03b3b 14%,transparent)}
 .dbb-delta.flat{color:var(--ink-3);background:var(--grid)}
 .dbb-dark .dbb-delta.up{color:#57d157}.dbb-dark .dbb-delta.down{color:#f08a8a}
 .dbb-spark{flex:1;min-height:24px;margin-top:4px}
-.dbb-prog{display:flex;flex-direction:column;justify-content:center;height:100%;gap:8px}
+.dbb-prog{display:flex;flex-direction:column;justify-content:var(--card-justify,center);height:100%;gap:8px}
 .dbb-prog-track{position:relative;background:var(--grid);border-radius:999px;overflow:hidden}
 .dbb-prog-fill{position:absolute;left:0;bottom:0;border-radius:999px;transition:width .4s,height .4s}
 .dbb-prog-tick{position:absolute;background:var(--ink-3);opacity:.7}
 .dbb-prog.vert{flex-direction:row;align-items:stretch;justify-content:center;gap:14px}
-.dbb-mv{display:flex;flex-direction:column;gap:2px;height:100%;overflow:auto}
+.dbb-mv{display:flex;flex-direction:column;gap:2px;height:100%;overflow:auto;justify-content:var(--card-justify,flex-start)}
+.dbb-card.al-center .dbb-mv-row .k{flex:0 1 auto}.dbb-card.al-center .dbb-mv-row{justify-content:center}.dbb-card.al-right .dbb-mv-row .k{text-align:right}
 .dbb-mv-row{display:flex;align-items:center;gap:8px;padding:6px 2px;border-bottom:1px solid var(--grid)}
 .dbb-mv-row:last-child{border-bottom:0}
 .dbb-mv-row .k{flex:1;color:var(--ink-2);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dbb-mv-row .v{font-weight:600;font-variant-numeric:tabular-nums;font-size:14px}
 .dbb-mv-row .u{color:var(--ink-3);font-size:11px;margin-left:3px;font-weight:400}
-.dbb-sum{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;height:100%;align-items:center}
-.dbb-sum div{display:flex;flex-direction:column;gap:2px;min-width:0}
+.dbb-sum{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;height:100%;align-items:var(--card-valign,center);text-align:var(--card-align,left)}
+.dbb-sum div{display:flex;flex-direction:column;gap:2px;min-width:0;align-items:var(--card-align-items,flex-start)}
+.dbb-card.title-bottom .dbb-card-h{order:2;padding:0 var(--card-pad,var(--pad)) calc(var(--card-pad,var(--pad)) - 1px)}
+.dbb-card.title-bottom .dbb-card-b{order:1;padding-top:var(--card-pad,var(--pad))}
+.dbb-card.title-bottom .dbb-card-f{order:3}
 .dbb-sum .k{font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.04em}
 .dbb-sum .v{font-size:18px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dbb-chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-2)}

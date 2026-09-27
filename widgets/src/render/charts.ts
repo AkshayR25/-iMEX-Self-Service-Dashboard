@@ -534,40 +534,42 @@ export function stateTimeline(host: HTMLElement, rows: TimelineRow[], o: { start
   svg.addEventListener('mouseleave', () => (tip.style.display = 'none'));
 }
 
-export interface HeatCell {
-  day: number; // start-of-day ts
-  hour: number;
-  value: number;
+export interface HeatRow {
+  label: string;
+  /** One value per column (null = no data). */
+  cells: (number | null)[];
 }
 
-export function heatmap(host: HTMLElement, cells: HeatCell[], o: { colorOf(v: number, lo: number, hi: number): string; unit?: string; decimals?: number; legend?: string[] }) {
+/** Heatmap: one row per machine, one column per time bucket. */
+export function heatmap(host: HTMLElement, rows: HeatRow[], cols: number[], o: { bucketMs: number; colorOf(v: number, lo: number, hi: number): string; unit?: string; decimals?: number; legend?: string[] }) {
   host.innerHTML = '';
   host.style.position = 'relative';
-  if (!cells.length) {
+  const vs = rows.flatMap((r) => r.cells).filter((v): v is number => v != null && Number.isFinite(v));
+  if (!vs.length || !cols.length) {
     host.innerHTML = '<div class="dbb-ph">No data in this time range</div>';
     return;
   }
-  const days = [...new Set(cells.map((c) => c.day))].sort((a, b) => a - b);
-  const vs = cells.map((c) => c.value);
   const lo = Math.min(...vs);
   const hi = Math.max(...vs);
   const W = Math.max(160, inner(host).w);
-  const H = Math.max(60, inner(host).h - 20);
-  const m = { l: 46, r: 2, t: 2, b: 16 };
-  const cw = (W - m.l - m.r) / 24;
-  const ch = Math.max(4, Math.min(28, (H - m.t - m.b) / days.length));
-  const byKey = new Map(cells.map((c) => [`${c.day}|${c.hour}`, c]));
+  const H = Math.max(60, inner(host).h - 22);
+  const labelW = Math.min(140, Math.max(40, ...rows.map((r) => r.label.length * 6.2 + 10)));
+  const m = { l: rows.length > 1 || rows[0]?.label ? labelW : 4, r: 2, t: 2, b: 16 };
+  const cw = (W - m.l - m.r) / cols.length;
+  const ch = Math.max(8, Math.min(40, (H - m.t - m.b) / rows.length));
+  const fmtT = (t: number) => new Date(t).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
   let g = '';
-  const everyDay = Math.ceil(days.length / Math.max(1, Math.floor((H - m.t - m.b) / 13)));
-  days.forEach((d, r) => {
-    if (r % everyDay === 0) g += `<text x="${m.l - 6}" y="${m.t + r * ch + ch / 2 + 3.5}" text-anchor="end" font-size="10" ${AX}>${esc(new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }))}</text>`;
-    for (let h = 0; h < 24; h++) {
-      const c = byKey.get(`${d}|${h}`);
-      g += `<rect data-d="${d}" data-h="${h}" x="${m.l + h * cw + 1}" y="${m.t + r * ch + 1}" width="${Math.max(1, cw - 2)}" height="${Math.max(1, ch - 2)}" rx="${Math.min(3, cw / 4)}" ${c ? `fill="${o.colorOf(c.value, lo, hi)}"` : 'style="fill:var(--grid)"'}/>`;
-    }
+  rows.forEach((row, r) => {
+    if (m.l > 4) g += `<text x="${m.l - 6}" y="${m.t + r * ch + ch / 2 + 3.5}" text-anchor="end" font-size="10" ${AX}>${esc(row.label.length > 22 ? row.label.slice(0, 21) + '…' : row.label)}</text>`;
+    row.cells.forEach((v, c) => {
+      g += `<rect data-r="${r}" data-c="${c}" x="${m.l + c * cw + 1}" y="${m.t + r * ch + 1}" width="${Math.max(1, cw - 2)}" height="${Math.max(1, ch - 2)}" rx="${Math.min(3, cw / 4)}" ${v != null ? `fill="${o.colorOf(v, lo, hi)}"` : 'style="fill:var(--grid)"'}/>`;
+    });
   });
-  const yb = m.t + days.length * ch + 12;
-  for (let h = 0; h < 24; h += cw < 22 ? 3 : 1) g += `<text x="${m.l + h * cw + cw / 2}" y="${yb}" text-anchor="middle" font-size="10" ${AX}>${String(h).padStart(2, '0')}</text>`;
+  const yb = m.t + rows.length * ch + 12;
+  const every = Math.max(1, Math.ceil(46 / cw));
+  cols.forEach((t, c) => {
+    if (c % every === 0) g += `<text x="${m.l + c * cw}" y="${yb}" text-anchor="start" font-size="10" ${AX}>${fmtT(t)}</text>`;
+  });
   const svg = document.createElementNS(NS, 'svg');
   svg.setAttribute('width', String(W));
   svg.setAttribute('height', String(yb + 4));
@@ -584,10 +586,13 @@ export function heatmap(host: HTMLElement, cells: HeatCell[], o: { colorOf(v: nu
   const tip = tipAt(host);
   svg.addEventListener('mousemove', (ev) => {
     const t = ev.target as Element;
-    const c = byKey.get(`${t.getAttribute('data-d')}|${t.getAttribute('data-h')}`);
-    if (!c) return void (tip.style.display = 'none');
+    const r = Number(t.getAttribute('data-r'));
+    const c = Number(t.getAttribute('data-c'));
+    const row = rows[r];
+    if (!row || t.getAttribute('data-r') === null) return void (tip.style.display = 'none');
+    const v = row.cells[c];
     const hr = host.getBoundingClientRect();
-    tip.innerHTML = `<div style="opacity:.7">${esc(new Date(c.day).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }))} · ${String(c.hour).padStart(2, '0')}:00</div><b>${fmtNum(c.value, o.decimals ?? 1)}</b> ${esc(o.unit ?? '')}`;
+    tip.innerHTML = `<div style="opacity:.7">${esc(row.label ? row.label + ' · ' : '')}${fmtT(cols[c])}–${fmtT(cols[c] + o.bucketMs)}</div>${v == null ? 'No data' : `<b>${fmtNum(v, o.decimals ?? 1)}</b> ${esc(o.unit ?? '')}`}`;
     placeTip(host, tip, ev.clientX - hr.left, ev.clientY - hr.top);
   });
   svg.addEventListener('mouseleave', () => (tip.style.display = 'none'));

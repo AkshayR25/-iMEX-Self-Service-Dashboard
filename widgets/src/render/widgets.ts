@@ -3,9 +3,10 @@ import * as api from '../core/api';
 import * as scope from '../core/scope';
 import type { UserContext, Node } from '../core/scope';
 import type { KeyMeta } from '../core/types';
-import { Widget, Binding, WIDGET_CAPS, WIDGET_LABELS, CONTENT_TYPES, rangeMs, CardStyle, DashboardTheme, ColorRule } from '../core/schema';
+import { Widget, Binding, WIDGET_CAPS, WIDGET_LABELS, CONTENT_TYPES, MAX_SERIES, MAX_WIDGETS, rangeMs, rangeLabel, normalizeRange, CardStyle, DashboardTheme, ColorRule } from '../core/schema';
+import { compatible } from '../core/compat';
 import { SERIES, SERIES_DARK, STATUS, SEVERITY_COLOR, RAMP_BLUE, RAMP_ORANGE, esc, fmtNum, ago, miniMarkdown, fontStack, loadFont, safeUrl } from './theme';
-import { lineChart, barChart, gauge, sparkline, donut, stateTimeline, heatmap, Slice, TimelineRow, HeatCell } from './charts';
+import { lineChart, barChart, gauge, sparkline, donut, stateTimeline, heatmap, Slice, TimelineRow, HeatRow } from './charts';
 import { effectiveRules, matchRule, thresholdLines, stateLabel, valueType, asBool } from './rules';
 import { sanitizeHtml, fillPlaceholders, placeholderKeys } from './rich';
 import { icon, ICON_SVG } from './icons';
@@ -130,6 +131,7 @@ export function cardVars(st: CardStyle | undefined): string {
   if (st.valueColor) v.push(`--card-value-color:${st.valueColor}`);
   if (st.valueFont) v.push(`--card-value-font:${fontStack(st.valueFont)}`);
   if (st.align) v.push(`--card-align:${st.align};--card-align-items:${st.align === 'center' ? 'center' : st.align === 'right' ? 'flex-end' : 'flex-start'}`);
+  if (st.valign) v.push(`--card-justify:${st.valign === 'top' ? 'flex-start' : st.valign === 'bottom' ? 'flex-end' : 'center'};--card-valign:${st.valign === 'top' ? 'start' : st.valign === 'bottom' ? 'end' : 'center'}`);
   if (st.accentBar) v.push(`--card-accent:${st.accentBar}`);
   return v.join(';');
 }
@@ -161,6 +163,8 @@ export function renderWidget(container: HTMLElement, w: Widget, env: RenderEnv, 
   const card = document.createElement('div');
   card.className = 'dbb-card';
   card.dataset.type = w.type;
+  if (st?.titlePos === 'bottom') card.classList.add('title-bottom');
+  if (st?.align) card.classList.add(`al-${st.align}`);
   const vars = cardVars(st);
   if (vars) card.setAttribute('style', vars);
   const content = CONTENT_TYPES.has(w.type);
@@ -280,9 +284,16 @@ async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<Color
   const bound = resolveBinding(env, w.binding);
   if (bound.problem) return void placeholder(body, bound.problem);
   if (!bound.devices.length) return void placeholder(body, bound.hidden ? 'No data in your scope' : 'No machines match this data source.');
-  const devices = cap.multiDevice ? bound.devices.slice(0, 10) : bound.devices.slice(0, 1);
+  const devices = cap.multiDevice ? bound.devices.slice(0, MAX_SERIES) : bound.devices.slice(0, 1);
+  const moreDevices = cap.multiDevice ? Math.max(0, bound.devices.length - MAX_SERIES) : 0;
+  const range = normalizeRange(s.timeRange ?? env.timeRange);
   const endTs = Date.now();
-  const startTs = endTs - rangeMs(s.timeRange ?? env.timeRange);
+  const startTs = endTs - rangeMs(range);
+  // Property kind vs widget type (plain rules; see core/compat). Older dashboards may still hold a mismatch.
+  for (const k of w.keys) {
+    const c = compatible(w.type, keyMeta(ctx, bound.devices[0].profile, k), { donutMode: s.donutMode ?? (devices.length > 1 ? 'devices' : 'state') });
+    if (!c.ok) return void placeholder(body, `${c.reason} Choose another property or widget type.`);
+  }
   const d0 = devices[0];
   const sub = (d: Node, ts: number) => `${w.binding.mode !== 'current' ? esc(d.label) + ' · ' : ''}${ago(ts)}`;
 
@@ -336,7 +347,7 @@ async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<Color
         const good = s.upIsGood === false ? (dir === 'up' ? 'down' : dir === 'down' ? 'up' : 'flat') : dir;
         delta = `<span class="dbb-delta ${good}" title="Change since the start of the time range">${dir === 'up' ? '▲' : dir === 'down' ? '▼' : '■'} ${fmtNum(Math.abs(ch), 1)}%</span>`;
       }
-      body.innerHTML = `<div class="dbb-kpi"><div class="dbb-value" style="height:auto"><div class="row"><span><span class="v">${fmtVal(lv.value, dec)}</span><span class="u">${esc(unit)}</span></span>${delta}</div>${ruleLabelPill(rule)}<div class="s">${sub(d0, lv.ts)} · vs ${esc(s.timeRange ?? env.timeRange)} ago</div></div>${s.sparkline !== false ? '<div class="dbb-spark"></div>' : ''}</div>`;
+      body.innerHTML = `<div class="dbb-kpi"><div class="dbb-value" style="height:auto"><div class="row"><span><span class="v">${fmtVal(lv.value, dec)}</span><span class="u">${esc(unit)}</span></span>${delta}</div>${ruleLabelPill(rule)}<div class="s">${sub(d0, lv.ts)} · vs ${range === 'realtime' ? '1 h' : esc(range.replace('h', ' h'))} ago</div></div>${s.sparkline !== false ? '<div class="dbb-spark"></div>' : ''}</div>`;
       const sp = body.querySelector('.dbb-spark') as HTMLElement | null;
       if (sp) requestAnimationFrame(() => sparkline(sp, pts, rule?.color ?? palette[0]));
       return rule;
@@ -409,7 +420,7 @@ async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<Color
     for (const d of devices) {
       const data = await api.series(d.id, w.keys, startTs, endTs, agg, 500);
       for (const k of w.keys) {
-        if (series.length >= 10) break;
+        if (series.length >= MAX_SERIES) break;
         const meta = keyMeta(ctx, d.profile, k);
         series.push({
           name: devices.length > 1 ? `${d.label} · ${meta.displayName}` : meta.displayName,
@@ -425,13 +436,15 @@ async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<Color
     const thr = s.showThresholds === false ? [] : thresholdLines(rules, w.keys.length === 1 ? w.keys[0] : undefined).filter((t) => w.keys.length === 1 || !rules.some((r) => r.key));
     lineChart(body, series, { startTs, endTs, showLegend: s.showLegend, area: w.type === 'area', stacked: w.type === 'area' && !!s.stacked, smooth: s.smooth, thresholds: thr });
     if (bound.hidden) body.insertAdjacentHTML('beforeend', `<div class="dbb-ph" style="height:auto">${bound.hidden} machine(s) not shown: no data in your scope</div>`);
+    const dropped = devices.length * w.keys.length - series.length + moreDevices * w.keys.length;
+    if (dropped > 0) body.insertAdjacentHTML('beforeend', `<div class="dbb-ph" style="height:auto">Showing the first ${MAX_SERIES} lines; ${dropped} more not drawn.</div>`);
     return undefined;
   }
 
   if (w.type === 'bar') {
     const key = w.keys[0];
     const agg = s.agg && s.agg !== 'NONE' ? s.agg : 'AVG';
-    const group = s.groupBy ?? (devices.length > 1 ? 'device' : 'day');
+    const group = s.groupBy === 'day' ? 'hour' : s.groupBy ?? (devices.length > 1 ? 'device' : rangeMs(range) <= 2 * 3600e3 ? '15m' : 'hour');
     const meta = keyMeta(ctx, d0.profile, key);
     const dec = s.decimals ?? meta.decimals;
     const col = (v: number | null, fallback: string) => (v != null && matchRule(rules, v, key)?.color) || fallback;
@@ -445,12 +458,12 @@ async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<Color
       );
       barChart(body, bars, { unit: s.unit ?? meta.unit, decimals: dec, thresholds: thr });
     } else {
-      const step = group === 'hour' ? 3600e3 : 86400e3;
+      const step = group === '15m' ? 15 * 60e3 : 3600e3;
       const r = await api.get<any>(`/api/plugins/telemetry/DEVICE/${d0.id}/values/timeseries?keys=${key}&startTs=${startTs}&endTs=${endTs}&agg=${agg}&interval=${step}&limit=1000&orderBy=ASC`);
       const pts: { ts: number; value: string }[] = r?.[key] ?? [];
       const bars = pts.map((p) => {
         const dt = new Date(p.ts);
-        const label = group === 'hour' ? dt.toLocaleTimeString(undefined, { hour: '2-digit' }) : dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+        const label = dt.toLocaleTimeString(undefined, { hour: '2-digit', minute: group === '15m' ? '2-digit' : undefined });
         return { label, value: Number(p.value), color: col(Number(p.value), palette[0]), detail: `${d0.label} · ${dt.toLocaleString()}` };
       });
       barChart(body, bars, { unit: s.unit ?? meta.unit, decimals: dec, thresholds: thr });
@@ -513,17 +526,30 @@ async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<Color
   }
 
   if (w.type === 'heatmap') {
+    // Machines as rows, time buckets as columns (5-20 min buckets; ranges stop at 8 h).
     const key = w.keys[0];
     const meta = keyMeta(ctx, d0.profile, key);
-    const r = await api.get<any>(`/api/plugins/telemetry/DEVICE/${d0.id}/values/timeseries?keys=${key}&startTs=${startTs}&endTs=${endTs}&agg=${s.agg && s.agg !== 'NONE' ? s.agg : 'AVG'}&interval=3600000&limit=2000&orderBy=ASC`);
-    const cells: HeatCell[] = (r?.[key] ?? []).map((p: any) => {
-      const dt = new Date(p.ts);
-      const day = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()).getTime();
-      return { day, hour: dt.getHours(), value: Number(p.value) };
-    });
+    const span = endTs - startTs;
+    const bucketMs = Math.max(5 * 60e3, Math.ceil(span / 24 / (5 * 60e3)) * 5 * 60e3);
+    const first = Math.floor(startTs / bucketMs) * bucketMs;
+    const cols: number[] = [];
+    for (let t = first; t < endTs; t += bucketMs) cols.push(t);
+    const agg = s.agg && s.agg !== 'NONE' ? s.agg : 'AVG';
+    const rows: HeatRow[] = await Promise.all(
+      devices.map(async (d) => {
+        const r = await api.get<any>(`/api/plugins/telemetry/DEVICE/${d.id}/values/timeseries?keys=${encodeURIComponent(key)}&startTs=${first}&endTs=${endTs}&agg=${agg}&interval=${bucketMs}&limit=500&orderBy=ASC`);
+        const cells: (number | null)[] = cols.map(() => null);
+        for (const p of r?.[key] ?? []) {
+          const i = Math.floor((p.ts - first) / bucketMs);
+          if (i >= 0 && i < cells.length) cells[i] = Number(p.value);
+        }
+        return { label: devices.length > 1 ? d.label : '', cells };
+      }),
+    );
     const ramp = s.heatColor === 'orange' ? RAMP_ORANGE : RAMP_BLUE;
     const useRules = s.heatColor === 'rules' && rules.length;
-    heatmap(body, cells, {
+    heatmap(body, rows, cols, {
+      bucketMs,
       unit: s.unit ?? meta.unit,
       decimals: s.decimals ?? meta.decimals,
       legend: useRules ? undefined : ramp,
@@ -635,21 +661,21 @@ function drawLink(body: HTMLElement, w: Widget, env: RenderEnv): undefined {
   return undefined;
 }
 
-/** Default layout when no dashboard is assigned: value cards for all keys, 24 h trend of two main keys, active alarms. */
+/** Default layout when no dashboard is assigned: value cards for the main properties, a trend of up to two numeric ones, active alarms. Stays within MAX_WIDGETS. */
 export function defaultWidgets(ctx: UserContext, profile: string): Widget[] {
-  const keys = (ctx.profileKeys[profile] ?? []).map((k) => k.key);
+  const metas = ctx.profileKeys[profile] ?? [];
   const cur = { mode: 'current' as const };
   const ws: Widget[] = [];
-  keys.forEach((k, i) => {
-    const m = keyMeta(ctx, profile, k);
-    const isStatus = /status/i.test(k);
-    ws.push({ id: `def-${k}`, type: isStatus ? 'status' : 'value', title: m.displayName, x: (i % 4) * 3, y: Math.floor(i / 4) * 2, w: 3, h: 2, binding: cur, keys: [k], settings: {} });
+  const trend = metas.filter((m) => compatible('line', m).ok && !/hours/i.test(m.key)).slice(0, 2);
+  const cards = metas.slice(0, MAX_WIDGETS - trend.length - 1);
+  cards.forEach((m, i) => {
+    const isStatus = compatible('status', m).ok;
+    ws.push({ id: `def-${m.key}`, type: isStatus ? 'status' : 'value', title: m.displayName, x: (i % 4) * 3, y: Math.floor(i / 4) * 2, w: 3, h: 2, binding: cur, keys: [m.key], settings: {} });
   });
-  const rows = Math.ceil(keys.length / 4) * 2;
+  const rows = Math.ceil(cards.length / 4) * 2;
   // one chart per main key (different units never share an axis)
-  const trend = keys.filter((k) => !/status|hours/i.test(k)).slice(0, 2);
-  trend.forEach((k, i) =>
-    ws.push({ id: `def-trend-${k}`, type: 'line', title: `${keyMeta(ctx, profile, k).displayName} · 24 h`, x: trend.length === 1 ? 0 : i * 6, y: rows, w: trend.length === 1 ? 12 : 6, h: 4, binding: cur, keys: [k], settings: { timeRange: '24h' } }),
+  trend.forEach((m, i) =>
+    ws.push({ id: `def-trend-${m.key}`, type: 'line', title: `${m.displayName} trend`, x: trend.length === 1 ? 0 : i * 6, y: rows, w: trend.length === 1 ? 12 : 6, h: 4, binding: cur, keys: [m.key], settings: {} }),
   );
   const ay = rows + (trend.length ? 4 : 0);
   ws.push({ id: 'def-alarms', type: 'alarms', title: 'Active alarms', x: 0, y: ay, w: 12, h: 3, binding: cur, keys: [], settings: { alarmStatus: 'ACTIVE', maxRows: 10 } });
