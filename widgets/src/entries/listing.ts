@@ -6,24 +6,43 @@ import * as store from '../core/store';
 import type { UserContext, Node } from '../core/scope';
 import { CSS, ensureCss, esc, fmtNum, STATUS } from '../render/theme';
 import { keyMeta } from '../render/widgets';
+import { ICON_SVG } from '../render/icons';
 import { userContext, stateEntity, CHANGED_EVENT } from './common';
 
 const L_CSS = `
-.dbb-list{display:flex;height:100%;background:#f6f6f4}
-.dbb-tree{width:260px;background:#fff;border-right:1px solid var(--line);padding:10px;overflow:auto;flex:none}
-.dbb-tree input{width:100%;font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:6px;margin-bottom:8px}
-.dbb-tn{display:flex;align-items:center;gap:6px;padding:5px 6px;border-radius:6px;cursor:pointer;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.dbb-tn:hover{background:#f3f8fe}.dbb-tn.on{background:#e3eefb;color:#184f95;font-weight:500}
-.dbb-tn .dbb-muted{margin-left:auto}
-.dbb-cards{flex:1;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:12px;min-width:0}
-.dbb-cgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}
-.dbb-mc{background:#fff;border:1px solid var(--line);border-radius:8px;padding:12px;cursor:pointer;display:flex;flex-direction:column;gap:8px}
-.dbb-mc:hover{border-color:var(--accent);box-shadow:0 2px 8px rgba(42,120,214,.12)}
-.dbb-mc-h{display:flex;align-items:center;gap:8px}
-.dbb-mc-t{font-weight:500;font-size:14px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.dbb-kv{display:grid;grid-template-columns:1fr auto;gap:2px 10px;font-size:12px}
-.dbb-kv b{font-weight:500;font-variant-numeric:tabular-nums;text-align:right}
-.dbb-h2{font-size:16px;font-weight:500}
+.dbb-list{display:flex;height:100%;background:#f4f5f7}
+.dbb-tree{width:270px;background:#fff;border-right:1px solid var(--line);padding:12px 10px;overflow:auto;flex:none}
+.dbb-tree input{width:100%;font:inherit;padding:8px 10px 8px 32px;border:1px solid var(--line);border-radius:10px;margin-bottom:10px;background:#f6f7f9 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23898781' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M20 20l-4-4'/%3E%3C/svg%3E") no-repeat 10px center/14px}
+.dbb-tree input:focus{outline:none;border-color:var(--accent);background-color:#fff;box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 16%,transparent)}
+.dbb-tn{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:8px;cursor:pointer;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink-2);transition:background .12s}
+.dbb-tn svg{width:16px;height:16px;flex:none;color:var(--ink-3)}
+.dbb-tn:hover{background:#f3f6fa;color:var(--ink)}
+.dbb-tn.on{background:color-mix(in srgb,var(--accent) 12%,#fff);color:#184f95;font-weight:600}
+.dbb-tn.on svg{color:var(--accent)}
+.dbb-tn .cnt{margin-left:auto;font-size:11px;background:#eef0f3;color:var(--ink-2);border-radius:999px;padding:1px 7px;font-weight:500}
+.dbb-cards{flex:1;overflow:auto;padding:18px 20px;display:flex;flex-direction:column;gap:14px;min-width:0}
+.dbb-cgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+.dbb-mc{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px 16px;cursor:pointer;display:flex;flex-direction:column;gap:10px;position:relative;overflow:hidden;box-shadow:0 1px 2px rgba(16,24,40,.05);transition:transform .15s,box-shadow .15s,border-color .15s}
+.dbb-mc::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--st,transparent)}
+.dbb-mc:hover{border-color:color-mix(in srgb,var(--accent) 45%,var(--line));box-shadow:0 10px 24px rgba(16,24,40,.1);transform:translateY(-2px)}
+.dbb-mc-h{display:flex;align-items:center;gap:10px}
+.dbb-mc-ic{width:36px;height:36px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;flex:none;background:color-mix(in srgb,var(--accent) 12%,#fff);color:var(--accent)}
+.dbb-mc-ic svg{width:20px;height:20px}
+.dbb-mc-t{font-weight:600;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dbb-mc-s{font-size:11.5px;color:var(--ink-3)}
+.dbb-mc-h>div{flex:1;min-width:0}
+.dbb-stp{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;border-radius:999px;padding:3px 9px 3px 7px;background:color-mix(in srgb,var(--st) 14%,transparent);white-space:nowrap}
+.dbb-stp i{width:7px;height:7px;border-radius:50%;background:var(--st)}
+.dbb-kv{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.dbb-kv>div{background:#f7f8fa;border-radius:9px;padding:7px 9px;min-width:0}
+.dbb-kv span{display:block;font-size:11px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dbb-kv b{display:block;font-weight:600;font-size:15px;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dbb-kv b small{font-size:11px;font-weight:400;color:var(--ink-3);margin-left:2px}
+.dbb-mc-f{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-2)}
+.dbb-bar{height:6px;border-radius:999px;background:#eef0f3;overflow:hidden}
+.dbb-bar i{display:block;height:100%;border-radius:999px;background:var(--st,var(--accent))}
+.dbb-h2{font-size:18px;font-weight:600;letter-spacing:-.01em}
+.dbb-h2 small{font-size:12px;font-weight:400;color:var(--ink-3);margin-left:8px}
 `;
 
 interface Card {
@@ -32,14 +51,25 @@ interface Card {
 }
 
 const M_CSS = `
-.dbb-map{height:100%;overflow:auto;display:flex;flex-direction:column;align-items:center;gap:18px;background:#f6f6f4;padding:32px 24px;text-align:center}
-.dbb-map h1{font-size:26px;font-weight:500;margin:0}
-.dbb-sites{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,300px));gap:16px;justify-content:center;width:100%;max-width:980px}
-.dbb-site{background:#fff;border:1px solid var(--line);border-radius:10px;padding:16px;cursor:pointer;text-align:left;display:flex;flex-direction:column;gap:10px}
-.dbb-site:hover{border-color:var(--accent);box-shadow:0 2px 10px rgba(42,120,214,.14)}
-.dbb-site-h{display:flex;align-items:center;gap:8px}
-.dbb-site-h b{font-size:16px;font-weight:500;flex:1}
-.dbb-pin{width:28px;height:28px;border-radius:50%;background:#e3eefb;display:flex;align-items:center;justify-content:center;color:var(--accent)}
+.dbb-map{height:100%;overflow:auto;display:flex;flex-direction:column;align-items:center;gap:22px;background:#f4f5f7;padding:0 24px 32px;text-align:center}
+.dbb-hero{width:calc(100% + 48px);margin:0 -24px;padding:34px 24px 64px;background:radial-gradient(1200px 300px at 50% -80px,#3987e5 0%,#184f95 45%,#0a2458 100%);color:#fff;position:relative;overflow:hidden}
+.dbb-hero::after{content:"";position:absolute;inset:0;background-image:radial-gradient(rgba(255,255,255,.14) 1px,transparent 1px);background-size:18px 18px;mask-image:linear-gradient(to bottom,rgba(0,0,0,.6),transparent)}
+.dbb-hero h1{font-size:28px;font-weight:600;margin:0;letter-spacing:-.01em;position:relative}
+.dbb-hero p{margin:6px 0 0;opacity:.8;font-size:14px;position:relative}
+.dbb-sites{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,340px));gap:18px;justify-content:center;width:100%;max-width:1100px;margin-top:-52px;position:relative;z-index:1}
+.dbb-site{background:#fff;border:1px solid var(--line);border-radius:16px;padding:18px;cursor:pointer;text-align:left;display:flex;flex-direction:column;gap:14px;box-shadow:0 4px 14px rgba(16,24,40,.08);transition:transform .15s,box-shadow .15s,border-color .15s}
+.dbb-site:hover{transform:translateY(-3px);box-shadow:0 14px 32px rgba(16,24,40,.14);border-color:color-mix(in srgb,var(--accent) 45%,var(--line))}
+.dbb-site:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.dbb-site-h{display:flex;align-items:center;gap:10px}
+.dbb-site-h b{font-size:17px;font-weight:600;flex:1}
+.dbb-site-h .go{color:var(--ink-3);font-size:18px;transition:transform .15s}
+.dbb-site:hover .go{transform:translateX(3px);color:var(--accent)}
+.dbb-pin{width:38px;height:38px;border-radius:12px;background:linear-gradient(135deg,#3987e5,#184f95);display:flex;align-items:center;justify-content:center;color:#fff;box-shadow:0 3px 8px rgba(42,120,214,.3)}
+.dbb-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.dbb-stats>div{background:#f7f8fa;border-radius:10px;padding:8px 10px}
+.dbb-stats span{display:block;font-size:11px;color:var(--ink-3)}
+.dbb-stats b{display:block;font-size:20px;font-weight:600;font-variant-numeric:tabular-nums}
+.dbb-map .dbb-go-list{padding:10px 20px;font-size:14px;font-weight:600;border-radius:12px}
 `;
 
 /** Sites shown on the map page: assets of profile `siteProfile` (default 'Site'); otherwise the level below a single root. */
@@ -57,9 +87,9 @@ function initMap(tbCtx: any, host: HTMLElement) {
   ensureCss('dbb-css-map', M_CSS);
   const s = tbCtx.settings ?? {};
   const listingState = s.listingState || 'listing';
-  host.innerHTML = `<div class="dbb-root dbb-map"><h1>${esc(s.title || 'Map page')}</h1>
-    <div class="dbb-sites"><div class="dbb-ph" style="height:auto">Loading sites…</div></div>
-    <button type="button" class="dbb-btn primary" data-go>${esc(s.buttonLabel || 'Go to machine listing')}</button></div>`;
+  host.innerHTML = `<div class="dbb-root dbb-map"><div class="dbb-hero"><h1>${esc(s.title || 'Map page')}</h1><p class="dbb-hero-s">Loading sites…</p></div>
+    <div class="dbb-sites"><div class="dbb-site" style="cursor:default"><div class="dbb-ph" style="height:auto">Loading sites…</div></div></div>
+    <button type="button" class="dbb-btn primary dbb-go-list" data-go>${esc(s.buttonLabel || 'Go to machine listing')} →</button></div>`;
   const sitesEl = host.querySelector('.dbb-sites') as HTMLElement;
   host.querySelector<HTMLElement>('[data-go]')!.onclick = () => tbCtx.stateController.openState(listingState, {}, false);
   const openSite = (n: Node) =>
@@ -89,13 +119,17 @@ function initMap(tbCtx: any, host: HTMLElement) {
           );
           const run = stats.filter((x) => x.running).length;
           const alarms = stats.reduce((a, x) => a + x.alarms, 0);
-          return `<div class="dbb-site" role="button" tabindex="0" data-site="${n.id}">
-            <div class="dbb-site-h"><span class="dbb-pin"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s7-6.2 7-11.5A7 7 0 0 0 5 9.5C5 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg></span><b>${esc(n.label)}</b></div>
-            <div class="dbb-kv"><span>Machines</span><b>${devs.length}</b><span>Running</span><b>${run} of ${devs.length}</b><span>Active alarms</span><b>${alarms}</b></div>
-            <div class="dbb-chip">${alarms ? `<span class="dbb-dot" style="background:${STATUS.critical}"></span>${alarms} active alarm${alarms > 1 ? 's' : ''}` : `<span class="dbb-dot" style="background:${STATUS.good}"></span>No active alarms`}</div></div>`;
+          const pct = devs.length ? Math.round((run / devs.length) * 100) : 0;
+          return `<div class="dbb-site" role="button" tabindex="0" data-site="${n.id}" data-m="${devs.length}">
+            <div class="dbb-site-h"><span class="dbb-pin"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s7-6.2 7-11.5A7 7 0 0 0 5 9.5C5 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg></span><b>${esc(n.label)}</b><span class="go">→</span></div>
+            <div class="dbb-stats"><div><span>Machines</span><b>${devs.length}</b></div><div><span>Running</span><b>${run}<small style="font-size:12px;color:var(--ink-3);font-weight:400"> / ${devs.length}</small></b></div><div><span>Alarms</span><b style="color:${alarms ? STATUS.critical : 'inherit'}">${alarms}</b></div></div>
+            <div class="dbb-bar" style="--st:${STATUS.good}" title="${pct}% running"><i style="width:${pct}%"></i></div>
+            <div class="dbb-chip">${alarms ? `<span class="dbb-dot" style="background:${STATUS.critical}"></span>${alarms} active alarm${alarms > 1 ? 's' : ''}` : `<span class="dbb-dot" style="background:${STATUS.good}"></span>No active alarms`} · ${pct}% running</div></div>`;
         }),
       );
       sitesEl.innerHTML = cards.join('');
+      const total = sites.reduce((a, n) => a + scope.devicesUnder(ctx, n.id).length, 0);
+      (host.querySelector('.dbb-hero-s') as HTMLElement).textContent = `${sites.length} site${sites.length === 1 ? '' : 's'} · ${total} machine${total === 1 ? '' : 's'} · pick a site to see its machines`;
       sitesEl.querySelectorAll<HTMLElement>('[data-site]').forEach((c) => {
         const go = () => openSite(ctx.nodes.get(c.dataset.site!)!);
         c.onclick = go;
@@ -136,8 +170,8 @@ export function init(tbCtx: any) {
       if (!match) return;
       const count = n.entityType === 'ASSET' ? scope.devicesUnder(ctx, id).length : 0;
       rows.push(
-        `<div class="dbb-tn ${id === selected ? 'on' : ''}" data-id="${id}" style="padding-left:${6 + depth * 14}px">${n.entityType === 'DEVICE' ? '•' : '▸'} ${esc(n.label)}${
-          count ? `<span class="dbb-muted">${count}</span>` : ''
+        `<div class="dbb-tn ${id === selected ? 'on' : ''}" data-id="${id}" style="padding-left:${8 + depth * 16}px">${n.entityType === 'DEVICE' ? ICON_SVG.cpu : depth === 0 ? ICON_SVG.factory : ICON_SVG.pin}<span style="overflow:hidden;text-overflow:ellipsis">${esc(n.label)}</span>${
+          count ? `<span class="cnt">${count}</span>` : ''
         }</div>`,
       );
       if (n.entityType === 'ASSET') n.children.forEach((c) => walk(c, depth + 1));
@@ -167,12 +201,11 @@ export function init(tbCtx: any) {
     const rs = lv.runStatus?.value;
     const running = !offline && (rs === undefined || rs === null || (rs as any) === '' || Number(rs) === 1);
     const [st, col] = offline ? ['Offline', STATUS.neutral] : running ? ['Running', STATUS.good] : ['Stopped', STATUS.warning];
-    return `<div class="dbb-mc" data-dev="${d.id}"><div class="dbb-mc-h"><span class="dbb-mc-t">${esc(d.label)}</span><span class="dbb-chip"><span class="dbb-dot" style="background:${col}"></span>${st}</span></div>
-      <div class="dbb-muted">${esc(d.profile)}</div>
+    return `<div class="dbb-mc" data-dev="${d.id}" style="--st:${col}"><div class="dbb-mc-h"><span class="dbb-mc-ic">${ICON_SVG.cpu}</span><div><div class="dbb-mc-t">${esc(d.label)}</div><div class="dbb-mc-s">${esc(d.profile)}</div></div><span class="dbb-stp"><i></i>${st}</span></div>
       <div class="dbb-kv">${metas
-        .map((m) => `<span>${esc(m.displayName)}</span><b>${lv[m.key] ? `${fmtNum(lv[m.key]!.value, m.decimals)} ${esc(m.unit)}` : '—'}</b>`)
+        .map((m) => `<div><span>${esc(m.displayName)}</span><b>${lv[m.key] ? `${fmtNum(lv[m.key]!.value, m.decimals)}<small>${esc(m.unit)}</small>` : '—'}</b></div>`)
         .join('')}</div>
-      <div class="dbb-chip">${al.length ? `<span class="dbb-dot" style="background:${STATUS.critical}"></span>${al.length} active alarm${al.length > 1 ? 's' : ''}` : 'No active alarms'}</div></div>`;
+      <div class="dbb-mc-f">${al.length ? `<span class="dbb-dot" style="background:${STATUS.critical}"></span><b style="color:${STATUS.critical}">${al.length} active alarm${al.length > 1 ? 's' : ''}</b>` : `<span class="dbb-dot" style="background:${STATUS.good}"></span>No active alarms`}${ts ? `<span style="margin-left:auto;color:var(--ink-3)">${agoTxt(ts)}</span>` : ''}</div></div>`;
   };
 
   const nodeCard = async (n: Node): Promise<string> => {
@@ -191,8 +224,10 @@ export function init(tbCtx: any) {
     );
     const run = stats.filter((s) => s.running).length;
     const alarms = stats.reduce((a, s) => a + s.alarms, 0);
-    return `<div class="dbb-mc" data-node="${n.id}"><div class="dbb-mc-h"><span class="dbb-mc-t">${esc(n.label)}</span><span class="dbb-muted">${esc(n.profile)}</span></div>
-      <div class="dbb-kv"><span>Machines</span><b>${devs.length}</b><span>Running</span><b>${devs.length ? Math.round((run / devs.length) * 100) : 0}%</b><span>Active alarms</span><b>${alarms}</b></div></div>`;
+    const pct = devs.length ? Math.round((run / devs.length) * 100) : 0;
+    return `<div class="dbb-mc" data-node="${n.id}" style="--st:${alarms ? STATUS.critical : STATUS.good}"><div class="dbb-mc-h"><span class="dbb-mc-ic">${ICON_SVG.pin}</span><div><div class="dbb-mc-t">${esc(n.label)}</div><div class="dbb-mc-s">${esc(n.profile)}</div></div><span style="color:var(--ink-3)">→</span></div>
+      <div class="dbb-kv"><div><span>Machines</span><b>${devs.length}</b></div><div><span>Active alarms</span><b style="color:${alarms ? STATUS.critical : 'inherit'}">${alarms}</b></div></div>
+      <div class="dbb-mc-f"><span>${pct}% running</span></div><div class="dbb-bar" style="--st:${STATUS.good}"><i style="width:${pct}%"></i></div></div>`;
   };
 
   const drawCards = async () => {
@@ -211,7 +246,7 @@ export function init(tbCtx: any) {
       /* no store */
     }
     cardsEl.innerHTML = `${ctx.warnings.map((w) => `<div class="dbb-banner warn">${esc(w)}</div>`).join('')}
-      <div class="dbb-h2">${esc(n ? scope.pathLabel(ctx, n.id) : 'All locations')}</div>
+      <div class="dbb-h2">${esc(n ? scope.pathLabel(ctx, n.id) : 'All locations')}<small>${cards.length} item${cards.length === 1 ? '' : 's'}</small></div>
       <div class="dbb-cgrid">${cards.map((c) => c.html).join('') || '<div class="dbb-hint">Nothing here.</div>'}</div>${dashList}`;
     cardsEl.querySelectorAll<HTMLElement>('[data-dev]').forEach((c) => (c.onclick = () => openMachine(ctx.nodes.get(c.dataset.dev!)!)));
     cardsEl.querySelectorAll<HTMLElement>('[data-node]').forEach(
@@ -249,6 +284,11 @@ export function init(tbCtx: any) {
   };
   void load();
   void keyMeta;
+}
+
+function agoTxt(ts: number): string {
+  const s = Math.round((Date.now() - ts) / 1000);
+  return s < 60 ? `${s}s ago` : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} d ago`;
 }
 
 async function lastTs(deviceId: string): Promise<number> {

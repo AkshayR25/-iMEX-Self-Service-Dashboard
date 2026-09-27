@@ -68,8 +68,24 @@ export class FakeTB {
       const hist = u.searchParams.has('startTs');
       const asc = u.searchParams.get('orderBy') === 'ASC';
       const rows = (k: string) => {
-        const a = [...t[k]].sort((x, y) => (asc ? x.ts - y.ts : y.ts - x.ts));
-        return (hist ? a : a.slice(0, 1)).map((x) => ({ ts: x.ts, value: String(x.value) }));
+        let a = [...t[k]].sort((x, y) => (asc ? x.ts - y.ts : y.ts - x.ts));
+        if (!hist) return a.slice(0, 1).map((x) => ({ ts: x.ts, value: String(x.value) }));
+        const st = Number(u.searchParams.get('startTs'));
+        const en = Number(u.searchParams.get('endTs') ?? Date.now());
+        a = a.filter((x) => x.ts >= st && x.ts <= en);
+        const agg = u.searchParams.get('agg') ?? 'NONE';
+        const iv = Number(u.searchParams.get('interval') ?? 0);
+        if (agg !== 'NONE' && iv > 0) {
+          const b = new Map<number, number[]>();
+          for (const x of a) {
+            const i = Math.floor((x.ts - st) / iv);
+            b.set(i, [...(b.get(i) ?? []), Number(x.value)]);
+          }
+          const f = (v: number[]) => (agg === 'MIN' ? Math.min(...v) : agg === 'MAX' ? Math.max(...v) : agg === 'SUM' ? v.reduce((p, c) => p + c, 0) : v.reduce((p, c) => p + c, 0) / v.length);
+          const out = [...b.entries()].sort((x, y) => (asc ? x[0] - y[0] : y[0] - x[0])).map(([i, v]) => ({ ts: st + i * iv + Math.floor(iv / 2), value: String(+f(v).toFixed(4)) }));
+          return out.slice(0, Number(u.searchParams.get('limit') ?? 1e9));
+        }
+        return a.slice(0, Number(u.searchParams.get('limit') ?? 1e9)).map((x) => ({ ts: x.ts, value: String(x.value) }));
       };
       return resp(200, Object.fromEntries(keys.filter((k) => t[k]).map((k) => [k, rows(k)])));
     }

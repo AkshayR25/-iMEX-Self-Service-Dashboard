@@ -4,10 +4,13 @@ import * as scope from '../core/scope';
 import type { UserContext } from '../core/scope';
 import * as store from '../core/store';
 import * as chat from '../core/chat';
-import { Dashboard, Widget, WidgetType, WIDGET_TYPES, WIDGET_LABELS, WIDGET_CAPS, DEFAULT_SIZE, TIME_RANGES, MAX_WIDGETS, MAX_SERIES, checkDashboard, dashboardKind, newId } from '../core/schema';
+import { Dashboard, Widget, WidgetType, WIDGET_TYPES, WIDGET_LABELS, WIDGET_CAPS, WIDGET_GROUPS, CONTENT_TYPES, DEFAULT_SIZE, TIME_RANGES, MAX_WIDGETS, MAX_SERIES, checkDashboard, dashboardKind, newId } from '../core/schema';
 import { Grid, GRID_CSS, firstFit, resolveCollisions } from '../render/grid';
-import { CSS, ensureCss, esc, el } from '../render/theme';
+import { CSS, ensureCss, esc, el, applyTheme, PRESETS, miniMarkdown as miniToHtml } from '../render/theme';
 import { bindingLabel, defaultWidgets, keyMeta } from '../render/widgets';
+import { WIDGET_ICON } from '../render/icons';
+import { TEMPLATES } from '../render/templates';
+import { richEditor, ruleEditor, styleEditor, themeEditor, initialRules } from './editors';
 import { BUILDER_CSS } from './styles';
 import { modal, confirmModal, toast } from './ui';
 import { audit } from '../core/audit';
@@ -20,15 +23,29 @@ export interface BuilderOptions {
   onClose?(changed: boolean): void;
 }
 
-const ICON: Record<WidgetType, string> = {
-  value: '<svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M7 14h4M7 10h8" stroke="currentColor" stroke-width="1.6"/></svg>',
-  gauge: '<svg viewBox="0 0 24 24"><path d="M4 16a8 8 0 0 1 16 0" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 16l4-5" stroke="currentColor" stroke-width="1.6"/></svg>',
-  status: '<svg viewBox="0 0 24 24"><circle cx="8" cy="12" r="3.5" fill="currentColor"/><path d="M14 12h6" stroke="currentColor" stroke-width="1.6"/></svg>',
-  line: '<svg viewBox="0 0 24 24"><path d="M3 17l5-6 4 3 5-7 4 4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>',
-  bar: '<svg viewBox="0 0 24 24"><path d="M5 19V11M10 19V6M15 19v-5M20 19V9" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>',
-  table: '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M3 10h18M9 10v9" stroke="currentColor" stroke-width="1.6"/></svg>',
-  alarms: '<svg viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 20h4" stroke="currentColor" stroke-width="1.6"/></svg>',
-  text: '<svg viewBox="0 0 24 24"><path d="M5 6h14M12 6v13" stroke="currentColor" stroke-width="1.8"/></svg>',
+const ICON = WIDGET_ICON as Record<WidgetType, string>;
+
+/** One-line descriptions shown in the palette tooltip. */
+const HELP: Record<WidgetType, string> = {
+  value: 'Latest value of one property, coloured by rules',
+  kpi: 'Big number with a trend sparkline and % change',
+  gauge: 'Half-circle gauge with rule zones',
+  progress: 'Horizontal or vertical (tank) level bar',
+  status: 'Running / stopped / fault pill',
+  multivalue: 'Several properties of one machine in one card',
+  summary: 'Min, average, max and current over the time range',
+  line: 'Trends of up to 10 series, with threshold lines',
+  area: 'Filled trend; can stack series',
+  bar: 'Per hour, per day or machine-by-machine bars',
+  donut: 'Share of time in each state, or share by machine',
+  timeline: 'When each machine was running, stopped or faulted',
+  heatmap: 'Hour-of-day by day pattern of a property',
+  table: 'Machines as rows, properties as columns, coloured cells',
+  alarms: 'Alarm list with severity filters',
+  text: 'Headings and notes with fonts, colours and live values',
+  image: 'Logo, photo or diagram from an address or upload',
+  link: 'Button that opens a page of the app or a website',
+  embed: 'Another web page inside the dashboard',
 };
 
 export function openBuilder(o: BuilderOptions) {
@@ -53,7 +70,10 @@ class Builder {
   undo: string[] = [];
   redo: string[] = [];
   preview = false;
-  tab: 'settings' | 'chat' = 'settings';
+  tab: 'settings' | 'style' | 'rules' | 'chat' = 'settings';
+  palFilter = '';
+  quietAt = 0;
+  quietKey = '';
   chatLog: { role: 'user' | 'assistant' | 'system'; text: string; changed?: chat.ChatResult['changed']; options?: string[] }[] = [];
   chatHistory: chat.Turn[] = [];
   preChat: string | null = null;
@@ -232,20 +252,39 @@ class Builder {
     const size = DEFAULT_SIZE[type];
     const profile = this.draft.profile ?? (this.deviceId ? this.ctx.nodes.get(this.deviceId)?.profile ?? null : null);
     const keys = profile ? (this.ctx.profileKeys[profile] ?? []).map((k) => k.key) : [];
-    const firstKey = type === 'status' ? keys.find((k) => /status/i.test(k)) ?? keys[0] : keys.find((k) => !/status|hours/i.test(k)) ?? keys[0];
+    const statusKey = keys.find((k) => /status|state/i.test(k));
+    const numKeys = keys.filter((k) => !/status|state|hours/i.test(k));
+    const firstKey = ['status', 'timeline'].includes(type) || (type === 'donut' && !!this.deviceId) ? statusKey ?? keys[0] : numKeys[0] ?? keys[0];
+    const content = CONTENT_TYPES.has(type);
     const w: Widget = {
       id: newId(),
       type,
-      title: type === 'text' ? '' : WIDGET_LABELS[type],
+      title: type === 'text' ? '' : type === 'link' ? 'Open machine listing' : type === 'image' || type === 'embed' ? '' : WIDGET_LABELS[type],
       x: 0,
       y: 0,
       w: size.w,
       h: size.h,
-      binding: type === 'text' ? { mode: 'none' } : this.deviceId ? { mode: 'current' } : { mode: 'none' },
-      keys: WIDGET_CAPS[type].keys[1] === 0 || !firstKey || !this.deviceId ? [] : [firstKey],
-      settings: type === 'text' ? { markdown: '## Heading' } : type === 'alarms' ? { alarmStatus: 'ANY', maxRows: 10 } : {},
+      binding: content ? { mode: 'none' } : this.deviceId ? { mode: 'current' } : { mode: 'none' },
+      keys: WIDGET_CAPS[type].keys[1] === 0 || !firstKey || !this.deviceId ? [] : type === 'multivalue' ? keys.slice(0, 4) : [firstKey],
+      settings:
+        type === 'text'
+          ? { html: '<h2>Heading</h2><p>Write something here. Insert live values like {{machine}}.</p>' }
+          : type === 'alarms'
+            ? { alarmStatus: 'ANY', maxRows: 10 }
+            : type === 'link'
+              ? { linkKind: 'state', linkState: 'listing', linkDevice: 'location', buttonStyle: 'filled' }
+              : type === 'area'
+                ? { smooth: true }
+                : type === 'kpi'
+                  ? { sparkline: true }
+                  : {},
     };
-    if (w.keys[0] && profile) w.title = keyMeta(this.ctx, profile, w.keys[0]).displayName;
+    if (firstKey && firstKey === statusKey && ['status', 'timeline', 'donut'].includes(type))
+      w.settings.colorRules = [
+        { op: 'isTrue', color: '#0ca30c', label: 'Running' },
+        { op: 'isFalse', color: '#8a8983', label: 'Stopped' },
+      ];
+    if (w.keys.length === 1 && profile && !content) w.title = keyMeta(this.ctx, profile, w.keys[0]).displayName + (type === 'timeline' ? ' · timeline' : type === 'heatmap' ? ' · hour × day' : '');
     if (at) {
       w.x = Math.min(at.x, 12 - w.w);
       w.y = at.y;
@@ -279,6 +318,36 @@ class Builder {
       const w = d.widgets.find((x) => x.id === id);
       if (w) fn(w);
     });
+  }
+
+  /**
+   * Update from a sub-editor (rich text, rules, style, theme): redraws the canvas but keeps the
+   * right panel (so colour pickers and the text editor keep focus). Rapid edits from the same
+   * source coalesce into one undo step.
+   */
+  quiet(tag: string, fn: (d: Dashboard) => void, opts: { panel?: boolean } = {}) {
+    const d: Dashboard = JSON.parse(JSON.stringify(this.draft));
+    fn(d);
+    const now = Date.now();
+    if (!(tag === this.quietKey && now - this.quietAt < 1500)) {
+      this.undo.push(JSON.stringify(this.draft));
+      if (this.undo.length > 50) this.undo.shift();
+    }
+    this.quietKey = tag;
+    this.quietAt = now;
+    this.redo = [];
+    d.kind = dashboardKind(d.widgets);
+    this.draft = d;
+    this.renderTop();
+    this.renderCanvas();
+    if (opts.panel) this.renderRight();
+  }
+
+  quietWidget(id: string, tag: string, fn: (w: Widget) => void, opts: { panel?: boolean } = {}) {
+    this.quiet(`${id}:${tag}`, (d) => {
+      const w = d.widgets.find((x) => x.id === id);
+      if (w) fn(w);
+    }, opts);
   }
 
   // ---------- rendering ----------
@@ -324,47 +393,6 @@ class Builder {
     return html;
   }
 
-  renderTop() {
-    const top = this.root.querySelector('.dbb-top') as HTMLElement;
-    const d = this.draft;
-    const canDelete = d.version > 0 && (d.ownerId === this.ctx.userId || this.ctx.isAdmin);
-    top.innerHTML = `
-      <div class="dbb-brand">Dashboard Builder</div>
-      <label class="dbb-field"><span>Machine</span><select data-a="machine">${this.machineOptions()}</select></label>
-      <button class="dbb-btn" data-a="open" title="Open an existing dashboard">Open…</button>
-      <label class="dbb-field grow"><span>Dashboard name</span><input data-a="name" maxlength="120" value="${esc(d.name)}"/></label>
-      <label class="dbb-field"><span>Time range</span><select data-a="range">${TIME_RANGES.map((r) => `<option ${r === d.timeRange ? 'selected' : ''}>${r}</option>`).join('')}</select></label>
-      <div class="dbb-tools">
-        <button class="dbb-btn icon" data-a="undo" title="Undo (Ctrl+Z)" ${this.undo.length ? '' : 'disabled'}>↶</button>
-        <button class="dbb-btn icon" data-a="redo" title="Redo (Ctrl+Shift+Z)" ${this.redo.length ? '' : 'disabled'}>↷</button>
-        <button class="dbb-btn" data-a="preview">${this.preview ? 'Edit' : 'Preview'}</button>
-        ${d.version > 0 ? `<button class="dbb-btn" data-a="versions" title="Version history">History</button>` : ''}
-        ${canDelete ? `<button class="dbb-btn danger" data-a="delete">Delete</button>` : ''}
-        ${d.version > 0 ? `<button class="dbb-btn" data-a="saveas">Save as</button>` : ''}
-        ${d.version > 0 ? `<button class="dbb-btn" data-a="apply">Apply to…</button>` : ''}
-        <button class="dbb-btn primary" data-a="save">${this.dirty() || d.version === 0 ? 'Save' : 'Saved'}</button>
-        <button class="dbb-btn icon" data-a="close" title="Close (Esc)" aria-label="Close">✕</button>
-      </div>`;
-    const q = (a: string) => top.querySelector(`[data-a="${a}"]`) as HTMLElement;
-    (q('machine') as HTMLSelectElement).onchange = (e) => void this.selectMachine((e.target as HTMLSelectElement).value || null);
-    (q('name') as HTMLInputElement).onchange = (e) => this.mutate((x) => (x.name = (e.target as HTMLInputElement).value.trim() || 'Untitled dashboard'));
-    (q('range') as HTMLSelectElement).onchange = (e) => this.mutate((x) => (x.timeRange = (e.target as HTMLSelectElement).value as any));
-    q('undo').onclick = () => this.undoLast();
-    q('redo').onclick = () => this.redoLast();
-    q('preview').onclick = () => {
-      this.preview = !this.preview;
-      this.selected = null;
-      this.renderAll();
-    };
-    q('open').onclick = () => void this.openDialog();
-    q('save').onclick = () => void this.save(false);
-    q('close').onclick = () => void this.close();
-    q('saveas')?.addEventListener('click', () => void this.save(true));
-    q('apply')?.addEventListener('click', () => void this.applyDialog());
-    q('versions')?.addEventListener('click', () => void this.versionsDialog());
-    q('delete')?.addEventListener('click', () => void this.deleteDialog());
-  }
-
   renderBanner() {
     const row = this.root.querySelector('.dbb-banner-row') as HTMLElement;
     const parts: string[] = [];
@@ -388,16 +416,74 @@ class Builder {
     row.hidden = !parts.length;
   }
 
+  renderTop() {
+    const top = this.root.querySelector('.dbb-top') as HTMLElement;
+    const d = this.draft;
+    const canDelete = d.version > 0 && (d.ownerId === this.ctx.userId || this.ctx.isAdmin);
+    const U = (p: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
+    top.innerHTML = `
+      <div class="dbb-brand"><span class="dbb-logo">${U('<rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="5" rx="2"/><rect x="13" y="10" width="8" height="11" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/>')}</span><span>Dashboard Builder</span></div>
+      <label class="dbb-field"><span>Machine</span><select data-a="machine">${this.machineOptions()}</select></label>
+      <label class="dbb-field grow"><span>Dashboard name</span><input data-a="name" maxlength="120" value="${esc(d.name)}"/></label>
+      <label class="dbb-field"><span>Time range</span><select data-a="range">${TIME_RANGES.map((r) => `<option ${r === d.timeRange ? 'selected' : ''}>${r}</option>`).join('')}</select></label>
+      <div class="dbb-tools">
+        <button class="dbb-btn" data-a="open" title="Open an existing dashboard">${U('<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>')}Open</button>
+        <button class="dbb-btn" data-a="templates" title="Start from a template">${U('<path d="M12 3l2.4 5 5.6.8-4 3.9 1 5.5L12 15.6 7 18.2l1-5.5-4-3.9 5.6-.8z"/>')}Templates</button>
+        <span class="dbb-vsep"></span>
+        <button class="dbb-btn icon" data-a="undo" title="Undo (Ctrl+Z)" ${this.undo.length ? '' : 'disabled'}>${U('<path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>')}</button>
+        <button class="dbb-btn icon" data-a="redo" title="Redo (Ctrl+Shift+Z)" ${this.redo.length ? '' : 'disabled'}>${U('<path d="M15 14l5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h3"/>')}</button>
+        <button class="dbb-btn ${this.preview ? 'on' : ''}" data-a="preview">${U(this.preview ? '<path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>' : '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>')}${this.preview ? 'Edit' : 'Preview'}</button>
+        ${d.version > 0 ? `<button class="dbb-btn icon" data-a="versions" title="Version history">${U('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>')}</button>` : ''}
+        ${canDelete ? `<button class="dbb-btn icon danger" data-a="delete" title="Delete dashboard">${U('<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>')}</button>` : ''}
+        ${d.version > 0 ? `<button class="dbb-btn" data-a="saveas">Save as</button>` : ''}
+        ${d.version > 0 ? `<button class="dbb-btn" data-a="apply">Apply to…</button>` : ''}
+        <button class="dbb-btn primary" data-a="save">${this.dirty() || d.version === 0 ? 'Save' : '✓ Saved'}</button>
+        <button class="dbb-btn icon" data-a="close" title="Close (Esc)" aria-label="Close">${U('<path d="M6 6l12 12M18 6L6 18"/>')}</button>
+      </div>`;
+    const q = (a: string) => top.querySelector(`[data-a="${a}"]`) as HTMLElement;
+    (q('machine') as HTMLSelectElement).onchange = (e) => void this.selectMachine((e.target as HTMLSelectElement).value || null);
+    (q('name') as HTMLInputElement).onchange = (e) => this.mutate((x) => (x.name = (e.target as HTMLInputElement).value.trim() || 'Untitled dashboard'));
+    (q('range') as HTMLSelectElement).onchange = (e) => this.mutate((x) => (x.timeRange = (e.target as HTMLSelectElement).value as any));
+    q('undo').onclick = () => this.undoLast();
+    q('redo').onclick = () => this.redoLast();
+    q('preview').onclick = () => {
+      this.preview = !this.preview;
+      this.selected = null;
+      this.renderAll();
+    };
+    q('open').onclick = () => void this.openDialog();
+    q('templates').onclick = () => void this.templatesDialog();
+    q('save').onclick = () => void this.save(false);
+    q('close').onclick = () => void this.close();
+    q('saveas')?.addEventListener('click', () => void this.save(true));
+    q('apply')?.addEventListener('click', () => void this.applyDialog());
+    q('versions')?.addEventListener('click', () => void this.versionsDialog());
+    q('delete')?.addEventListener('click', () => void this.deleteDialog());
+  }
+
   renderLeft() {
     const left = this.root.querySelector('.dbb-left') as HTMLElement;
     left.hidden = this.preview;
-    left.innerHTML = `<div class="dbb-sec">Widgets</div>
-      <div class="dbb-palette">${WIDGET_TYPES.map(
-        (t) => `<button class="dbb-pal" draggable="true" data-t="${t}" title="Drag onto the canvas or click to add">${ICON[t]}<span>${WIDGET_LABELS[t]}</span></button>`,
-      ).join('')}</div>
-      <div class="dbb-hint">Drag a widget onto the canvas, or click to add it. Select a widget to set its data and look.</div>
-      <div class="dbb-sec" style="margin-top:14px">Layout</div>
+    const f = this.palFilter.trim().toLowerCase();
+    const match = (t: WidgetType) => !f || WIDGET_LABELS[t].toLowerCase().includes(f) || HELP[t].toLowerCase().includes(f);
+    left.innerHTML = `<div class="dbb-pal-search"><input type="search" placeholder="Search widgets" value="${esc(this.palFilter)}" aria-label="Search widgets"/></div>
+      ${WIDGET_GROUPS.map((g) => {
+        const ts = g.types.filter(match);
+        if (!ts.length) return '';
+        return `<div class="dbb-sec">${esc(g.title)}</div><div class="dbb-palette">${ts
+          .map((t) => `<button class="dbb-pal" draggable="true" data-t="${t}" title="${esc(HELP[t])} — drag onto the canvas or click to add">${ICON[t]}<span>${WIDGET_LABELS[t]}</span></button>`)
+          .join('')}</div>`;
+      }).join('') || '<div class="dbb-hint">No widget matches.</div>'}
       <div class="dbb-count">${this.draft.widgets.length} / ${MAX_WIDGETS} widgets</div>`;
+    const inp = left.querySelector('.dbb-pal-search input') as HTMLInputElement;
+    inp.oninput = () => {
+      this.palFilter = inp.value;
+      const pos = inp.selectionStart;
+      this.renderLeft();
+      const n = this.root.querySelector('.dbb-pal-search input') as HTMLInputElement;
+      n.focus();
+      n.setSelectionRange(pos, pos);
+    };
     left.querySelectorAll<HTMLElement>('.dbb-pal').forEach((p) => {
       p.ondragstart = (e) => {
         e.dataTransfer!.setData('text/dbb-widget', p.dataset.t!);
@@ -409,35 +495,45 @@ class Builder {
 
   renderCanvas() {
     const canvas = this.root.querySelector('.dbb-canvas') as HTMLElement;
+    const center = this.root.querySelector('.dbb-center') as HTMLElement;
     const empty = this.root.querySelector('.dbb-empty') as HTMLElement;
-    const env = { ctx: this.ctx, deviceId: this.deviceId, timeRange: this.draft.timeRange };
+    const themeSig = JSON.stringify(this.draft.theme ?? {});
+    const { dark } = applyTheme(center, this.draft.theme);
+    const env = { ctx: this.ctx, deviceId: this.deviceId, timeRange: this.draft.timeRange, theme: this.draft.theme ?? null, dark, editing: true };
     if (!this.grid) {
       this.grid = new Grid(canvas, env, {
         editable: true,
         onSelect: (id) => {
           if (this.preview) return;
+          const was = this.selected;
           this.selected = id;
-          if (id) this.tab = 'settings';
+          if (id && !was && this.tab === 'chat') this.tab = 'settings';
           this.grid!.setOptions({ selectedId: id });
           this.renderRight();
         },
         onChange: (ws) => this.mutate((d) => (d.widgets = ws as Widget[])),
         onDrop: (t, x, y) => this.addWidget(t as WidgetType, { x, y }),
+        onAction: (id, a) => (a === 'del' ? this.removeWidget(id) : this.duplicate(id)),
       });
+      (this.grid as any).__theme = themeSig;
     }
     canvas.classList.toggle('preview', this.preview);
     this.grid.setOptions({ selectedId: this.selected, highlight: this.highlight });
-    const envChanged = (this.grid as any).env?.deviceId !== this.deviceId || (this.grid as any).env?.timeRange !== this.draft.timeRange;
+    const g = this.grid as any;
+    const envChanged = g.env?.deviceId !== this.deviceId || g.env?.timeRange !== this.draft.timeRange || g.__theme !== themeSig;
+    g.__theme = themeSig;
     if (envChanged) this.grid.setEnv(env);
     this.grid.render(this.draft.widgets);
     empty.hidden = this.draft.widgets.length > 0;
     if (!this.draft.widgets.length) {
       const n = this.deviceId ? this.ctx.nodes.get(this.deviceId) : null;
+      const tpls = n ? TEMPLATES.slice(0, 4) : [];
       empty.innerHTML = `<div class="dbb-empty-card">
         <div class="dbb-empty-t">${n ? `Design a dashboard for ${esc(n.label)}` : 'Start a dashboard'}</div>
         <div class="dbb-empty-s">${n ? `Widgets set to <b>This machine</b> follow whichever ${esc(n.profile)} the dashboard is opened for.` : 'Pick a machine at the top to build a reusable machine dashboard, or build a standalone one from specific machines.'}</div>
+        ${tpls.length ? `<div class="dbb-tpl-grid mini">${tpls.map((t) => this.tplCard(t)).join('')}</div>` : ''}
         <div class="dbb-empty-a">
-          ${n ? `<button class="dbb-btn" data-a="default">Start from the default layout</button>` : ''}
+          ${n ? `<button class="dbb-btn" data-a="default">Simple default layout</button><button class="dbb-btn" data-a="alltpl">All templates…</button>` : ''}
           ${this.o.chatEnabled !== false ? `<button class="dbb-btn" data-a="chat">Describe it in chat</button>` : ''}
         </div>
         <div class="dbb-empty-s">…or drag widgets from the left.</div></div>`;
@@ -448,6 +544,8 @@ class Builder {
           d.widgets = defaultWidgets(this.ctx, p).map((w) => ({ ...w, id: newId() }));
         });
       });
+      empty.querySelector<HTMLElement>('[data-a="alltpl"]')?.addEventListener('click', () => void this.templatesDialog());
+      empty.querySelectorAll<HTMLElement>('[data-tpl]').forEach((b) => b.addEventListener('click', () => this.useTemplate(b.dataset.tpl!)));
       empty.querySelector<HTMLElement>('[data-a="chat"]')?.addEventListener('click', () => {
         this.tab = 'chat';
         this.renderRight();
@@ -458,18 +556,172 @@ class Builder {
     if (cnt) cnt.textContent = `${this.draft.widgets.length} / ${MAX_WIDGETS} widgets`;
   }
 
+  duplicate(id: string) {
+    const w = this.draft.widgets.find((x) => x.id === id);
+    if (!w) return;
+    if (this.draft.widgets.length >= MAX_WIDGETS) return toast(this.root, `A dashboard can have at most ${MAX_WIDGETS} widgets.`, 'warn');
+    const c: Widget = JSON.parse(JSON.stringify(w));
+    c.id = newId();
+    const p = firstFit(this.draft.widgets, c.w, c.h);
+    c.x = p.x;
+    c.y = p.y;
+    this.mutate((d) => d.widgets.push(c));
+    this.selected = c.id;
+    this.renderAll();
+  }
+
+  tplCard(t: (typeof TEMPLATES)[number]): string {
+    const [a, b, c] = t.swatch;
+    return `<button class="dbb-tpl" data-tpl="${t.id}" title="${esc(t.description)}">
+      <span class="pv" style="background:${a}"><i style="background:${PRESETS[t.theme.preset ?? 'light'].surface};grid-column:1/3"><b style="background:${b}"></b></i><i style="background:${PRESETS[t.theme.preset ?? 'light'].surface}"><b style="background:${c}"></b></i><i style="background:${PRESETS[t.theme.preset ?? 'light'].surface};grid-column:1/4"><b style="background:${b};width:70%"></b></i></span>
+      <span class="nm">${esc(t.name)}</span><span class="ds">${esc(t.description)}</span></button>`;
+  }
+
+  async useTemplate(id: string) {
+    const t = TEMPLATES.find((x) => x.id === id);
+    const n = this.deviceId ? this.ctx.nodes.get(this.deviceId) : null;
+    if (!t) return;
+    if (!n) return toast(this.root, 'Pick a machine at the top first; templates adapt to its properties.', 'warn');
+    if (this.draft.widgets.length && !(await confirmModal(this.root, `Use “${t.name}”?`, 'This replaces the widgets and theme of the current draft. You can undo it.', 'Use template'))) return;
+    const ws = t.build(this.ctx, n.profile, n.id);
+    if (!ws.length) return toast(this.root, `${n.profile} has no suitable properties for this template.`, 'warn');
+    this.mutate((d) => {
+      d.profile = n.profile;
+      d.widgets = ws;
+      d.theme = { ...t.theme };
+      if (!d.version && (/^(Untitled|.* dashboard)$/.test(d.name) || TEMPLATES.some((x) => d.name === `${n.profile} · ${x.name}`))) d.name = `${n.profile} · ${t.name}`;
+    });
+    this.selected = null;
+    this.renderAll();
+    toast(this.root, `Started from “${t.name}”. Everything is editable.`, 'ok');
+  }
+
+  async templatesDialog() {
+    const n = this.deviceId ? this.ctx.nodes.get(this.deviceId) : null;
+    const m = modal(
+      this.root,
+      'Start from a template',
+      `${n ? `<div class="dbb-hint">Templates adapt to the properties of <b>${esc(n.profile)}</b> machines. You can change everything afterwards.</div>` : `<div class="dbb-banner warn">Pick a machine at the top first; templates adapt to its properties.</div>`}
+       <div class="dbb-tpl-grid">${TEMPLATES.map((t) => this.tplCard(t)).join('')}</div>`,
+      [['cancel', 'Close']],
+    );
+    m.body.querySelectorAll<HTMLElement>('[data-tpl]').forEach((b) =>
+      b.addEventListener('click', () => {
+        m.close('pick');
+        void this.useTemplate(b.dataset.tpl!);
+      }),
+    );
+  }
+
   renderRight() {
     const right = this.root.querySelector('.dbb-right') as HTMLElement;
     right.hidden = this.preview;
     const chatOn = this.o.chatEnabled !== false;
-    right.innerHTML = `<div class="dbb-tabs">
-        <button class="dbb-tab ${this.tab === 'settings' ? 'on' : ''}" data-tab="settings">Widget settings</button>
-        ${chatOn ? `<button class="dbb-tab ${this.tab === 'chat' ? 'on' : ''}" data-tab="chat">Chat</button>` : ''}
-      </div><div class="dbb-panel"></div>`;
+    const w = this.draft.widgets.find((x) => x.id === this.selected);
+    if (!w && (this.tab === 'style' || this.tab === 'rules')) this.tab = 'settings';
+    const dataW = w && !CONTENT_TYPES.has(w.type) && w.type !== 'alarms';
+    if (w && this.tab === 'rules' && !dataW) this.tab = 'settings';
+    const tabs: [string, string][] = w
+      ? [
+          ['settings', 'Widget'],
+          ['style', 'Style'],
+          ...(dataW ? ([['rules', 'Colours']] as [string, string][]) : []),
+        ]
+      : [['settings', 'Dashboard']];
+    if (chatOn) tabs.push(['chat', 'Chat']);
+    right.innerHTML = `${w ? `<div class="dbb-sel-h"><span class="ic">${ICON[w.type]}</span><div><div class="t">${esc(w.title || WIDGET_LABELS[w.type])}</div><div class="s">${WIDGET_LABELS[w.type]}</div></div><button class="dbb-btn icon sm" data-desel title="Back to dashboard settings">✕</button></div>` : ''}
+      <div class="dbb-tabs">${tabs.map(([k, l]) => `<button class="dbb-tab ${this.tab === k ? 'on' : ''}" data-tab="${k}">${l}</button>`).join('')}</div><div class="dbb-panel"></div>`;
     right.querySelectorAll<HTMLElement>('.dbb-tab').forEach((t) => (t.onclick = () => ((this.tab = t.dataset.tab as any), this.renderRight())));
+    right.querySelector('[data-desel]')?.addEventListener('click', () => {
+      this.selected = null;
+      this.grid?.setOptions({ selectedId: null });
+      this.renderRight();
+    });
     const panel = right.querySelector('.dbb-panel') as HTMLElement;
     if (this.tab === 'chat' && chatOn) this.renderChat(panel);
+    else if (!w) this.renderTheme(panel);
+    else if (this.tab === 'style') this.renderStyle(panel, w);
+    else if (this.tab === 'rules') this.renderRules(panel, w);
     else this.renderSettings(panel);
+  }
+
+  renderTheme(panel: HTMLElement) {
+    themeEditor(panel, this.draft.theme, (t) => {
+      this.quiet('theme', (d) => {
+        if (t) d.theme = t;
+        else delete d.theme;
+      });
+      this.renderRight();
+    }, { onTemplates: () => void this.templatesDialog() });
+  }
+
+  renderStyle(panel: HTMLElement, w: Widget) {
+    styleEditor(panel, {
+      widget: w,
+      onChange: (style, extra) => {
+        this.quietWidget(w.id, 'style', (x) => {
+          if (style) x.settings.style = style;
+          else delete x.settings.style;
+          if (extra) for (const [k, v] of Object.entries(extra)) v === undefined ? delete (x.settings as any)[k] : ((x.settings as any)[k] = v);
+        });
+        this.renderRight();
+      },
+      onCopyToAll: () => {
+        const st = w.settings.style;
+        this.mutate((d) => d.widgets.forEach((x) => (st ? (x.settings.style = { ...st, icon: x.settings.style?.icon }) : delete x.settings.style)));
+        toast(this.root, 'Style copied to every widget (icons kept).', 'ok');
+      },
+      descriptionHost: (el) =>
+        richEditor(el, {
+          html: w.settings.description ?? '',
+          minHeight: 60,
+          onChange: (html) =>
+            this.quietWidget(w.id, 'desc', (x) => {
+              const txt = html.replace(/<[^>]+>/g, '').trim();
+              if (txt) x.settings.description = html;
+              else delete x.settings.description;
+            }),
+        }),
+    });
+  }
+
+  async renderRules(panel: HTMLElement, w: Widget) {
+    const profs = this.profilesForBinding(w);
+    const metas = (w.keys.length ? w.keys : []).map((k) => keyMeta(this.ctx, profs[0] ?? '', k));
+    if (!metas.length) {
+      panel.innerHTML = `<div class="dbb-hint">Choose a property in the Widget tab first.</div>`;
+      return;
+    }
+    let samples: Record<string, unknown> = {};
+    if (this.deviceId && w.binding.mode === 'current') {
+      try {
+        const l = await api.latest(this.deviceId, w.keys);
+        samples = Object.fromEntries(Object.entries(l).map(([k, v]) => [k, v?.value]));
+      } catch {
+        /* type inference falls back to metadata */
+      }
+      if (this.selected !== w.id || this.tab !== 'rules') return;
+    }
+    const cur = this.draft.widgets.find((x) => x.id === w.id) ?? w;
+    ruleEditor(panel, {
+      widget: cur,
+      metas,
+      samples,
+      onChange: (rules, extra) =>
+        this.quietWidget(w.id, 'rules', (x) => {
+          if (rules) {
+            x.settings.colorRules = rules;
+            delete x.settings.bands;
+            if (x.type === 'status') delete x.settings.statusMap;
+          } else if (!extra) {
+            delete x.settings.colorRules;
+            delete x.settings.bands;
+          }
+          if (extra) for (const [k, v] of Object.entries(extra)) v === undefined ? delete (x.settings as any)[k] : ((x.settings as any)[k] = v);
+          if (!rules && extra && 'bands' in extra) delete x.settings.colorRules;
+        }),
+    });
+    void initialRules;
   }
 
   // ---------- settings panel ----------
@@ -484,17 +736,14 @@ class Builder {
 
   renderSettings(panel: HTMLElement) {
     const w = this.draft.widgets.find((x) => x.id === this.selected);
-    if (!w) {
-      panel.innerHTML = `<div class="dbb-ph" style="height:auto;padding:24px 8px">Select a widget on the canvas to edit its data and appearance.</div>`;
-      return;
-    }
+    if (!w) return this.renderTheme(panel);
     const cap = WIDGET_CAPS[w.type];
+    const content = CONTENT_TYPES.has(w.type);
     const profiles = this.profilesForBinding(w);
     const allProfiles = [...new Set(scope.allDevices(this.ctx).map((d) => d.profile))];
     const nodes = [...this.ctx.nodes.values()].filter((n) => n.entityType === 'ASSET');
     const devices = scope.allDevices(this.ctx);
     const b = w.binding;
-    const s = w.settings;
     const keyRows = (() => {
       if (cap.keys[1] === 0) return '';
       const keyset = new Map<string, { name: string; unit: string }>();
@@ -511,27 +760,24 @@ class Builder {
 
     const srcOpt = (mode: string, label: string, allowed = true) =>
       allowed ? `<label class="dbb-check"><input type="radio" name="src-${w.id}" value="${mode}" ${b.mode === mode ? 'checked' : ''}/> <span>${label}</span></label>` : '';
-    const profSel = (cur: string | undefined, a: string) =>
-      `<select data-s="${a}">${allProfiles.map((p) => `<option ${p === cur ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select>`;
+    const profSel = (cur: string | undefined, a: string) => `<select data-s="${a}">${allProfiles.map((p) => `<option ${p === cur ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select>`;
+    const typeOpts = WIDGET_GROUPS.map((g) => `<optgroup label="${esc(g.title)}">${g.types.map((t) => `<option value="${t}" ${t === w.type ? 'selected' : ''}>${WIDGET_LABELS[t]}</option>`).join('')}</optgroup>`).join('');
 
     panel.innerHTML = `
       <div class="dbb-form">
-        <label class="dbb-field"><span>Title</span><input data-s="title" value="${esc(w.title)}" maxlength="120"/></label>
-        <label class="dbb-field"><span>Widget type</span><select data-s="type">${WIDGET_TYPES.map((t) => `<option value="${t}" ${t === w.type ? 'selected' : ''}>${WIDGET_LABELS[t]}</option>`).join('')}</select></label>
+        <label class="dbb-field"><span>${w.type === 'link' ? 'Button label' : 'Title'}</span><input data-s="title" value="${esc(w.title)}" maxlength="120" placeholder="${w.type === 'text' || w.type === 'image' || w.type === 'embed' ? 'Optional' : ''}"/></label>
+        <label class="dbb-field"><span>Widget type</span><select data-s="type">${typeOpts}</select></label>
         ${
-          w.type === 'text'
-            ? `<label class="dbb-field"><span>Text (Markdown: # heading, **bold**, - list)</span><textarea data-s="markdown" rows="6">${esc(s.markdown ?? '')}</textarea></label>`
+          content
+            ? `<div class="dbb-sec">Content</div>${this.contentFields(w)}`
             : `<div class="dbb-sec">1 · Data source</div>
         <div class="dbb-src">
           ${srcOpt('current', 'This machine <span class="dbb-muted">(whichever machine the dashboard is opened for)</span>', !!(this.deviceId || this.draft.profile))}
           ${srcOpt('fixed', 'Specific machines')}
           ${b.mode === 'fixed' ? `<div class="dbb-sub"><div class="dbb-keys">${devices
-            .map(
-              (d) =>
-                `<label class="dbb-check"><input type="${cap.multiDevice ? 'checkbox' : 'radio'}" data-s="dev" value="${d.id}" ${b.deviceIds.includes(d.id) ? 'checked' : ''}/> ${esc(d.label)} <span class="dbb-muted">${esc(d.profile)}</span></label>`,
-            )
+            .map((d) => `<label class="dbb-check"><input type="${cap.multiDevice ? 'checkbox' : 'radio'}" data-s="dev" value="${d.id}" ${b.deviceIds.includes(d.id) ? 'checked' : ''}/> ${esc(d.label)} <span class="dbb-muted">${esc(d.profile)}</span></label>`)
             .join('')}</div>${b.deviceIds.some((id) => !this.ctx.nodes.has(id)) ? `<div class="dbb-hint">Includes machines outside your access (kept).</div>` : ''}</div>` : ''}
-          ${cap.multiDevice ? srcOpt('siblings', 'Same-type machines at this machine\'s location', !!this.deviceId) : ''}
+          ${cap.multiDevice ? srcOpt('siblings', "Same-type machines at this machine's location", !!this.deviceId) : ''}
           ${b.mode === 'siblings' ? `<div class="dbb-sub">Type ${profSel(b.profile, 'sprof')}</div>` : ''}
           ${!cap.multiDevice ? srcOpt('nearest', 'Nearest machine of a type (e.g. the site weather station)', !!this.deviceId) : ''}
           ${b.mode === 'nearest' ? `<div class="dbb-sub">Type ${profSel(b.profile, 'sprof')}</div>` : ''}
@@ -545,8 +791,9 @@ class Builder {
           }
         </div>
         ${cap.keys[1] > 0 ? `<div class="dbb-sec">2 · Properties</div>${keyRows}` : ''}
-        <div class="dbb-sec">3 · Appearance</div>
-        ${this.appearanceFields(w)}`
+        <div class="dbb-sec">3 · Options</div>
+        ${this.appearanceFields(w)}
+        ${w.type !== 'alarms' ? `<div class="dbb-tip-row">Colours by value are in the <a href="#" data-go="rules">Colours</a> tab; fonts, icons and card look in <a href="#" data-go="style">Style</a>.</div>` : ''}`
         }
         <div class="dbb-row" style="margin-top:14px">
           <button class="dbb-btn" data-s="dup">Duplicate</button>
@@ -555,20 +802,30 @@ class Builder {
       </div>`;
 
     const on = (sel: string, ev: string, fn: (e: any) => void) => panel.querySelectorAll(sel).forEach((x) => x.addEventListener(ev, fn));
+    on('[data-go]', 'click', (e) => {
+      e.preventDefault();
+      this.tab = e.currentTarget.dataset.go;
+      this.renderRight();
+    });
     on('[data-s="title"]', 'change', (e) => this.updateWidget(w.id, (x) => (x.title = e.target.value)));
-    on('[data-s="markdown"]', 'change', (e) => this.updateWidget(w.id, (x) => (x.settings.markdown = e.target.value)));
     on('[data-s="type"]', 'change', (e) =>
       this.updateWidget(w.id, (x) => {
         const t = e.target.value as WidgetType;
         const c = WIDGET_CAPS[t];
+        const wasContent = CONTENT_TYPES.has(x.type);
         x.type = t;
         x.keys = x.keys.slice(0, c.keys[1]);
-        if (t === 'text') {
+        if (CONTENT_TYPES.has(t)) {
           x.binding = { mode: 'none' };
-          x.settings = { markdown: x.settings.markdown ?? `## ${x.title}` };
-        } else if (x.binding.mode === 'none') x.binding = this.deviceId ? { mode: 'current' } : { mode: 'fixed', deviceIds: [scope.allDevices(this.ctx)[0]?.id].filter(Boolean) as string[] };
+          const keep = { style: x.settings.style, description: x.settings.description, footer: x.settings.footer };
+          x.settings = t === 'text' ? { ...keep, html: x.settings.html ?? `<h2>${esc(x.title)}</h2>` } : t === 'link' ? { ...keep, linkKind: 'state', linkState: 'listing', linkDevice: 'location' } : { ...keep };
+        } else if (x.binding.mode === 'none' || wasContent) {
+          x.binding = this.deviceId ? { mode: 'current' } : { mode: 'fixed', deviceIds: [scope.allDevices(this.ctx)[0]?.id].filter(Boolean) as string[] };
+          this.fixKeys(x);
+        }
         if (!c.multiDevice && x.binding.mode === 'fixed') x.binding.deviceIds = x.binding.deviceIds.slice(0, 1);
         if (!c.multiDevice && (x.binding.mode === 'siblings' || x.binding.mode === 'nodeQuery')) x.binding = this.deviceId ? { mode: 'current' } : x.binding;
+        if (c.keys[0] > 0 && !x.keys.length) this.fixKeys(x);
         const size = DEFAULT_SIZE[t];
         if (size.w === 12) {
           x.x = 0;
@@ -582,7 +839,7 @@ class Builder {
         const mode = e.target.value;
         const curProf = this.deviceId ? this.ctx.nodes.get(this.deviceId)!.profile : allProfiles[0];
         if (mode === 'current') x.binding = { mode: 'current' };
-        if (mode === 'fixed') x.binding = { mode: 'fixed', deviceIds: this.deviceId ? [this.deviceId] : [devices[0]?.id].filter(Boolean) as string[] };
+        if (mode === 'fixed') x.binding = { mode: 'fixed', deviceIds: this.deviceId ? [this.deviceId] : ([devices[0]?.id].filter(Boolean) as string[]) };
         if (mode === 'siblings') x.binding = { mode: 'siblings', profile: curProf };
         if (mode === 'nearest') x.binding = { mode: 'nearest', profile: allProfiles.find((p) => p !== curProf) ?? curProf };
         if (mode === 'nodeQuery') x.binding = { mode: 'nodeQuery', nodeId: this.ctx.rootIds[0] ?? nodes[0]?.id, profile: curProf };
@@ -607,88 +864,157 @@ class Builder {
     on(`input[name="k-${w.id}"]`, 'change', () =>
       this.updateWidget(w.id, (x) => {
         const ks = [...panel.querySelectorAll<HTMLInputElement>(`input[name="k-${w.id}"]:checked`)].map((i) => i.value).slice(0, WIDGET_CAPS[x.type].keys[1]);
-        const wasAuto = !x.title || x.title === WIDGET_LABELS[x.type] || profiles.some((p) => x.keys[0] && keyMeta(this.ctx, p, x.keys[0]).displayName === x.title);
+        const wasAuto = !x.title || x.title === WIDGET_LABELS[x.type] || profiles.some((p) => x.keys[0] && x.title.startsWith(keyMeta(this.ctx, p, x.keys[0]).displayName));
         x.keys = ks;
         if (wasAuto && ks.length === 1 && profiles[0]) x.title = keyMeta(this.ctx, profiles[0], ks[0]).displayName;
       }),
     );
     this.wireAppearance(panel, w);
+    this.wireContent(panel, w);
     on('[data-s="del"]', 'click', () => this.removeWidget(w.id));
-    on('[data-s="dup"]', 'click', () => {
-      const c: Widget = JSON.parse(JSON.stringify(w));
-      c.id = newId();
-      const p = firstFit(this.draft.widgets, c.w, c.h);
-      c.x = p.x;
-      c.y = p.y;
-      this.mutate((d) => d.widgets.push(c));
-      this.selected = c.id;
-      this.renderAll();
-    });
+    on('[data-s="dup"]', 'click', () => this.duplicate(w.id));
   }
 
-  /** Drops keys that the new data source's machine types don't have. */
-  fixKeys(x: Widget) {
-    const profs = this.profilesForBinding(x);
-    const known = new Set(profs.flatMap((p) => (this.ctx.profileKeys[p] ?? []).map((k) => k.key)));
-    x.keys = x.keys.filter((k) => known.has(k));
-    if (!x.keys.length && WIDGET_CAPS[x.type].keys[0] > 0) {
-      const first = [...known].find((k) => !/status|hours/i.test(k)) ?? [...known][0];
-      if (first) x.keys = [first];
+  /** Content widgets: rich text, image, button/link, embedded page. */
+  contentFields(w: Widget): string {
+    const s = w.settings;
+    if (w.type === 'text') return `<div data-rte></div><div class="dbb-hint">Live values: pick <b>+ Live value</b> or type <code>{{key}}</code>. <code>{{machine}}</code>, <code>{{location}}</code>, <code>{{time}}</code> and <code>{{date}}</code> also work.</div>`;
+    if (w.type === 'image')
+      return `<label class="dbb-field"><span>Image address (https://…)</span><input data-c="url" value="${esc(s.url && !s.url.startsWith('data:') ? s.url : '')}" placeholder="https://example.com/logo.png"/></label>
+        <label class="dbb-field"><span>…or upload (PNG, JPG, SVG, max 150 KB)</span><input type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp,image/gif" data-c="file"/></label>
+        ${s.url?.startsWith('data:') ? `<div class="dbb-hint">Uploaded image in use. <a href="#" data-c="clearimg">Remove</a></div>` : ''}
+        <div class="dbb-field"><span>Fit</span><div class="dbb-seg sm"><button data-fit="contain" class="${(s.fit ?? 'contain') === 'contain' ? 'on' : ''}">Show whole image</button><button data-fit="cover" class="${s.fit === 'cover' ? 'on' : ''}">Fill the card</button></div></div>`;
+    if (w.type === 'embed')
+      return `<label class="dbb-field"><span>Page address (https://…)</span><input data-c="url" value="${esc(s.url ?? '')}" placeholder="https://…"/></label><div class="dbb-hint">Many sites (Google, YouTube pages, banking) refuse to be shown inside another page. Use their “embed” link where offered.</div>`;
+    // link
+    const devices = scope.allDevices(this.ctx);
+    const states: [string, string][] = [
+      ['default', 'Map page'],
+      ['listing', 'Listing page'],
+      ['machine', 'Machine page'],
+    ];
+    const kind = s.linkKind ?? 'state';
+    return `<div class="dbb-field"><span>Opens</span><div class="dbb-seg sm"><button data-lk="state" class="${kind === 'state' ? 'on' : ''}">A page of this app</button><button data-lk="url" class="${kind === 'url' ? 'on' : ''}">A website</button></div></div>
+      ${
+        kind === 'url'
+          ? `<label class="dbb-field"><span>Address (https://…)</span><input data-c="url" value="${esc(s.url ?? '')}" placeholder="https://…"/></label>`
+          : `<label class="dbb-field"><span>Page</span><select data-c="linkState">${states.map(([v, l]) => `<option value="${v}" ${(s.linkState ?? 'listing') === v ? 'selected' : ''}>${l}</option>`).join('')}${
+              s.linkState && !states.some(([v]) => v === s.linkState) ? `<option selected>${esc(s.linkState)}</option>` : ''
+            }</select></label>
+            <label class="dbb-field"><span>For</span><select data-c="linkDevice">
+              <option value="location" ${(s.linkDevice ?? 'location') === 'location' ? 'selected' : ''}>This machine's location</option>
+              <option value="current" ${s.linkDevice === 'current' ? 'selected' : ''}>This machine</option>
+              <option value="none" ${s.linkDevice === 'none' ? 'selected' : ''}>Nothing (page start)</option>
+              <optgroup label="A specific machine">${devices.map((d) => `<option value="${d.id}" ${s.linkDevice === d.id ? 'selected' : ''}>${esc(d.label)}</option>`).join('')}</optgroup>
+            </select></label>`
+      }
+      <div class="dbb-field"><span>Button style</span><div class="dbb-seg sm">${[
+        ['filled', 'Filled'],
+        ['outline', 'Outline'],
+        ['card', 'Tile'],
+      ]
+        .map(([v, l]) => `<button data-bs="${v}" class="${(s.buttonStyle ?? 'filled') === v ? 'on' : ''}">${l}</button>`)
+        .join('')}</div></div>
+      <div class="dbb-field"><span>Button colour</span><span class="dbb-colf"><label class="dbb-swatch" style="background:${esc(s.buttonColor ?? 'var(--accent)')}"><input type="color" data-c="buttonColor" value="${esc(s.buttonColor ?? '#2a78d6')}"/></label></span></div>
+      <div class="dbb-hint">Pick the button icon in the Style tab. Buttons don't navigate while you're editing.</div>`;
+  }
+
+  wireContent(panel: HTMLElement, w: Widget) {
+    const rte = panel.querySelector('[data-rte]') as HTMLElement | null;
+    if (rte) {
+      const profs = this.draft.profile ? [this.draft.profile] : this.deviceId ? [this.ctx.nodes.get(this.deviceId)!.profile] : [];
+      const ph = [
+        { key: 'machine', label: 'Machine name' },
+        { key: 'location', label: 'Location' },
+        { key: 'time', label: 'Current time' },
+        { key: 'date', label: "Today's date" },
+        ...profs.flatMap((p) => (this.ctx.profileKeys[p] ?? []).map((k) => ({ key: k.key, label: `${k.displayName}${k.unit ? ` (${k.unit})` : ''}` }))),
+      ];
+      richEditor(rte, {
+        html: w.settings.html ?? miniToHtml(w.settings.markdown ?? ''),
+        placeholders: ph,
+        minHeight: 160,
+        onChange: (html) =>
+          this.quietWidget(w.id, 'html', (x) => {
+            x.settings.html = html;
+            delete x.settings.markdown;
+          }),
+      });
     }
+    const set = (k: string, v: any, panelRefresh = false) =>
+      this.quietWidget(w.id, `c-${k}`, (x) => (v === undefined || v === '' ? delete (x.settings as any)[k] : ((x.settings as any)[k] = v)), { panel: panelRefresh });
+    panel.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-c]').forEach((inp) => {
+      const k = inp.dataset.c!;
+      if (k === 'file') {
+        inp.addEventListener('change', () => {
+          const f = (inp as HTMLInputElement).files?.[0];
+          if (!f) return;
+          if (f.size > 150 * 1024) return toast(this.root, 'That image is over 150 KB. Use a smaller file or an https:// address.', 'warn');
+          const r = new FileReader();
+          r.onload = () => set('url', String(r.result), true);
+          r.readAsDataURL(f);
+        });
+        return;
+      }
+      if (k === 'clearimg') {
+        inp.addEventListener('click', (e) => {
+          e.preventDefault();
+          set('url', undefined, true);
+        });
+        return;
+      }
+      inp.addEventListener(inp.type === 'color' ? 'input' : 'change', () => {
+        if (inp.type === 'color') (inp.parentElement as HTMLElement).style.background = inp.value;
+        set(k, k === 'url' ? inp.value.trim() : inp.value, k !== 'url' && inp.type !== 'color');
+      });
+    });
+    panel.querySelectorAll<HTMLElement>('[data-fit]').forEach((b) => b.addEventListener('click', () => set('fit', b.dataset.fit, true)));
+    panel.querySelectorAll<HTMLElement>('[data-lk]').forEach((b) => b.addEventListener('click', () => set('linkKind', b.dataset.lk, true)));
+    panel.querySelectorAll<HTMLElement>('[data-bs]').forEach((b) => b.addEventListener('click', () => set('buttonStyle', b.dataset.bs, true)));
   }
 
   appearanceFields(w: Widget): string {
     const s = w.settings;
-    const meta = this.profilesForBinding(w)[0] && w.keys[0] ? keyMeta(this.ctx, this.profilesForBinding(w)[0], w.keys[0]) : null;
+    const prof = this.profilesForBinding(w)[0];
+    const meta = prof && w.keys[0] ? keyMeta(this.ctx, prof, w.keys[0]) : null;
     const f: string[] = [];
     const num = (a: string, label: string, v: number | undefined, ph = '') =>
       `<label class="dbb-field half"><span>${label}</span><input type="number" step="any" data-ap="${a}" value="${v ?? ''}" placeholder="${esc(ph)}"/></label>`;
-    if (['value', 'gauge', 'line', 'bar', 'table'].includes(w.type)) {
+    const sel = (a: string, label: string, opts: [string, string][], cur: string | undefined, half = false) =>
+      `<label class="dbb-field ${half ? 'half' : ''}"><span>${label}</span><select data-ap="${a}">${opts.map(([v, l]) => `<option value="${v}" ${v === (cur ?? '') ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`;
+    const chk = (a: string, label: string, on: boolean) => `<label class="dbb-check"><input type="checkbox" data-ap="${a}" ${on ? 'checked' : ''}/> ${label}</label>`;
+    if (['value', 'kpi', 'gauge', 'progress', 'summary', 'multivalue', 'line', 'area', 'bar', 'table', 'donut', 'heatmap'].includes(w.type)) {
       f.push(`<div class="dbb-row">
         <label class="dbb-field half"><span>Unit</span><input data-ap="unit" value="${esc(s.unit ?? '')}" placeholder="${esc(meta?.unit ?? '')}"/></label>
         ${num('decimals', 'Decimals', s.decimals, String(meta?.decimals ?? 1))}</div>`);
     }
-    if (w.type === 'gauge') f.push(`<div class="dbb-row">${num('min', 'Min', s.min, String(meta?.min ?? 0))}${num('max', 'Max', s.max, String(meta?.max ?? 100))}</div>`);
-    if (w.type === 'value' || w.type === 'gauge') {
-      const b = s.bands ?? [];
-      const g = b[0]?.upTo ?? '';
-      const a = b[1]?.upTo ?? '';
-      f.push(`<div class="dbb-field"><span>Colour thresholds</span>
-        <div class="dbb-bands"><span class="dbb-dot" style="background:#0ca30c"></span> green up to <input type="number" step="any" data-ap="bandG" value="${g}"/>
-        <span class="dbb-dot" style="background:#fab219"></span> amber up to <input type="number" step="any" data-ap="bandA" value="${a}"/>
-        <span class="dbb-dot" style="background:#d03b3b"></span> red above</div></div>`);
+    if (w.type === 'gauge' || w.type === 'progress') f.push(`<div class="dbb-row">${num('min', 'Min', s.min, String(meta?.min ?? 0))}${num('max', 'Max', s.max, String(meta?.max ?? 100))}</div>`);
+    if (w.type === 'progress') f.push(sel('orientation', 'Direction', [['horizontal', 'Horizontal bar'], ['vertical', 'Vertical (tank)']], s.orientation ?? 'horizontal'));
+    if (w.type === 'kpi') {
+      f.push(chk('sparkline', 'Show trend sparkline', s.sparkline !== false));
+      f.push(sel('compare', 'Change badge', [['start', 'Change since start of range'], ['none', 'Hide']], s.compare ?? 'start'));
+      f.push(chk('upIsGood', 'Going up is good (green)', s.upIsGood !== false));
     }
-    if (w.type === 'status') {
-      const m = s.statusMap ?? [
-        { value: 1, label: 'Running', color: '#0ca30c' },
-        { value: 0, label: 'Stopped', color: '#8a8983' },
-      ];
-      f.push(`<div class="dbb-field"><span>Value → label</span>${m
-        .map((x, i) => `<div class="dbb-row"><input style="width:60px" data-sm="v${i}" value="${esc(x.value)}"/><input data-sm="l${i}" value="${esc(x.label)}"/><input type="color" data-sm="c${i}" value="${esc(x.color)}"/></div>`)
-        .join('')}</div>`);
+    if (['line', 'area', 'bar', 'heatmap'].includes(w.type) || (w.type === 'donut' && s.donutMode === 'devices'))
+      f.push(sel('agg', 'Aggregation', (w.type === 'line' || w.type === 'area' ? ['AVG', 'MIN', 'MAX', 'NONE'] : ['AVG', 'MIN', 'MAX', 'SUM']).map((a) => [a, a === 'NONE' ? 'Raw values' : a.toLowerCase()]) as [string, string][], s.agg ?? 'AVG'));
+    if (w.type === 'line' || w.type === 'area') {
+      f.push(chk('smooth', 'Smooth lines', !!s.smooth));
+      if (w.type === 'area') f.push(chk('stacked', 'Stack series (same unit only)', !!s.stacked));
+      f.push(chk('showLegend', 'Show legend', s.showLegend !== false));
     }
-    if (w.type === 'line' || w.type === 'bar')
-      f.push(`<label class="dbb-field"><span>Aggregation</span><select data-ap="agg">${(w.type === 'bar' ? ['AVG', 'MIN', 'MAX', 'SUM'] : ['AVG', 'MIN', 'MAX', 'NONE'])
-        .map((a) => `<option ${a === (s.agg ?? 'AVG') ? 'selected' : ''}>${a}</option>`)
-        .join('')}</select></label>`);
-    if (w.type === 'bar')
-      f.push(`<label class="dbb-field"><span>Group by</span><select data-ap="groupBy">${['day', 'hour', 'device']
-        .map((a) => `<option value="${a}" ${a === (s.groupBy ?? 'day') ? 'selected' : ''}>${a === 'device' ? 'compare machines' : a}</option>`)
-        .join('')}</select></label>`);
-    if (['line', 'bar', 'alarms'].includes(w.type))
-      f.push(`<label class="dbb-field"><span>Time range</span><select data-ap="timeRange"><option value="">Dashboard (${this.draft.timeRange})</option>${TIME_RANGES.map(
-        (r) => `<option ${r === s.timeRange ? 'selected' : ''}>${r}</option>`,
-      ).join('')}</select></label>`);
-    if (w.type === 'line') f.push(`<label class="dbb-check"><input type="checkbox" data-ap="showLegend" ${s.showLegend !== false ? 'checked' : ''}/> Show legend</label>`);
+    if (w.type === 'bar') f.push(sel('groupBy', 'Group by', [['day', 'Day'], ['hour', 'Hour'], ['device', 'Compare machines']], s.groupBy ?? 'day'));
+    if (w.type === 'donut') f.push(sel('donutMode', 'Show', [['state', 'Time in each state (one machine)'], ['devices', 'Share by machine']], s.donutMode ?? 'state'));
+    if (w.type === 'heatmap') f.push(sel('heatColor', 'Colours', [['blue', 'Blue scale'], ['orange', 'Orange scale'], ['rules', 'Use the Colours rules']], s.heatColor ?? 'blue'));
+    if (['line', 'area', 'bar', 'alarms', 'kpi', 'summary', 'donut', 'timeline', 'heatmap'].includes(w.type))
+      f.push(sel('timeRange', 'Time range', [['', `Dashboard (${this.draft.timeRange})`], ...TIME_RANGES.map((r) => [r, r] as [string, string])], s.timeRange ?? ''));
     if (w.type === 'alarms') {
       f.push(`<div class="dbb-field"><span>Severities</span><div class="dbb-row wrap">${['CRITICAL', 'MAJOR', 'MINOR', 'WARNING']
         .map((v) => `<label class="dbb-check"><input type="checkbox" data-sev value="${v}" ${!s.severities || s.severities.includes(v as any) ? 'checked' : ''}/> ${v.toLowerCase()}</label>`)
         .join('')}</div></div>`);
-      f.push(`<div class="dbb-row"><label class="dbb-field half"><span>Status</span><select data-ap="alarmStatus">${['ANY', 'ACTIVE', 'CLEARED']
-        .map((v) => `<option ${v === (s.alarmStatus ?? 'ANY') ? 'selected' : ''}>${v}</option>`)
-        .join('')}</select></label>${num('maxRows', 'Max rows', s.maxRows, '20')}</div>`);
+      f.push(`<div class="dbb-row">${sel('alarmStatus', 'Status', [['ANY', 'Any'], ['ACTIVE', 'Active'], ['CLEARED', 'Cleared']], s.alarmStatus ?? 'ANY', true)}${num('maxRows', 'Max rows', s.maxRows, '20')}</div>`);
     }
-    return f.join('') || '<div class="dbb-hint">No appearance options.</div>';
+    if (w.type === 'status') f.push(`<div class="dbb-hint">Set the labels and colours for each value in the <b>Colours</b> tab.</div>`);
+    return f.join('') || '<div class="dbb-hint">No options for this widget.</div>';
   }
 
   wireAppearance(panel: HTMLElement, w: Widget) {
@@ -698,24 +1024,18 @@ class Builder {
           const a = inp.dataset.ap!;
           const v = (inp as HTMLInputElement).type === 'checkbox' ? (inp as HTMLInputElement).checked : inp.value;
           const s: any = x.settings;
-          if (a === 'bandG' || a === 'bandA') {
-            const g = (panel.querySelector('[data-ap="bandG"]') as HTMLInputElement).value;
-            const am = (panel.querySelector('[data-ap="bandA"]') as HTMLInputElement).value;
-            if (g === '' && am === '') delete s.bands;
-            else
-              s.bands = [
-                { upTo: g === '' ? null : Number(g), color: '#0ca30c' },
-                ...(am !== '' ? [{ upTo: Number(am), color: '#fab219' }] : []),
-                { upTo: null, color: '#d03b3b' },
-              ].filter((b, i, arr) => !(b.upTo === null && i < arr.length - 1));
-            return;
-          }
           if (['decimals', 'min', 'max', 'maxRows'].includes(a)) {
             if (v === '') delete s[a];
             else s[a] = a === 'decimals' || a === 'maxRows' ? Math.max(0, Math.round(Number(v))) : Number(v);
-          } else if (a === 'showLegend') s.showLegend = v;
-          else if (v === '') delete s[a];
+          } else if (a === 'showLegend' || a === 'sparkline' || a === 'upIsGood') {
+            if (v) delete s[a];
+            else s[a] = false;
+          } else if (a === 'smooth' || a === 'stacked') {
+            if (v) s[a] = true;
+            else delete s[a];
+          } else if (v === '') delete s[a];
           else s[a] = v;
+          if (a === 'donutMode' && v === 'devices' && x.binding.mode === 'current') x.binding = this.deviceId ? { mode: 'siblings', profile: this.ctx.nodes.get(this.deviceId)!.profile } : x.binding;
         }),
       ),
     );
@@ -728,18 +1048,16 @@ class Builder {
         }),
       ),
     );
-    panel.querySelectorAll<HTMLInputElement>('[data-sm]').forEach((c) =>
-      c.addEventListener('change', () =>
-        this.updateWidget(w.id, (x) => {
-          const rows = [0, 1].map((i) => ({
-            value: (panel.querySelector(`[data-sm="v${i}"]`) as HTMLInputElement).value,
-            label: (panel.querySelector(`[data-sm="l${i}"]`) as HTMLInputElement).value,
-            color: (panel.querySelector(`[data-sm="c${i}"]`) as HTMLInputElement).value,
-          }));
-          x.settings.statusMap = rows.map((r) => ({ ...r, value: Number.isFinite(Number(r.value)) && r.value !== '' ? Number(r.value) : r.value }));
-        }),
-      ),
-    );
+  }
+
+  fixKeys(x: Widget) {
+    const profs = this.profilesForBinding(x);
+    const known = new Set(profs.flatMap((p) => (this.ctx.profileKeys[p] ?? []).map((k) => k.key)));
+    x.keys = x.keys.filter((k) => known.has(k));
+    if (!x.keys.length && WIDGET_CAPS[x.type].keys[0] > 0) {
+      const first = [...known].find((k) => !/status|hours/i.test(k)) ?? [...known][0];
+      if (first) x.keys = [first];
+    }
   }
 
   // ---------- chat panel ----------

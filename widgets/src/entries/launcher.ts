@@ -7,21 +7,26 @@ import { userContext, stateEntity, notifyChanged, currentState } from './common'
 import * as scope from '../core/scope';
 
 const BTN_CSS = `
-.dbb-nav{display:flex;align-items:center;gap:14px;height:100%;padding:0 60px 0 14px;background:#0a2458;color:#fff}
-.dbb-nav-app{font-size:17px;font-weight:500;letter-spacing:.02em}
-.dbb-nav-link{background:none;border:0;color:#fff;font:500 13px Roboto,Arial,sans-serif;opacity:.85;cursor:pointer;padding:6px 8px;border-radius:6px}
+.dbb-nav{display:flex;align-items:center;gap:14px;height:100%;padding:0 60px 0 16px;background:linear-gradient(90deg,#0a2458 0%,#123a7a 60%,#184f95 100%);color:#fff;box-shadow:0 2px 10px rgba(10,36,88,.25)}
+.dbb-nav-app{font-size:16px;font-weight:600;letter-spacing:.01em;display:flex;align-items:center;gap:9px;white-space:nowrap}
+.dbb-nav-app::before{content:"";width:26px;height:26px;border-radius:8px;background:linear-gradient(135deg,#6da7ec,#2a78d6);box-shadow:inset 0 0 0 5px rgba(255,255,255,.18)}
+.dbb-nav-link{background:none;border:0;color:#fff;font:500 13px Roboto,Arial,sans-serif;opacity:.8;cursor:pointer;padding:7px 12px;border-radius:999px;transition:background .15s,opacity .15s}
 .dbb-nav-link:hover{opacity:1;background:rgba(255,255,255,.1)}
-.dbb-nav-link.on{opacity:1;background:rgba(255,255,255,.16)}
-.dbb-nav-state{font-size:14px;font-weight:500;padding-left:12px;border-left:1px solid rgba(255,255,255,.3);white-space:nowrap}
+.dbb-nav-link.on{opacity:1;background:rgba(255,255,255,.18);box-shadow:inset 0 0 0 1px rgba(255,255,255,.18)}
+.dbb-nav-state{font-size:12px;font-weight:600;padding:4px 10px;border-radius:999px;background:rgba(255,255,255,.12);white-space:nowrap;text-transform:uppercase;letter-spacing:.05em}
 .dbb-nav-crumb{font-size:13px;opacity:.75;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.dbb-nav-user{display:flex;flex-direction:column;font-size:12px;line-height:1.2;text-align:right}
-.dbb-nav-user span{opacity:.75}
+.dbb-nav-user{display:flex;align-items:center;gap:9px;font-size:12px;line-height:1.2;text-align:right}
+.dbb-nav-user .who{display:flex;flex-direction:column}
+.dbb-nav-user .who span{opacity:.75}
+.dbb-nav-user .av{width:32px;height:32px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#eb6834,#e87ba4);font-weight:600;font-size:12px;box-shadow:0 0 0 2px rgba(255,255,255,.35)}
 .dbb-nav .dbb-launch{height:auto;padding:0}
 .dbb-launch{display:flex;align-items:center;justify-content:flex-end;height:100%;padding:0 4px}
-.dbb-launch button{display:inline-flex;align-items:center;gap:8px;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.08);color:inherit;
-  font:500 13px Roboto,Arial,sans-serif;padding:7px 12px;border-radius:6px;cursor:pointer;white-space:nowrap}
+.dbb-launch button{display:inline-flex;align-items:center;gap:8px;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.1);color:inherit;
+  font:600 13px Roboto,Arial,sans-serif;padding:8px 14px;border-radius:10px;cursor:pointer;white-space:nowrap;transition:background .15s,transform .1s}
+.dbb-nav .dbb-launch button{background:linear-gradient(135deg,#3987e5,#2a78d6);border-color:rgba(255,255,255,.25);box-shadow:0 2px 8px rgba(0,0,0,.2)}
 .dbb-launch.light button{border-color:#d7d6d1;background:#fff;color:#0b0b0b}
-.dbb-launch button:hover{filter:brightness(1.1)}
+.dbb-launch button:hover{filter:brightness(1.08)}
+.dbb-launch button:active{transform:scale(.98)}
 .dbb-launch svg{width:18px;height:18px}
 `;
 
@@ -93,7 +98,14 @@ export function init(tbCtx: any) {
         .then((c) => {
           const p = currentState(tbCtx).params ?? {};
           const ent = p.entityId?.id ? { id: p.entityId.id } : stateEntity(tbCtx);
-          (host.querySelector('.dbb-nav-user') as HTMLElement).innerHTML = `<b>${esc(c.displayName)}</b><span>${esc(c.role)}</span>`;
+          (host.querySelector('.dbb-nav-user') as HTMLElement).innerHTML = `<div class="who"><b>${esc(c.displayName)}</b><span>${esc(c.role)}</span></div><span class="av">${esc(
+            c.displayName
+              .split(/\s+/)
+              .map((x: string) => x[0] ?? '')
+              .join('')
+              .slice(0, 2)
+              .toUpperCase(),
+          )}</span>`;
           crumb.textContent = ent && c.nodes.has(ent.id) ? scope.pathLabel(c, ent.id) : '';
         })
         .catch(() => undefined);

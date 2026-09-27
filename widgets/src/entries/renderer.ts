@@ -9,7 +9,7 @@ import * as store from '../core/store';
 import type { UserContext } from '../core/scope';
 import type { Dashboard } from '../core/schema';
 import { Grid, GRID_CSS } from '../render/grid';
-import { CSS, ensureCss, esc, STATUS, ago } from '../render/theme';
+import { CSS, ensureCss, esc, STATUS, ago, applyTheme } from '../render/theme';
 import { defaultWidgets } from '../render/widgets';
 import { openBuilder } from '../builder/builder';
 import { BUILDER_CSS } from '../builder/styles';
@@ -18,14 +18,16 @@ import { audit } from '../core/audit';
 import { userContext, stateEntity, stateParam, CHANGED_EVENT, notifyChanged } from './common';
 
 const R_CSS = `
-.dbb-rend{height:100%;display:flex;flex-direction:column;background:#f6f6f4;position:relative}
-.dbb-rhead{display:flex;align-items:center;gap:10px;padding:10px 12px;background:#fff;border-bottom:1px solid var(--line);flex-wrap:wrap}
-.dbb-rtitle{font-size:18px;font-weight:500}
-.dbb-crumb{font-size:12px;color:var(--ink-3)}
-.dbb-src-chip{font-size:12px;color:var(--ink-2);background:#f1f0ec;border-radius:12px;padding:3px 10px}
+.dbb-rend{height:100%;display:flex;flex-direction:column;background:var(--plane);position:relative}
+.dbb-rhead{display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--surface);border-bottom:1px solid var(--line);flex-wrap:wrap}
+.dbb-rtitle{font-size:19px;font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap;letter-spacing:-.01em}
+.dbb-crumb{font-size:12px;color:var(--ink-3);margin-bottom:2px}
+.dbb-src-chip{font-size:12px;color:var(--ink-2);background:var(--grid);border-radius:999px;padding:4px 11px}
+.dbb-status-pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;border-radius:999px;padding:3px 10px 3px 8px;background:color-mix(in srgb,var(--pill) 14%,transparent);color:var(--ink)}
+.dbb-status-pill .dbb-dot{width:8px;height:8px;background:var(--pill);box-shadow:0 0 0 3px color-mix(in srgb,var(--pill) 25%,transparent)}
 .dbb-rtools{margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
-.dbb-rtools select{font:inherit;font-size:12px;padding:5px 6px;border:1px solid var(--line);border-radius:6px}
-.dbb-rbody{flex:1;overflow:auto;min-height:0}
+.dbb-rtools select{font:inherit;font-size:12px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink)}
+.dbb-rbody{flex:1;overflow:auto;min-height:0;padding:4px 6px}
 `;
 
 let seq = 0;
@@ -72,8 +74,16 @@ export function init(tbCtx: any) {
     }
   };
 
-  const ensureGrid = (ctx: UserContext, deviceId: string | null, range: string) => {
-    const env = { ctx, deviceId, timeRange: range };
+  const body = root.querySelector('.dbb-rbody') as HTMLElement;
+  const navigate = (stateId: string, nodeId: string | null) => {
+    const n = nodeId && st.ctx ? st.ctx.nodes.get(nodeId) : null;
+    const params = n ? { entityId: { id: n.id, entityType: n.entityType }, entityName: n.label, entityLabel: n.label } : {};
+    tbCtx.stateController?.openState?.(stateId, params, false);
+  };
+  const ensureGrid = (ctx: UserContext, deviceId: string | null, range: string, theme?: Dashboard['theme']) => {
+    const { dark } = applyTheme(root, theme);
+    void body;
+    const env = { ctx, deviceId, timeRange: range, theme: theme ?? null, dark, navigate };
     if (!st.grid) st.grid = new Grid(gridHost, env, { editable: false });
     else st.grid.setEnv(env);
     return st.grid;
@@ -114,7 +124,7 @@ export function init(tbCtx: any) {
       <div>
         <div class="dbb-crumb">${esc(scope.ancestors(ctx, deviceId).reverse().map((a) => a.label).join(' › '))}</div>
         <div class="dbb-rtitle">${esc(node.label)} <span class="dbb-muted" style="font-size:13px">${esc(node.profile)}</span>
-          <span class="dbb-chip" style="margin-left:8px"><span class="dbb-dot" style="background:${status[1]}"></span>${status[0]}${lastTs ? ` · ${ago(lastTs)}` : ''}</span></div>
+          <span class="dbb-status-pill" style="--pill:${status[1]}"><span class="dbb-dot"></span>${status[0]}${lastTs ? ` · ${ago(lastTs)}` : ''}</span></div>
       </div>
       ${admin ? `<span class="dbb-src-chip" title="Where this dashboard comes from">From: ${esc(label)}${dash ? ` · ${esc(dash.name)}` : ''}</span>` : ''}
       <div class="dbb-rtools">
@@ -132,7 +142,7 @@ export function init(tbCtx: any) {
         ${admin ? `<button class="dbb-btn primary" data-a="edit">${dash ? 'Edit dashboard' : 'Build a dashboard'}</button>` : ''}
       </div>`;
     const range = dash?.timeRange ?? '24h';
-    const grid = ensureGrid(ctx, deviceId, range);
+    const grid = ensureGrid(ctx, deviceId, range, dash?.theme);
     grid.render(dash ? dash.widgets : defaultWidgets(ctx, node.profile));
     const q = (a: string) => head.querySelector(`[data-a="${a}"]`) as HTMLElement | null;
     q('switch')?.addEventListener('change', (e) => {
@@ -178,7 +188,7 @@ export function init(tbCtx: any) {
     }
     head.innerHTML = `<div class="dbb-rtitle">${esc(d.name)}</div><span class="dbb-src-chip">By ${esc(d.ownerName)}</span>
       <div class="dbb-rtools">${ctx.isAdmin ? `<button class="dbb-btn primary" data-a="edit">Edit dashboard</button>` : ''}</div>`;
-    ensureGrid(ctx, null, d.timeRange).render(d.widgets);
+    ensureGrid(ctx, null, d.timeRange, d.theme).render(d.widgets);
     head.querySelector('[data-a="edit"]')?.addEventListener('click', () => openBuilder({ ctx, dashboardId: d.id, onClose: (ch) => ch && notifyChanged() }));
   }
 

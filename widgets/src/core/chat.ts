@@ -6,7 +6,8 @@ import { z } from 'zod';
 import * as api from './api';
 import type { UserContext, Node } from './scope';
 import * as scope from './scope';
-import { Dashboard, Widget, WIDGET_TYPES, WIDGET_CAPS, DEFAULT_SIZE, TIME_RANGES, MAX_WIDGETS, checkDashboard, dashboardKind, newId } from './schema';
+import { Dashboard, Widget, WIDGET_TYPES, WIDGET_CAPS, DEFAULT_SIZE, TIME_RANGES, MAX_WIDGETS, CONTENT_TYPES, WidgetSettings, DashboardTheme, THEME_PRESETS, ICONS, FONTS, checkDashboard, dashboardKind, newId } from './schema';
+import { sanitizeHtml } from '../render/rich';
 import { firstFit } from '../render/grid';
 
 // ---------- catalog + aliases ----------
@@ -68,21 +69,8 @@ const AliasBinding = z.discriminatedUnion('mode', [
   z.object({ mode: z.literal('none') }),
 ]);
 
-const Settings = z
-  .object({
-    unit: z.string().optional(),
-    decimals: z.number().int().min(0).max(6).optional(),
-    min: z.number().optional(),
-    max: z.number().optional(),
-    agg: z.enum(['NONE', 'AVG', 'MIN', 'MAX', 'SUM']).optional(),
-    groupBy: z.enum(['hour', 'day', 'device']).optional(),
-    timeRange: z.enum(TIME_RANGES).optional(),
-    severities: z.array(z.enum(['CRITICAL', 'MAJOR', 'MINOR', 'WARNING', 'INDETERMINATE'])).optional(),
-    alarmStatus: z.enum(['ACTIVE', 'CLEARED', 'ANY']).optional(),
-    maxRows: z.number().int().min(1).max(100).optional(),
-    markdown: z.string().max(2000).optional(),
-  })
-  .strict();
+/** The model may set any widget setting; html/description are sanitised on apply. */
+const Settings = WidgetSettings;
 
 export const Op = z.discriminatedUnion('op', [
   z.object({ op: z.literal('addWidget'), type: z.enum(WIDGET_TYPES), title: z.string().max(120), binding: AliasBinding, keys: z.array(z.string()).max(10), settings: Settings.optional() }),
@@ -100,6 +88,7 @@ export const Op = z.discriminatedUnion('op', [
   z.object({ op: z.literal('renameDashboard'), name: z.string().min(1).max(120) }),
   z.object({ op: z.literal('setMachineType'), machineType: z.string() }),
   z.object({ op: z.literal('setApplyTarget'), target: z.enum(['this', 'node', 'customer']), node: z.string().optional() }),
+  z.object({ op: z.literal('setTheme'), theme: DashboardTheme }),
 ]);
 export type Op = z.infer<typeof Op>;
 
@@ -130,6 +119,7 @@ export function draftForPrompt(draft: Dashboard, cat: Catalog) {
     name: draft.name,
     machineType: draft.profile,
     timeRange: draft.timeRange,
+    theme: draft.theme ?? null,
     widgets: draft.widgets.map((w, i) => ({
       widget: `W${i + 1}`,
       type: w.type,
@@ -230,10 +220,10 @@ export function applyOps(ctx: UserContext, draft: Dashboard, out: LlmOutput, cat
         warnings.push(`Stopped at the ${MAX_WIDGETS}-widget limit.`);
         continue;
       }
-      const binding = op.type === 'text' ? { mode: 'none' as const } : toBinding(op.binding, where);
+      const binding = CONTENT_TYPES.has(op.type) ? { mode: 'none' as const } : toBinding(op.binding, where);
       if (!binding) continue;
       const size = DEFAULT_SIZE[op.type];
-      const w: Widget = { id: newId(), type: op.type, title: op.title, x: 0, y: 0, w: size.w, h: size.h, binding, keys: op.keys, settings: { ...(op.settings ?? {}) } };
+      const w: Widget = { id: newId(), type: op.type, title: op.title, x: 0, y: 0, w: size.w, h: size.h, binding, keys: op.keys, settings: cleanSettings({ ...(op.settings ?? {}) }) };
       checkKeys(w, where);
       d.widgets.push(w);
       changed.added.push(w.id);
@@ -256,7 +246,8 @@ export function applyOps(ctx: UserContext, draft: Dashboard, out: LlmOutput, cat
         if (b) w.binding = b;
       }
       if (op.keys) w.keys = op.keys;
-      if (op.settings) w.settings = { ...w.settings, ...op.settings };
+      if (op.settings) w.settings = cleanSettings({ ...w.settings, ...op.settings });
+      if (op.type && CONTENT_TYPES.has(op.type)) w.binding = { mode: 'none' };
       checkKeys(w, where);
       changed.updated.push(w.id);
     } else if (op.op === 'removeWidget') {
@@ -267,7 +258,8 @@ export function applyOps(ctx: UserContext, draft: Dashboard, out: LlmOutput, cat
         changed.removed.push(d.widgets[idx].title);
         d.widgets.splice(idx, 1);
       }
-    } else if (op.op === 'setTimeRange') d.timeRange = op.range;
+    } else if (op.op === 'setTheme') d.theme = { ...(d.theme ?? {}), ...op.theme };
+    else if (op.op === 'setTimeRange') d.timeRange = op.range;
     else if (op.op === 'renameDashboard') d.name = op.name;
     else if (op.op === 'setMachineType') {
       if (!cat.profiles[op.machineType]) errs.push(`${where}: unknown machine type ${op.machineType}.`);
@@ -296,6 +288,13 @@ export function applyOps(ctx: UserContext, draft: Dashboard, out: LlmOutput, cat
   return { draft: parsed.success ? parsed.data : d, reply: out.reply, clarification: out.clarification ?? null, applyProposal, changed, warnings };
 }
 
+function cleanSettings(s: Widget['settings']): Widget['settings'] {
+  if (s.html !== undefined) s.html = sanitizeHtml(s.html);
+  if (s.description !== undefined) s.description = sanitizeHtml(s.description);
+  if (s.html !== undefined) delete s.markdown;
+  return s;
+}
+
 export class OpsError extends Error {
   constructor(public problems: string[]) {
     super(problems.join('\n'));
@@ -305,7 +304,7 @@ export class OpsError extends Error {
 /** Places newly added widgets: small cards in the top rows, charts full width below, tables/alarms last. */
 export function autoPlace(d: Dashboard, added: Set<string>) {
   const fixed = d.widgets.filter((w) => !added.has(w.id));
-  const rank = (t: string) => (['value', 'gauge', 'status'].includes(t) ? 0 : t === 'text' ? -1 : ['line', 'bar'].includes(t) ? 1 : 2);
+  const rank = (t: string) => (['value', 'kpi', 'gauge', 'progress', 'status', 'summary', 'link', 'image'].includes(t) ? 0 : t === 'text' ? -1 : ['line', 'area', 'bar', 'timeline', 'heatmap', 'donut', 'multivalue'].includes(t) ? 1 : 2);
   const news = d.widgets.filter((w) => added.has(w.id)).sort((a, b) => rank(a.type) - rank(b.type));
   const placed = [...fixed];
   for (const w of news) {
@@ -316,7 +315,7 @@ export function autoPlace(d: Dashboard, added: Set<string>) {
       w.y = p.y;
     } else {
       const bottom = Math.max(0, ...placed.map((p) => p.y + p.h));
-      if (r === 1 && w.type === 'line') {
+      if (r === 1 && (w.type === 'line' || w.type === 'area' || w.type === 'timeline')) {
         w.x = 0;
         w.w = 12;
         w.y = bottom;
@@ -345,7 +344,14 @@ export function systemPrompt(ctx: UserContext, cat: Catalog, currentMachineAlias
     '- Property keys must be the exact "key" values of the machine type. If a property does not exist, say so and list the available ones.',
     '- If a request matches more than one machine or widget and you cannot tell which, do not guess: set clarification with the question and 2-6 short options (use labels, not aliases), and return no ops.',
     '- Prefer binding mode "current" (the machine the dashboard is opened for) when the user wants a reusable dashboard for a machine type, and call setMachineType. Use "fixed" for specific named machines, "nodeQuery" for "all X in <node>", "siblings" to compare with other machines at the same location, "nearest" for e.g. the site weather station.',
-    `- Widget types: value (1 key, latest), gauge (1 key, latest, min/max), status (1 key, 0/1 -> Running/Stopped), line (1-10 series, timeseries; agg, timeRange override), bar (1 key; groupBy hour|day|device; agg AVG|MIN|MAX|SUM), table (keys as columns, machines as rows), alarms (severities, alarmStatus, maxRows), text (settings.markdown).`,
+    '- Widget types (keys = property keys):',
+    '  value (1 key, latest), kpi (1 key: latest + sparkline + % change; settings.sparkline, compare "start"|"none", upIsGood), gauge (1 key; min/max), progress (1 key level bar; min/max, orientation horizontal|vertical), status (1 key; labels via colorRules), multivalue (1-8 keys of one machine), summary (1 key: min/avg/max/now over the range),',
+    '  line (1-10 series; agg, smooth), area (like line, filled; stacked), bar (1 key; groupBy hour|day|device; agg AVG|MIN|MAX|SUM), donut (1 key; donutMode "state" = time in each state of one machine, "devices" = share by machine), timeline (1 key state strip, one row per machine), heatmap (1 key hour x day; heatColor blue|orange|rules),',
+    '  table (keys as columns, machines as rows), alarms (severities, alarmStatus, maxRows),',
+    '  text (settings.html: simple HTML with <h1>-<h3>, <p>, <b>, <i>, <u>, <ul>/<li>, <span style="color:#hex;font-size:18px;font-family:Inter">; live values as {{propertyKey}}, {{machine}}, {{location}}, {{time}}), image (settings.url https://), link (button: title = label; settings.linkKind "state"|"url", linkState "default"(map)|"listing"|"machine", linkDevice "current"|"location"|"none", url, buttonStyle filled|outline|card, buttonColor), embed (settings.url https://). Content widgets use binding {"mode":"none"} and no keys.',
+    '- Value-based colours: settings.colorRules = [{op, value, value2?, color:"#hex", label?, key?}] — op gt|gte|lt|lte|between|eq|neq for numbers, isTrue|isFalse for on/off values (e.g. runStatus 1/0), eq|neq|contains for text. First match wins; put the most severe first. Use status colours: good #0ca30c, warning #fab219, serious #ec835a, critical #d03b3b, neutral #8a8983. settings.colorTarget "background"|"accent"|"value"|"icon" chooses what a card colours; charts draw number rules as threshold lines; tables colour cells (use rule.key per column).',
+    `- Card look: settings.style = {bg, gradient, border none|thin|thick, borderColor, accentBar, radius 0-28, shadow none|soft|strong, padding compact|normal|roomy, hideTitle, titleColor, titleSize, titleWeight "400"-"700", titleAlign, titleFont, icon (${ICONS.join('|')}), iconColor, valueSize 12-72, valueColor, valueFont, align}. settings.description = help text (simple HTML) shown as an (i) tooltip; settings.footer = short note. Fonts: ${FONTS.join(', ')}.`,
+    `- Dashboard look: op setTheme {theme:{preset ${THEME_PRESETS.join('|')}, accent, font, bg, cardBg, bgImage (https), radius, shadow, density compact|normal|roomy, titleAlign}}. Only change the theme when the user asks about look, colours, style, dark mode or fonts.`,
     '- Do not set positions or sizes; layout is automatic.',
     `- At most ${MAX_WIDGETS} widgets. If asked for more, build up to the limit and say so.`,
     '- For vague requests, build a sensible overview (key values per machine, one trend chart, an alarm list) and say which choices you made.',
@@ -377,7 +383,7 @@ export const TOOL = {
         items: {
           type: 'object',
           properties: {
-            op: { type: 'string', enum: ['addWidget', 'updateWidget', 'removeWidget', 'setTimeRange', 'renameDashboard', 'setMachineType', 'setApplyTarget'] },
+            op: { type: 'string', enum: ['addWidget', 'updateWidget', 'removeWidget', 'setTimeRange', 'renameDashboard', 'setMachineType', 'setApplyTarget', 'setTheme'] },
             widget: { type: 'string', description: 'W alias for updateWidget/removeWidget' },
             type: { type: 'string', enum: [...WIDGET_TYPES] },
             title: { type: 'string' },
@@ -398,6 +404,7 @@ export const TOOL = {
             machineType: { type: 'string' },
             target: { type: 'string', enum: ['this', 'node', 'customer'] },
             node: { type: 'string' },
+            theme: { type: 'object', description: 'for setTheme' },
           },
           required: ['op'],
         },
@@ -434,7 +441,7 @@ export function normaliseToolInput(input: any): LlmOutput {
   const norm = ops.map((o: any) => {
     switch (o?.op) {
       case 'addWidget':
-        return { ...pick(o, ['op', 'type', 'title', 'keys', 'settings']), binding: bind(o.binding ?? { mode: o.type === 'text' ? 'none' : 'current' }), keys: o.keys ?? [], title: o.title ?? '' };
+        return { ...pick(o, ['op', 'type', 'title', 'keys', 'settings']), binding: bind(o.binding ?? { mode: CONTENT_TYPES.has(o.type) ? 'none' : 'current' }), keys: o.keys ?? [], title: o.title ?? '' };
       case 'updateWidget':
         return { ...pick(o, ['op', 'widget', 'title', 'type', 'keys', 'settings']), ...(o.binding ? { binding: bind(o.binding) } : {}) };
       case 'removeWidget':
@@ -447,6 +454,8 @@ export function normaliseToolInput(input: any): LlmOutput {
         return pick(o, ['op', 'machineType']);
       case 'setApplyTarget':
         return pick(o, ['op', 'target', 'node']);
+      case 'setTheme':
+        return pick(o, ['op', 'theme']);
       default:
         return o;
     }

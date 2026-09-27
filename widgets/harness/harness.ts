@@ -6,9 +6,26 @@ import * as listing from '../src/entries/listing';
 
 const tb = ithena();
 const now = Date.now();
-const gen = (base: number, amp: number) => Array.from({ length: 300 }, (_, i) => ({ ts: now - (300 - i) * 5 * 60e3, value: +(base + amp * Math.sin(i / 20) + Math.random() * amp * 0.2).toFixed(2) }));
-tb.telemetry.set('rc', { dischargePressure: gen(7, 0.3), dischargeTemp: gen(85, 3), powerKw: gen(60, 3), runStatus: [{ ts: now, value: 1 }] });
-tb.telemetry.set('pc', { dischargePressure: gen(6.9, 0.3), dischargeTemp: gen(84, 3), runStatus: [{ ts: now, value: 1 }] });
+const N = 7 * 24 * 12; // 7 days of 5-minute points
+const gen = (base: number, amp: number, seed = 1) =>
+  Array.from({ length: N }, (_, i) => {
+    const ts = now - (N - i) * 5 * 60e3;
+    const h = new Date(ts).getHours();
+    const daily = Math.sin(((h - 6) / 24) * Math.PI * 2);
+    return { ts, value: +(base + amp * daily + amp * 0.35 * Math.sin(i / (17 + seed)) + (Math.random() - 0.5) * amp * 0.25).toFixed(2) };
+  });
+const run = () => {
+  const out: { ts: number; value: number }[] = [];
+  let v = 1;
+  for (let i = 0; i < N; i += 1) {
+    if (i % 12 === 0 && Math.random() < 0.09) v = v ? 0 : 1;
+    out.push({ ts: now - (N - i) * 5 * 60e3, value: v });
+  }
+  out[out.length - 1].value = 1;
+  return out;
+};
+tb.telemetry.set('rc', { dischargePressure: gen(7, 0.4), dischargeTemp: gen(85, 6), powerKw: gen(60, 8), runStatus: run() });
+tb.telemetry.set('pc', { dischargePressure: gen(6.9, 0.4, 3), dischargeTemp: gen(84, 7, 3), powerKw: gen(52, 9, 3), runStatus: run() });
 tb.telemetry.set('rd', { dewPoint: gen(3, 0.5) });
 tb.telemetry.set('pw', { temperature: gen(29, 4) });
 const role = new URLSearchParams(location.search).get('role') ?? 'Admin';

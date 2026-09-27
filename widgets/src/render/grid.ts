@@ -13,6 +13,8 @@ export interface GridOptions {
   onChange?(widgets: Widget[]): void;
   /** Called when a palette item is dropped: type and target cell. */
   onDrop?(type: string, x: number, y: number): void;
+  /** Quick actions on the selected widget (builder). */
+  onAction?(id: string, action: 'dup' | 'del'): void;
   highlight?: Set<string>;
 }
 
@@ -174,6 +176,17 @@ export class Grid {
       rz.title = 'Drag to resize';
       box.appendChild(bar);
       box.appendChild(rz);
+      const tools = document.createElement('div');
+      tools.className = 'dbb-gtools';
+      tools.innerHTML = `<button data-q="dup" title="Duplicate"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg></button><button data-q="del" title="Remove (Delete)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button>`;
+      tools.querySelectorAll<HTMLElement>('[data-q]').forEach((b) =>
+        b.addEventListener('mousedown', (e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          this.opts.onAction?.(box.dataset.id!, b.dataset.q as 'dup' | 'del');
+        }),
+      );
+      box.appendChild(tools);
       box.addEventListener('mousedown', () => this.opts.onSelect?.(box.dataset.id!));
       this.wireDrag(box, bar, 'move');
       this.wireDrag(box, rz, 'resize');
@@ -258,11 +271,18 @@ export class Grid {
 }
 
 export const GRID_CSS = `
-.dbb-gbox{transition:left .12s,top .12s,width .12s,height .12s}
-.dbb-gbox.dragging{transition:none;z-index:10;opacity:.9}
-.dbb-gbox.sel .dbb-card{outline:2px solid var(--accent);outline-offset:1px}
+.dbb-gbox{transition:left .15s,top .15s,width .15s,height .15s}
+.dbb-gbox.dragging{transition:none;z-index:10;opacity:.92}
+.dbb-gbox.dragging .dbb-card{box-shadow:0 12px 32px rgba(16,24,40,.22)}
+.dbb-gbox.sel .dbb-card{outline:2px solid var(--accent);outline-offset:2px}
 .dbb-gbox.hl .dbb-card{box-shadow:0 0 0 3px #86b6ef}
-.dbb-gdrag{position:absolute;left:0;right:28px;top:0;height:28px;cursor:move}
-.dbb-gresize{position:absolute;right:0;bottom:0;width:16px;height:16px;cursor:nwse-resize;background:linear-gradient(135deg,transparent 50%,#b8b7b1 50%,#b8b7b1 60%,transparent 60%,transparent 70%,#b8b7b1 70%,#b8b7b1 80%,transparent 80%);border-bottom-right-radius:8px}
-.dbb-ghost{position:absolute;border:2px dashed var(--accent);border-radius:8px;background:rgba(42,120,214,.06);pointer-events:none}
+.dbb-gdrag{position:absolute;left:0;right:28px;top:0;height:30px;cursor:move;z-index:2}
+.dbb-gresize{position:absolute;right:2px;bottom:2px;width:16px;height:16px;cursor:nwse-resize;z-index:2;opacity:0;transition:opacity .15s;background:linear-gradient(135deg,transparent 50%,var(--ink-3) 50%,var(--ink-3) 60%,transparent 60%,transparent 70%,var(--ink-3) 70%,var(--ink-3) 80%,transparent 80%);border-bottom-right-radius:8px}
+.dbb-gbox:hover .dbb-gresize,.dbb-gbox.sel .dbb-gresize{opacity:1}
+.dbb-gtools{position:absolute;top:6px;right:6px;display:none;gap:4px;z-index:3}
+.dbb-gbox.sel .dbb-gtools{display:flex}
+.dbb-gtools button{width:24px;height:24px;border-radius:6px;border:1px solid var(--line);background:var(--surface);color:var(--ink-2);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:0;box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.dbb-gtools button:hover{color:var(--accent);border-color:var(--accent)}
+.dbb-gtools svg{width:14px;height:14px}
+.dbb-ghost{position:absolute;border:2px dashed var(--accent);border-radius:var(--radius);background:color-mix(in srgb,var(--accent) 7%,transparent);pointer-events:none}
 `;
