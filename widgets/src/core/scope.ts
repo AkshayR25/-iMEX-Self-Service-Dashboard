@@ -63,7 +63,12 @@ export function parseSelectedNodes(raw: unknown): SelectedNode[] {
   return out;
 }
 
-export async function loadUserContext(): Promise<UserContext> {
+export interface LoadOptions {
+  /** Customer to show when a TENANT ADMIN opens the app (widget setting `customerId`). */
+  tenantCustomerId?: string | null;
+}
+
+export async function loadUserContext(opts: LoadOptions = {}): Promise<UserContext> {
   const me = await api.get<any>('/api/auth/user');
   const userRef = { id: me.id.id, entityType: 'USER' };
   const attrs = await api.getAttrs(userRef).catch(() => ({}) as Record<string, any>);
@@ -84,8 +89,22 @@ export async function loadUserContext(): Promise<UserContext> {
     warnings,
   };
 
-  const selected = parseSelectedNodes(attrs.selectedNodes);
-  if (!selected.length) warnings.push('No nodes are assigned to your user (selectedNodes is empty).');
+  let selected = parseSelectedNodes(attrs.selectedNodes);
+  // A tenant admin has no customer and no selectedNodes: show the configured customer's whole hierarchy.
+  if (me.authority === 'TENANT_ADMIN') {
+    ctx.isAdmin = true;
+    ctx.customerId = opts.tenantCustomerId ?? '';
+    if (!ctx.customerId) warnings.push('Opened as tenant admin: set the widget setting "customerId" to choose which customer to show.');
+    else if (!selected.length) {
+      const assets = await api.get<any>(`/api/customer/${ctx.customerId}/assets?pageSize=1000&page=0`).catch(() => ({ data: [] }));
+      const candidates = (assets.data as any[]).filter((a) => a.type !== 'DashboardStore');
+      const tops = await Promise.all(
+        candidates.map(async (a) => ((await api.parentsOf({ id: a.id.id, entityType: 'ASSET' }).catch(() => [])).some((p) => p.from.entityType === 'ASSET') ? null : a)),
+      );
+      selected = tops.filter(Boolean).map((a: any) => ({ entityId: a.id.id, entityType: 'ASSET', name: a.name }));
+    }
+  }
+  if (!selected.length && !warnings.length) warnings.push('No nodes are assigned to your user (selectedNodes is empty).');
 
   // resolve nodes without an entityId by name among the customer's assets
   const unresolved = selected.filter((s) => !s.entityId);

@@ -10,7 +10,7 @@ export function userContext(tbCtx: any, force = false): Promise<UserContext> {
   bindWidgetContext(tbCtx);
   if (!ctxPromise || force || Date.now() - ctxAt > 5 * 60e3) {
     ctxAt = Date.now();
-    ctxPromise = loadUserContext().catch((e) => {
+    ctxPromise = loadUserContext({ tenantCustomerId: tbCtx?.settings?.customerId || null }).catch((e) => {
       ctxPromise = null;
       throw e;
     });
@@ -40,3 +40,23 @@ export function stateParam(tbCtx: any, key: string): any {
 
 export const CHANGED_EVENT = 'imex-dbb:changed';
 export const notifyChanged = () => window.dispatchEvent(new CustomEvent(CHANGED_EVENT));
+
+/** Current dashboard state {id, params}. Reads the `state` URL parameter (entity state controller) first,
+ *  then the widget's state controller. Used by the navbar, which is not always told about state changes. */
+export function currentState(tbCtx: any): { id: string; params: any } {
+  try {
+    const raw = new URLSearchParams(location.search).get('state');
+    if (raw) {
+      const arr = JSON.parse(decodeURIComponent(escape(atob(raw.replace(/-/g, '+').replace(/_/g, '/')))));
+      const last = Array.isArray(arr) ? arr[arr.length - 1] : null;
+      if (last?.id) return { id: last.id, params: last.params ?? {} };
+    }
+  } catch {
+    /* fall through */
+  }
+  try {
+    return { id: tbCtx.stateController?.getStateId?.() || '', params: tbCtx.stateController?.getStateParams?.() ?? {} };
+  } catch {
+    return { id: '', params: {} };
+  }
+}

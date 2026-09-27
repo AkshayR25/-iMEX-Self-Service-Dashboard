@@ -131,6 +131,12 @@ If a non-admin edits a dashboard that is linked to more than one machine, or tha
 - **"Saved as a state"** means the per-machine layout stored in attributes and shown in the app's single `machine` state. Real ThingsBoard dashboard states can't be written by customer users (403), and writing them from a rule chain would need tenant credentials.
 - Personal views (D-013's `dbb_personal`) are still resolved if present, but nothing in the UI creates them any more.
 
+### D-018 Three dashboard states, 27 Sep 2026 (user decision)
+- The dashboard "iMEX App (POC)" has three real ThingsBoard states: `default` = **Map page** (site cards for Pune and Richmond, plus one button to the listing), `listing` = **Listing page** (clickable hierarchy on the left, machine cards in the centre), and `machine` = **Machine page** (the per-machine dashboard).
+- Clicking a site on the Map page opens the Listing page with that site selected. Clicking a machine in the tree or on a card opens the Machine page.
+- The navbar shows the current state's name. The navbar widget isn't notified of state changes, so it reads the `state` URL parameter every 500 ms.
+- Tenant-admin mode: when a tenant admin opens the dashboard, the widgets use the `customerId` setting and treat the customer's top-level assets as roots, with `isAdmin = true`. This lets the owner view and edit without a customer login. It is UI-only, like D-012.
+
 ## ThingsBoard quirks found
 
 - `GET /api/plugins/telemetry/.../values/timeseries` returns **at most 100 points** when `limit` is omitted and `agg` is NONE. The service must always pass `limit` (checked: 2,016 stored, 100 returned without a limit).

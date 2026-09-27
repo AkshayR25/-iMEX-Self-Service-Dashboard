@@ -3,7 +3,7 @@
 // widget can open the builder from its own button.
 import { openBuilder } from '../builder/builder';
 import { CSS, ensureCss, esc } from '../render/theme';
-import { userContext, stateEntity, notifyChanged } from './common';
+import { userContext, stateEntity, notifyChanged, currentState } from './common';
 import * as scope from '../core/scope';
 
 const BTN_CSS = `
@@ -11,6 +11,8 @@ const BTN_CSS = `
 .dbb-nav-app{font-size:17px;font-weight:500;letter-spacing:.02em}
 .dbb-nav-link{background:none;border:0;color:#fff;font:500 13px Roboto,Arial,sans-serif;opacity:.85;cursor:pointer;padding:6px 8px;border-radius:6px}
 .dbb-nav-link:hover{opacity:1;background:rgba(255,255,255,.1)}
+.dbb-nav-link.on{opacity:1;background:rgba(255,255,255,.16)}
+.dbb-nav-state{font-size:14px;font-weight:500;padding-left:12px;border-left:1px solid rgba(255,255,255,.3);white-space:nowrap}
 .dbb-nav-crumb{font-size:13px;opacity:.75;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dbb-nav-user{display:flex;flex-direction:column;font-size:12px;line-height:1.2;text-align:right}
 .dbb-nav-user span{opacity:.75}
@@ -36,7 +38,8 @@ export async function open(tbCtx: any, opts: { deviceId?: string | null; dashboa
   if (settings.adminOnly !== false && !ctx.isAdmin) throw new Error('Only admins can build dashboards.');
   const chatRoles = roleList(settings.chatEnabledRoles);
   const chatEnabled = settings.chatEnabled !== false && (!chatRoles.length || chatRoles.includes(ctx.role.toLowerCase()));
-  const ent = stateEntity(tbCtx);
+  const cp = currentState(tbCtx).params ?? {};
+  const ent = cp.entityId?.id ? { id: cp.entityId.id, entityType: cp.entityId.entityType } : stateEntity(tbCtx);
   openBuilder({
     ctx,
     deviceId: opts.deviceId ?? (ent?.entityType === 'DEVICE' ? ent.id : null),
@@ -56,9 +59,9 @@ export function init(tbCtx: any) {
     <span>${esc(s.label || 'Dashboard Builder')}</span></button>`;
   if (s.navbar) {
     host.innerHTML = `<div class="dbb-root dbb-nav"><div class="dbb-nav-app">${esc(s.appName || 'iMEX')}</div>
-      <button type="button" class="dbb-nav-link" data-go="${esc(s.homeState || 'default')}">${esc(s.homeLabel || 'Map')}</button>
-      <button type="button" class="dbb-nav-link" data-go="${esc(s.listingState || 'listing')}">${esc(s.listingLabel || 'Machines')}</button>
-      <div class="dbb-nav-crumb"></div><div style="flex:1"></div>
+      <button type="button" class="dbb-nav-link" data-go="${esc(s.homeState || 'default')}">${esc(s.homeLabel || 'Map page')}</button>
+      <button type="button" class="dbb-nav-link" data-go="${esc(s.listingState || 'listing')}">${esc(s.listingLabel || 'Listing page')}</button>
+      <div class="dbb-nav-state"></div><div class="dbb-nav-crumb"></div><div style="flex:1"></div>
       <div class="dbb-launch">${btnHtml}</div><div class="dbb-nav-user"></div></div>`;
     host.querySelectorAll<HTMLElement>('[data-go]').forEach(
       (b) =>
@@ -71,16 +74,42 @@ export function init(tbCtx: any) {
         }),
     );
     const crumb = host.querySelector('.dbb-nav-crumb') as HTMLElement;
-    const paint = () =>
+    const stateEl = host.querySelector('.dbb-nav-state') as HTMLElement;
+    // Current dashboard state shown in the navbar ("Map page" / "Listing page" / "Machine page").
+    const stateTitles: Record<string, string> = Object.assign(
+      { [s.homeState || 'default']: s.homeLabel || 'Map page', [s.listingState || 'listing']: s.listingLabel || 'Listing page', [s.machineState || 'machine']: s.machineLabel || 'Machine page' },
+      typeof s.stateTitles === 'object' && s.stateTitles ? s.stateTitles : {},
+    );
+    let lastKey = '';
+    const paintState = () => {
+      const cur = currentState(tbCtx);
+      const id = cur.id || s.homeState || 'default';
+      stateEl.textContent = stateTitles[id] ?? id;
+      host.querySelectorAll<HTMLElement>('[data-go]').forEach((b) => b.classList.toggle('on', b.dataset.go === id));
+    };
+    const paint = () => {
+      paintState();
       void userContext(tbCtx)
         .then((c) => {
-          const ent = stateEntity(tbCtx);
+          const p = currentState(tbCtx).params ?? {};
+          const ent = p.entityId?.id ? { id: p.entityId.id } : stateEntity(tbCtx);
           (host.querySelector('.dbb-nav-user') as HTMLElement).innerHTML = `<b>${esc(c.displayName)}</b><span>${esc(c.role)}</span>`;
           crumb.textContent = ent && c.nodes.has(ent.id) ? scope.pathLabel(c, ent.id) : '';
         })
         .catch(() => undefined);
+    };
     (tbCtx as any).__dbbPaint = paint;
     paint();
+    // The navbar widget stays mounted across states and is not always notified, so watch the state.
+    const watch = setInterval(() => {
+      const cur = currentState(tbCtx);
+      const key = cur.id + '|' + (cur.params?.entityId?.id ?? '');
+      if (key !== lastKey) {
+        lastKey = key;
+        paint();
+      }
+    }, 500);
+    (tbCtx as any).__dbbWatch = watch;
   } else host.innerHTML = `<div class="dbb-root dbb-launch ${s.lightStyle ? 'light' : ''}">${btnHtml}</div>`;
   const btn = host.querySelector('.dbb-launch-btn') as HTMLButtonElement;
   // Admin-only by default (settings.adminOnly=false shows it to everyone). Also hidden for roles in
@@ -121,6 +150,6 @@ export function onStateChanged(tbCtx: any) {
   (tbCtx as any).__dbbPaint?.();
 }
 
-export function destroy() {
-  /* overlay removes itself on close */
+export function destroy(tbCtx?: any) {
+  clearInterval(tbCtx?.__dbbWatch);
 }

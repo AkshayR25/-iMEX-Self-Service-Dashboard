@@ -31,7 +31,7 @@ self.typeParameters = function () { return { dataKeysOptional: true, datasources
 const out = {
   launcher: glue('launcher', 'self.onStateChanged = function () { IMEX_DBB.launcher.onStateChanged(self.ctx); };\n'),
   renderer: glue('renderer', 'self.onStateChanged = function () { IMEX_DBB.renderer.onStateChanged(self.ctx); };\n'),
-  listing: glue('listing'),
+  listing: glue('listing', 'self.onStateChanged = function () { IMEX_DBB.listing.onStateChanged(self.ctx); };\n'),
 };
 writeFileSync('widgets/dist/glue.json', JSON.stringify(out, null, 2));
 const gz = gzipSync(Buffer.from(lib, 'utf8'), { level: 9 });

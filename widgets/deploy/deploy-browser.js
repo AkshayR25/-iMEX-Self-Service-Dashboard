@@ -169,9 +169,12 @@ window.DBB_DEPLOY = async function (opts) {
           label: { title: 'Button label', type: 'string', default: 'Dashboard Builder' },
           adminOnly: { title: 'Show the button to admins only (Role = Admin)', type: 'boolean', default: true },
           homeState: { title: 'Home (map) state id', type: 'string', default: 'default' },
-          homeLabel: { title: 'Home link label', type: 'string', default: 'Map' },
+          homeLabel: { title: 'Home link label', type: 'string', default: 'Map page' },
           listingState: { title: 'Listing state id', type: 'string', default: 'listing' },
-          listingLabel: { title: 'Listing link label', type: 'string', default: 'Machines' },
+          listingLabel: { title: 'Listing link label', type: 'string', default: 'Listing page' },
+          machineState: { title: 'Machine state id', type: 'string', default: 'machine' },
+          machineLabel: { title: 'Machine state label', type: 'string', default: 'Machine page' },
+          customerId: { title: 'Customer id to show when a tenant admin opens the app', type: 'string', default: '' },
           navbar: { title: 'Render as full navbar (stand-in app)', type: 'boolean', default: false },
           appName: { title: 'App name (navbar mode)', type: 'string', default: 'iMEX' },
           lightStyle: { title: 'Light button (for light headers)', type: 'boolean', default: false },
@@ -180,11 +183,11 @@ window.DBB_DEPLOY = async function (opts) {
           hideForRoles: { title: 'Hide button for roles (comma separated)', type: 'string', default: '' },
         },
       },
-      form: ['label', 'adminOnly', 'navbar', 'appName', 'homeState', 'homeLabel', 'listingState', 'listingLabel', 'lightStyle', 'chatEnabled', 'chatEnabledRoles', 'hideForRoles'],
+      form: ['label', 'adminOnly', 'navbar', 'appName', 'homeState', 'homeLabel', 'listingState', 'listingLabel', 'machineState', 'machineLabel', 'customerId', 'lightStyle', 'chatEnabled', 'chatEnabledRoles', 'hideForRoles'],
     },
     renderer: {
-      schema: { type: 'object', properties: { refreshSeconds: { title: 'Refresh every (s)', type: 'number', default: 10 }, chatEnabled: { title: 'Enable chat in builder', type: 'boolean', default: true } } },
-      form: ['refreshSeconds', 'chatEnabled'],
+      schema: { type: 'object', properties: { refreshSeconds: { title: 'Refresh every (s)', type: 'number', default: 10 }, chatEnabled: { title: 'Enable chat in builder', type: 'boolean', default: true }, customerId: { title: 'Customer id for tenant admins', type: 'string', default: '' } } },
+      form: ['refreshSeconds', 'chatEnabled', 'customerId'],
     },
     listing: {
       schema: {
@@ -196,9 +199,11 @@ window.DBB_DEPLOY = async function (opts) {
           title: { title: 'Map mode: title', type: 'string', default: 'Map page' },
           buttonLabel: { title: 'Map mode: button label', type: 'string', default: 'Go to machine listing' },
           listingState: { title: 'Map mode: listing state id', type: 'string', default: 'listing' },
+          siteProfile: { title: 'Map mode: asset profile of the site nodes', type: 'string', default: 'Site' },
+          customerId: { title: 'Customer id for tenant admins', type: 'string', default: '' },
         },
       },
-      form: ['mode', 'machineState', 'dashboardState', 'title', 'buttonLabel', 'listingState'],
+      form: ['mode', 'machineState', 'dashboardState', 'title', 'buttonLabel', 'listingState', 'siteProfile', 'customerId'],
     },
   };
   const names = { launcher: 'iMEX Dashboard Builder button', renderer: 'iMEX Machine dashboard', listing: 'iMEX Listing / Map page (stand-in)' };
@@ -229,13 +234,12 @@ window.DBB_DEPLOY = async function (opts) {
   // --- stand-in app dashboard
   const wid = (n) => `dbb-${n}-0000-0000-000000000000`.slice(0, 36);
   const W = {
-    nav: { key: 'nav', fqn: 'tenant.imex_dbb_launcher', settings: { navbar: true, appName: o.appName, label: 'Dashboard Builder', adminOnly: true, homeState: 'default', homeLabel: 'Map', listingState: 'listing', listingLabel: 'Machines' }, bg: '#0a2458' },
-    map: { key: 'map', fqn: 'tenant.imex_dbb_listing', settings: { mode: 'map', title: 'Map page', buttonLabel: 'Go to machine listing', listingState: 'listing' }, bg: '#f6f6f4' },
-    list: { key: 'list', fqn: 'tenant.imex_dbb_listing', settings: { machineState: 'machine', dashboardState: 'dashboard' }, bg: '#f6f6f4' },
-    mach: { key: 'mach', fqn: 'tenant.imex_dbb_renderer', settings: { refreshSeconds: 10 }, bg: '#f6f6f4' },
-    dash: { key: 'dash', fqn: 'tenant.imex_dbb_renderer', settings: { refreshSeconds: 10 }, bg: '#f6f6f4' },
+    nav: { key: 'nav', fqn: 'tenant.imex_dbb_launcher', settings: { navbar: true, appName: o.appName, label: 'Dashboard Builder', adminOnly: true, homeState: 'default', homeLabel: 'Map page', listingState: 'listing', listingLabel: 'Listing page', machineState: 'machine', machineLabel: 'Machine page', customerId: cid }, bg: '#0a2458' },
+    map: { key: 'map', fqn: 'tenant.imex_dbb_listing', settings: { mode: 'map', title: 'Map page', buttonLabel: 'Go to machine listing', listingState: 'listing', siteProfile: 'Site', customerId: cid }, bg: '#f6f6f4' },
+    list: { key: 'list', fqn: 'tenant.imex_dbb_listing', settings: { machineState: 'machine', dashboardState: '', customerId: cid }, bg: '#f6f6f4' },
+    mach: { key: 'mach', fqn: 'tenant.imex_dbb_renderer', settings: { refreshSeconds: 10, customerId: cid }, bg: '#f6f6f4' },
   };
-  const ids = { nav: 'a1b2c3d4-0001-4000-8000-000000000001', list: 'a1b2c3d4-0002-4000-8000-000000000002', mach: 'a1b2c3d4-0003-4000-8000-000000000003', dash: 'a1b2c3d4-0004-4000-8000-000000000004', map: 'a1b2c3d4-0005-4000-8000-000000000005' };
+  const ids = { nav: 'a1b2c3d4-0001-4000-8000-000000000001', list: 'a1b2c3d4-0002-4000-8000-000000000002', mach: 'a1b2c3d4-0003-4000-8000-000000000003', map: 'a1b2c3d4-0005-4000-8000-000000000005' };
   void wid;
   const widgets = {};
   for (const [k, w] of Object.entries(W))
@@ -252,13 +256,12 @@ window.DBB_DEPLOY = async function (opts) {
   const grid = { layoutType: 'default', backgroundColor: '#f6f6f4', columns: 24, margin: 0, outerMargin: false, backgroundSizeMode: '100%', autoFillHeight: true, mobileAutoFillHeight: true, mobileRowHeight: 70 };
   const layout = (body) => ({ main: { widgets: { [ids.nav]: { sizeX: 24, sizeY: 1, row: 0, col: 0 }, [ids[body]]: { sizeX: 24, sizeY: 14, row: 1, col: 0 } }, gridSettings: grid } });
   const configuration = {
-    description: `${MARK} Stand-in for the production app: Map page → listing (hierarchy + cards) → machine dashboard. Navbar with an admin-only Dashboard Builder button`,
+    description: `${MARK} Stand-in for the production app, 3 states: Map page (sites) → Listing page (hierarchy + cards) → Machine page. Navbar shows the current state and an admin-only Dashboard Builder button`,
     widgets,
     states: {
       default: { name: 'Map page', root: true, layouts: layout('map') },
-      listing: { name: 'Machines', root: false, layouts: layout('list') },
-      machine: { name: '${entityName}', root: false, layouts: layout('mach') },
-      dashboard: { name: '${entityName}', root: false, layouts: layout('dash') },
+      listing: { name: 'Listing page', root: false, layouts: layout('list') },
+      machine: { name: 'Machine page', root: false, layouts: layout('mach') },
     },
     entityAliases: {},
     filters: {},

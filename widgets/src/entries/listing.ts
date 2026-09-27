@@ -6,7 +6,7 @@ import * as store from '../core/store';
 import type { UserContext, Node } from '../core/scope';
 import { CSS, ensureCss, esc, fmtNum, STATUS } from '../render/theme';
 import { keyMeta } from '../render/widgets';
-import { userContext, CHANGED_EVENT } from './common';
+import { userContext, stateEntity, CHANGED_EVENT } from './common';
 
 const L_CSS = `
 .dbb-list{display:flex;height:100%;background:#f6f6f4}
@@ -32,19 +32,79 @@ interface Card {
 }
 
 const M_CSS = `
-.dbb-map{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:#f6f6f4;padding:24px;text-align:center}
-.dbb-map h1{font-size:28px;font-weight:500;margin:0}
-.dbb-map .dbb-map-ph{width:min(720px,100%);height:240px;border:1px dashed #c9c8c2;border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--ink-3);background:#fff}
+.dbb-map{height:100%;overflow:auto;display:flex;flex-direction:column;align-items:center;gap:18px;background:#f6f6f4;padding:32px 24px;text-align:center}
+.dbb-map h1{font-size:26px;font-weight:500;margin:0}
+.dbb-sites{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,300px));gap:16px;justify-content:center;width:100%;max-width:980px}
+.dbb-site{background:#fff;border:1px solid var(--line);border-radius:10px;padding:16px;cursor:pointer;text-align:left;display:flex;flex-direction:column;gap:10px}
+.dbb-site:hover{border-color:var(--accent);box-shadow:0 2px 10px rgba(42,120,214,.14)}
+.dbb-site-h{display:flex;align-items:center;gap:8px}
+.dbb-site-h b{font-size:16px;font-weight:500;flex:1}
+.dbb-pin{width:28px;height:28px;border-radius:50%;background:#e3eefb;display:flex;align-items:center;justify-content:center;color:var(--accent)}
 `;
 
-/** Map page (settings.mode = 'map'): a title and a button to the listing. The map itself comes later. */
+/** Sites shown on the map page: assets of profile `siteProfile` (default 'Site'); otherwise the level below a single root. */
+export function mapNodes(ctx: Pick<UserContext, 'nodes' | 'rootIds'>, siteProfile = 'Site'): Node[] {
+  const sites = [...ctx.nodes.values()].filter((n) => n.entityType === 'ASSET' && n.profile.toLowerCase() === siteProfile.toLowerCase());
+  if (sites.length) return sites.sort((a, b) => a.label.localeCompare(b.label));
+  const roots = ctx.rootIds.map((id) => ctx.nodes.get(id)).filter(Boolean) as Node[];
+  if (roots.length === 1 && roots[0].entityType === 'ASSET') return roots[0].children.map((c) => ctx.nodes.get(c)!).filter((n) => n?.entityType === 'ASSET');
+  return roots.filter((n) => n.entityType === 'ASSET');
+}
+
+/** Map page (settings.mode = 'map'): title, one card per site (click opens the listing for that site), and a button to the listing. */
 function initMap(tbCtx: any, host: HTMLElement) {
+  ensureCss('dbb-css-list', L_CSS);
   ensureCss('dbb-css-map', M_CSS);
   const s = tbCtx.settings ?? {};
+  const listingState = s.listingState || 'listing';
   host.innerHTML = `<div class="dbb-root dbb-map"><h1>${esc(s.title || 'Map page')}</h1>
-    <div class="dbb-map-ph">Map placeholder</div>
+    <div class="dbb-sites"><div class="dbb-ph" style="height:auto">Loading sites…</div></div>
     <button type="button" class="dbb-btn primary" data-go>${esc(s.buttonLabel || 'Go to machine listing')}</button></div>`;
-  host.querySelector<HTMLElement>('[data-go]')!.onclick = () => tbCtx.stateController.openState(s.listingState || 'listing', {}, false);
+  const sitesEl = host.querySelector('.dbb-sites') as HTMLElement;
+  host.querySelector<HTMLElement>('[data-go]')!.onclick = () => tbCtx.stateController.openState(listingState, {}, false);
+  const openSite = (n: Node) =>
+    tbCtx.stateController.openState(listingState, { entityId: { id: n.id, entityType: 'ASSET' }, entityName: n.label, entityLabel: n.label }, false);
+  void (async () => {
+    try {
+      const ctx = await userContext(tbCtx);
+      const sites = mapNodes(ctx, s.siteProfile || 'Site');
+      if (!sites.length) {
+        sitesEl.innerHTML = `${ctx.warnings.map((w) => `<div class="dbb-banner warn">${esc(w)}</div>`).join('')}<div class="dbb-hint">No sites in your scope.</div>`;
+        return;
+      }
+      const cards = await Promise.all(
+        sites.map(async (n) => {
+          const devs = scope.devicesUnder(ctx, n.id);
+          const stats = await Promise.all(
+            devs.map(async (d) => {
+              const [lv, al] = await Promise.all([
+                api.latest(d.id, ['runStatus']).catch(() => ({}) as api.Latest),
+                api.alarms({ id: d.id, entityType: 'DEVICE' }, { status: 'ACTIVE', limit: 50 }).catch(() => []),
+              ]);
+              const ts = await lastTs(d.id);
+              const rs = lv.runStatus?.value;
+              const online = !!ts && Date.now() - ts < 5 * 60e3;
+              return { running: online && (rs === undefined || rs === null || (rs as any) === '' || Number(rs) === 1), alarms: al.length };
+            }),
+          );
+          const run = stats.filter((x) => x.running).length;
+          const alarms = stats.reduce((a, x) => a + x.alarms, 0);
+          return `<div class="dbb-site" role="button" tabindex="0" data-site="${n.id}">
+            <div class="dbb-site-h"><span class="dbb-pin"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s7-6.2 7-11.5A7 7 0 0 0 5 9.5C5 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg></span><b>${esc(n.label)}</b></div>
+            <div class="dbb-kv"><span>Machines</span><b>${devs.length}</b><span>Running</span><b>${run} of ${devs.length}</b><span>Active alarms</span><b>${alarms}</b></div>
+            <div class="dbb-chip">${alarms ? `<span class="dbb-dot" style="background:${STATUS.critical}"></span>${alarms} active alarm${alarms > 1 ? 's' : ''}` : `<span class="dbb-dot" style="background:${STATUS.good}"></span>No active alarms`}</div></div>`;
+        }),
+      );
+      sitesEl.innerHTML = cards.join('');
+      sitesEl.querySelectorAll<HTMLElement>('[data-site]').forEach((c) => {
+        const go = () => openSite(ctx.nodes.get(c.dataset.site!)!);
+        c.onclick = go;
+        c.onkeydown = (e) => (e.key === 'Enter' || e.key === ' ') && go();
+      });
+    } catch (e: any) {
+      sitesEl.innerHTML = `<div class="dbb-banner err">Could not load sites: ${esc(e.message ?? e)}</div>`;
+    }
+  })();
 }
 
 export function init(tbCtx: any) {
@@ -58,6 +118,7 @@ export function init(tbCtx: any) {
   const search = host.querySelector('.dbb-tree input') as HTMLInputElement;
   let ctx: UserContext;
   let selected: string | null = null;
+  let lastEnt: string | null = null;
   let timer: any;
 
   const openMachine = (n: Node) =>
@@ -139,7 +200,8 @@ export function init(tbCtx: any) {
     const children = n ? n.children.map((c) => ctx.nodes.get(c)!).filter(Boolean) : ctx.rootIds.map((r) => ctx.nodes.get(r)!).filter(Boolean);
     const cards = await Promise.all(children.map(async (c): Promise<Card> => ({ node: c, html: c.entityType === 'DEVICE' ? await deviceCard(c) : await nodeCard(c) })));
     let dashList = '';
-    try {
+    // standalone dashboards are listed only when the app has a state for them (settings.dashboardState not empty)
+    if (tbCtx.settings?.dashboardState !== '') try {
       const ds = (await store.listDashboards(ctx)).filter((d) => d.kind === 'standalone');
       if (ds.length)
         dashList = `<div class="dbb-h2">Dashboards</div><div class="dbb-cgrid">${ds
@@ -166,6 +228,9 @@ export function init(tbCtx: any) {
   const load = async (force = false) => {
     try {
       ctx = await userContext(tbCtx, force);
+      const ent = stateEntity(tbCtx);
+      if (ent && ent.entityType === 'ASSET' && ctx.nodes.has(ent.id) && ent.id !== lastEnt) selected = ent.id;
+      lastEnt = ent?.id ?? null;
       if (!selected && ctx.rootIds.length === 1) selected = ctx.rootIds[0];
       drawTree();
       await drawCards();
@@ -177,6 +242,7 @@ export function init(tbCtx: any) {
   const onChanged = () => void load(true);
   window.addEventListener(CHANGED_EVENT, onChanged);
   timer = setInterval(() => !document.hidden && ctx && void drawCards(), 10000);
+  (tbCtx as any).__dbbReload = () => void load();
   (tbCtx as any).__dbbCleanup = () => {
     clearInterval(timer);
     window.removeEventListener(CHANGED_EVENT, onChanged);
@@ -190,6 +256,10 @@ async function lastTs(deviceId: string): Promise<number> {
   if (!keys.length) return 0;
   const l = await api.latest(deviceId, keys.slice(0, 20)).catch(() => ({}) as api.Latest);
   return Math.max(0, ...Object.values(l).map((v) => v?.ts ?? 0));
+}
+
+export function onStateChanged(tbCtx: any) {
+  (tbCtx as any).__dbbReload?.();
 }
 
 export function destroy(tbCtx: any) {
