@@ -25,7 +25,7 @@ import type { UserContext, Node } from '../core/scope';
 import { CSS, ensureCss, esc, fmtNum, STATUS } from '../render/theme';
 import { keyMeta } from '../render/widgets';
 import { ICON_SVG } from '../render/icons';
-import { userContext, stateEntity, CHANGED_EVENT } from './common';
+import { userContext, stateEntity, CHANGED_EVENT, scheduleRedraw } from './common';
 
 const L_CSS = `
 .dbb-list{display:flex;height:100%;background:#f4f5f7}
@@ -172,7 +172,7 @@ function initMap(tbCtx: any, host: HTMLElement) {
  * left and cards for the children of the selected node (assets: machine/alarm/running summary; devices:
  * up to 4 catalogue values, status and alarms), plus standalone dashboards when enabled.
  *
- * Side effects: injects CSS once; 10 s refresh timer (skipped while the tab is hidden); CHANGED_EVENT
+ * Side effects: injects CSS once; live redraws (scheduleRedraw, D-021; 10 s REST polling if the socket is down); CHANGED_EVENT
  * listener; `tbCtx.__dbbReload` / `tbCtx.__dbbCleanup` hooks. REST reads only.
  */
 export function init(tbCtx: any) {
@@ -187,7 +187,6 @@ export function init(tbCtx: any) {
   let ctx: UserContext;
   let selected: string | null = null;
   let lastEnt: string | null = null;
-  let timer: any;
 
   const openMachine = (n: Node) =>
     tbCtx.stateController.openState(tbCtx.settings?.machineState || 'machine', { entityId: { id: n.id, entityType: 'DEVICE' }, entityName: n.label, entityLabel: n.label }, false);
@@ -317,10 +316,12 @@ export function init(tbCtx: any) {
   search.oninput = () => ctx && drawTree();
   const onChanged = () => void load(true);
   window.addEventListener(CHANGED_EVENT, onChanged);
-  timer = setInterval(() => !document.hidden && ctx && void drawCards(), 10000);
+  // Card values come from the WebSocket live cache (D-021): redraw on pushes (at most every 2 s) and every
+  // 60 s; REST polling every 10 s if the socket is down.
+  const stopRedraw = scheduleRedraw(() => ctx && void drawCards(), () => 10000);
   (tbCtx as any).__dbbReload = () => void load();
   (tbCtx as any).__dbbCleanup = () => {
-    clearInterval(timer);
+    stopRedraw();
     window.removeEventListener(CHANGED_EVENT, onChanged);
   };
   void load();

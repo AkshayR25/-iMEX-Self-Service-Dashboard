@@ -9,7 +9,7 @@
 // onStateChanged(self.ctx) (reloads for the new machine), destroy(self.ctx) on onDestroy.
 //
 // Settings (widgets/widget-types.mjs):
-//   refreshSeconds  base refresh tick in seconds (default 10)
+//   refreshSeconds  REST polling interval in seconds when the WebSocket is down (default 10)
 //   chatEnabled     enable the Chat tab when "Edit this dashboard" opens the builder
 //   customerId      customer to show when a tenant admin opens the app (D-018)
 //   dashboardId     (not in the settings form) standalone dashboard to show when the state has none
@@ -22,10 +22,10 @@
 // Edit actions (admins only, UI-only check, D-012) are not drawn here: they are published with
 // publishActions() for the navbar's edit menu (D-020, see common.ts). Reloads on CHANGED_EVENT.
 //
-// Refresh: a setInterval timer re-polls every widget over REST (grid.refreshAll): each tick in realtime
-// (10 s by default), every 60 s for historic ranges (D-020); skipped while the tab is hidden. This
-// polling is the place to move to ThingsBoard WebSocket subscriptions (ctx.subscriptionApi or
-// /api/ws telemetry) if server load or latency becomes a problem.
+// Refresh (D-021): values come over the ThingsBoard WebSocket (core/live.ts). The grid is redrawn when a
+// change is pushed (at most every 2 s) and every 60 s; redraws read the live cache, so they make almost no
+// REST calls (see core/api.ts). If the socket is down: REST polling as before (refreshSeconds, default 10 s,
+// in realtime; 60 s for historic ranges). Skipped while the tab is hidden. See common.ts scheduleRedraw.
 import * as api from '../core/api';
 import * as scope from '../core/scope';
 import * as store from '../core/store';
@@ -39,7 +39,7 @@ import { openBuilder } from '../builder/builder';
 import { BUILDER_CSS } from '../builder/styles';
 import { modal, confirmModal, toast } from '../builder/ui';
 import { audit } from '../core/audit';
-import { userContext, stateEntity, stateParam, CHANGED_EVENT, notifyChanged, publishActions, EditAction } from './common';
+import { userContext, stateEntity, stateParam, CHANGED_EVENT, notifyChanged, publishActions, EditAction, scheduleRedraw } from './common';
 
 const R_CSS = `
 .dbb-rend{height:100%;display:flex;flex-direction:column;background:var(--plane);position:relative}
@@ -82,7 +82,6 @@ export function init(tbCtx: any) {
     deviceId?: string | null;
     shownId?: string | null;
     override?: string | null; // dashboard picked in the switcher
-    timer?: any;
     lastKey?: string;
     range?: string;
     ticks?: number;
@@ -291,18 +290,15 @@ export function init(tbCtx: any) {
 
   const onChanged = () => void load(true);
   window.addEventListener(CHANGED_EVENT, onChanged);
-  // Realtime: refresh every 10 s (settings.refreshSeconds). Historic windows: every 60 s, to keep load down.
-  // The timer always ticks at refreshSeconds; historic ranges only act on every Nth tick (N = 60 / refreshSeconds).
-  // REST polling: candidate for replacement by ThingsBoard WebSocket subscriptions.
-  st.timer = setInterval(() => {
-    if (document.hidden) return;
-    st.ticks = (st.ticks ?? 0) + 1;
-    const every = st.range && st.range !== 'realtime' ? Math.max(1, Math.round(60 / (tbCtx.settings?.refreshSeconds ?? 10))) : 1;
-    if (st.ticks % every === 0) st.grid?.refreshAll();
-  }, (tbCtx.settings?.refreshSeconds ?? 10) * 1000);
+  // Redraws (D-021): on WebSocket pushes (at most every 2 s) + every 60 s; if the socket is down, REST polling
+  // every refreshSeconds (10 s) in realtime and every 60 s for historic ranges, as before.
+  const stopRedraw = scheduleRedraw(
+    () => st.grid?.refreshAll(),
+    () => (st.range && st.range !== 'realtime' ? 60e3 : (tbCtx.settings?.refreshSeconds ?? 10) * 1000),
+  );
   (tbCtx as any).__dbbCleanup = () => {
     window.removeEventListener(CHANGED_EVENT, onChanged);
-    clearInterval(st.timer);
+    stopRedraw();
     publishActions(id, null);
     st.grid?.destroy();
   };

@@ -15,6 +15,7 @@
  */
 import { bindWidgetContext } from '../core/api';
 import { loadUserContext, UserContext } from '../core/scope';
+import { liveHub } from '../core/live';
 
 let ctxPromise: Promise<UserContext> | null = null;
 let ctxAt = 0;
@@ -147,4 +148,40 @@ export function publishActions(owner: string, a: Omit<EditActions, 'owner'> | nu
 export function currentActions(): EditActions | null {
   const a = (window as any).__imexDbbActions as EditActions | null | undefined;
   return a && a.el?.isConnected ? a : null;
+}
+
+/**
+ * Redraw scheduling shared by the renderer and the listing (D-021).
+ * - WebSocket live: `redraw` runs when ThingsBoard pushes a change (batched: at most once per `minGapMs`),
+ *   plus a safety redraw every 60 s.
+ * - Socket down (or no WebSocket): polls like before, every `pollMs()` (read on each tick, so a range
+ *   change takes effect at once).
+ * Skipped while the browser tab is hidden. Returns a stop function (call it on widget destroy).
+ * @param pollMs fallback poll interval in ms (e.g. 10 000 realtime, 60 000 historic).
+ */
+export function scheduleRedraw(redraw: () => void, pollMs: () => number, minGapMs = 2000): () => void {
+  const L = liveHub();
+  let last = Date.now();
+  let queued: any = null;
+  const run = () => {
+    queued = null;
+    if (document.hidden) return;
+    last = Date.now();
+    redraw();
+  };
+  const off = L?.onChange(() => {
+    if (queued) return;
+    queued = setTimeout(run, Math.max(0, minGapMs - (Date.now() - last)));
+  });
+  // 1 s tick: decides between the fallback poll (socket down) and the 60 s safety redraw (socket live).
+  const tick = setInterval(() => {
+    const live = L?.isLive() ?? false;
+    const every = live ? 60e3 : pollMs();
+    if (Date.now() - last >= every) run();
+  }, 1000);
+  return () => {
+    off?.();
+    clearInterval(tick);
+    if (queued) clearTimeout(queued);
+  };
 }

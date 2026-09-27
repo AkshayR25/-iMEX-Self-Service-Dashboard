@@ -15,20 +15,26 @@
 //     storeName      name of that customer's DashboardStore asset (one per customer, D-012/D-013)
 //     appTitle       title of the stand-in app dashboard;  appName  text in its navbar
 //     bundleTitle    widget bundle title
-//     llmModel       model id written into the chat relay's "Build LLM request" node
+//     llmModel       default Claude model (used when dbb_llm_model_anthropic is not set on the config asset)
+//     openaiModel    default OpenAI model;  geminiModel  default Gemini model (same rule)
+//     llmConfigName  tenant-owned asset holding the LLM API key (default DBB-LLM-CONFIG; D-021)
 //     profileKeys    {profile: [{key, displayName, unit, decimals, min, max}]} catalogue, written to the
 //                    store as `dbb_profile_keys` (OVERWRITES the stored catalogue on every run)
 //     userEmails     customer users whose home dashboard becomes the stand-in app (empty in production)
 //
 // Steps (each is create-or-update, so the whole call is idempotent and safe to re-run per customer):
 //   1. Customer: looked up by title (throws if missing).
-//   2. Rule chain "DBB Chat relay (POC)" (D-014): created if missing, then its metadata is rewritten:
-//      Is chat request -> Build LLM request -> Call LLM (REST node, api.anthropic.com) -> Parse LLM reply /
-//      Error reply -> Save reply attribute (`dbb_chat_resp_<userId>`, SERVER_SCOPE). The existing "Call LLM"
-//      headers are kept, so the pasted API key (`x-api-key`) survives re-deploys.
+//   2. Rule chain "DBB Chat relay (POC)" (D-014, D-021): created if missing, then its metadata is rewritten:
+//      Is chat request -> Read LLM settings (config asset attributes via relation UsesLlmConfig) ->
+//      Build LLM request (provider picked from the key format) -> Pick provider -> Call Claude | Call OpenAI |
+//      Call Gemini -> Parse LLM reply / Error reply -> Save reply attribute (`dbb_chat_resp_<userId>`).
+//      A key pasted into the pre-D-021 "Call LLM" node is moved to the config asset (step 3b).
 //   3. Asset profile "DashboardStore" (must carry the POC marker if it exists) with the chat relay as its
 //      default rule chain; store asset `storeName` created if missing, assigned to the customer, and
 //      SERVER_SCOPE attributes `poc=true` + `dbb_profile_keys` written.
+//   3b. Tenant-owned asset `llmConfigName` (never assigned to a customer; the script refuses to continue if it
+//      is): attributes dbb_llm_api_key (empty until a tenant admin sets it), dbb_llm_model_{anthropic,openai,gemini}
+//      (defaults, written only when missing); relation store --UsesLlmConfig--> config asset.
 //   4. Widget bundle `bundleTitle` and the widget types tenant.imex_dbb_{launcher,renderer,listing}
 //      (controller script = library + glue; settings forms duplicated from widgets/widget-types.mjs),
 //      then the bundle's widget type list is set to those three.
@@ -51,6 +57,9 @@ window.DBB_DEPLOY = async function (opts) {
       appName: 'iMEX · ITHENA',
       bundleTitle: 'iMEX Self-Service (POC)',
       llmModel: 'claude-sonnet-5',
+      openaiModel: 'chat-latest',
+      geminiModel: 'gemini-flash-latest',
+      llmConfigName: 'DBB-LLM-CONFIG',
       profileKeys: {},
       userEmails: [],
     },
@@ -83,44 +92,115 @@ window.DBB_DEPLOY = async function (opts) {
   const customer = await api('GET', `/api/tenant/customers?customerTitle=${encodeURIComponent(o.customerTitle)}`);
   const cid = customer.id.id;
 
-  // --- rule chain for chat relay
+  // --- rule chain for chat relay (multi-provider, D-021)
+  // The API key is NOT stored in the rule chain or in any widget. It lives on a tenant-owned asset
+  // (`llmConfigName`, default DBB-LLM-CONFIG) that is never assigned to a customer, so customer users
+  // cannot read it (a customer-assigned asset's attributes are readable by every user of that customer).
+  // The chain reads it server-side through the relation store --UsesLlmConfig--> config asset.
   const rcName = 'DBB Chat relay (POC)';
   let rc = (await all(`/api/ruleChains?textSearch=${encodeURIComponent(rcName)}`)).find((x) => x.name === rcName);
-  if (!rc) rc = await api('POST', '/api/ruleChain', { name: rcName, type: 'CORE', debugMode: false, configuration: { description: `${MARK} Relays Dashboard Builder chat requests to the LLM. Paste the API key into the "Call LLM" node.` } });
+  if (!rc) rc = await api('POST', '/api/ruleChain', { name: rcName, type: 'CORE', debugMode: false, configuration: { description: `${MARK} Relays Dashboard Builder chat requests to the LLM (Claude, OpenAI or Gemini, picked from the key on ${o.llmConfigName}).` } });
   const existingMeta = await api('GET', `/api/ruleChain/${rc.id.id}/metadata`);
-  // Keep the headers (with the pasted API key) of an existing "Call LLM" node.
+  // A key pasted into the old single-provider "Call LLM" node (before D-021) is migrated to the config asset below.
   const oldRest = (existingMeta.nodes || []).find((n) => n.name === 'Call LLM');
-  const keepHeaders = oldRest && oldRest.configuration && oldRest.configuration.headers;
-  // TBEL scripts. The builder writes `dbb_chat_req` = {reqId, userId, body: {system, messages, tools, tool_choice}}
-  // on the store asset; replies go to `dbb_chat_resp_<userId>` = {reqId, ok, toolInput | error}.
+  const oldKey = oldRest && oldRest.configuration && oldRest.configuration.headers && oldRest.configuration.headers['x-api-key'];
+  const legacyKey = oldKey && !/PASTE_/.test(oldKey) && !oldKey.includes('${') ? oldKey : null;
+  // TBEL scripts. The builder writes `dbb_chat_req` = {reqId, userId, body} on the store asset, where body =
+  // {system, messages, tools, tool_choice (Anthropic format), openai: {tools, tool_choice}, gemini: {tools, toolConfig}}
+  // (core/chat.ts buildRequest). Replies go to `dbb_chat_resp_<userId>` =
+  // {reqId, ok, provider, toolInput | toolInputJson | error, usage}.
   const filterScript = "return msgType == 'ATTRIBUTES_UPDATED' && msg.dbb_chat_req != null && msg.dbb_chat_req.body != null;";
+  // Key -> provider: sk-ant-... = Anthropic, AIza... = Google Gemini, any other sk-... = OpenAI.
+  // Model per provider: config asset attribute dbb_llm_model_<provider>, else the default below.
   const buildScript = [
     'var req = msg.dbb_chat_req;',
     'var b = req.body;',
-    'metadata.reqId = "" + req.reqId;',
-    'metadata.userId = "" + req.userId;',
-    `var body = {model: '${o.llmModel}', max_tokens: 2048, system: b.system, messages: b.messages, tools: b.tools, tool_choice: b.tool_choice};`,
-    'return {msg: body, metadata: metadata, msgType: msgType};',
+    'var md = {reqId: "" + req.reqId, userId: "" + req.userId};',
+    'var key = metadata.llmKey;',
+    'if (key == null) { key = ""; }',
+    'key = key.trim();',
+    'var provider = "none";',
+    'if (key.startsWith("sk-ant-")) { provider = "anthropic"; } else if (key.startsWith("AIza")) { provider = "gemini"; } else if (key.startsWith("sk-")) { provider = "openai"; }',
+    'md.provider = provider;',
+    'md.llmKey = key;',
+    'var model = "";',
+    'var body = {};',
+    'var i = 0;',
+    'if (provider == "anthropic") {',
+    '  model = metadata.llmModelAnthropic;',
+    `  if (model == null || model == "") { model = "${o.llmModel}"; }`,
+    '  body = {model: model, max_tokens: 2048, system: b.system, messages: b.messages, tools: b.tools, tool_choice: b.tool_choice};',
+    '} else if (provider == "openai") {',
+    '  model = metadata.llmModelOpenai;',
+    `  if (model == null || model == "") { model = "${o.openaiModel}"; }`,
+    '  var msgs = [{role: "system", content: b.system}];',
+    '  for (i = 0; i < b.messages.size(); i++) { msgs.add(b.messages[i]); }',
+    '  body = {model: model, max_completion_tokens: 2048, messages: msgs, tools: b.openai.tools, tool_choice: b.openai.tool_choice};',
+    '} else if (provider == "gemini") {',
+    '  model = metadata.llmModelGemini;',
+    `  if (model == null || model == "") { model = "${o.geminiModel}"; }`,
+    '  var contents = [];',
+    '  for (i = 0; i < b.messages.size(); i++) {',
+    '    var m = b.messages[i];',
+    '    var role = "user";',
+    '    if (m.role == "assistant") { role = "model"; }',
+    '    contents.add({role: role, parts: [{text: m.content}]});',
+    '  }',
+    '  body = {systemInstruction: {parts: [{text: b.system}]}, contents: contents, tools: b.gemini.tools, toolConfig: b.gemini.toolConfig, generationConfig: {maxOutputTokens: 2048}};',
+    '} else {',
+    `  md.error = "NO_KEY";`,
+    '}',
+    'md.llmModel = model;',
+    'return {msg: body, metadata: md, msgType: msgType};',
   ].join('\n');
-  // NB: TBEL does not allow ternaries inside map literals (the ':' is parsed as a key separator).
+  const switchScript = 'return [metadata.provider];';
+  // NB: TBEL does not allow ternaries inside map literals (the ':' is parsed as a key separator);
+  // `function` is a keyword, hence tc[0]["function"].
   const parseScript = [
+    'var p = metadata.provider;',
     'var tool = null;',
-    'if (msg.content != null) { for (var i = 0; i < msg.content.size(); i++) { var c = msg.content[i]; if (c.type == "tool_use") { tool = c.input; } } }',
-    'var ok = tool != null;',
+    'var toolJson = "";',
+    'var usage = null;',
+    'var i = 0;',
+    'if (p == "openai") {',
+    '  if (msg.choices != null && msg.choices.size() > 0 && msg.choices[0].message != null) {',
+    '    var tc = msg.choices[0].message.tool_calls;',
+    '    if (tc != null && tc.size() > 0) { toolJson = "" + tc[0]["function"]["arguments"]; }',
+    '  }',
+    '  usage = msg.usage;',
+    '} else if (p == "gemini") {',
+    '  if (msg.candidates != null && msg.candidates.size() > 0 && msg.candidates[0].content != null) {',
+    '    var parts = msg.candidates[0].content.parts;',
+    '    if (parts != null) { for (i = 0; i < parts.size(); i++) { if (parts[i].functionCall != null) { tool = parts[i].functionCall.args; } } }',
+    '  }',
+    '  usage = msg.usageMetadata;',
+    '} else {',
+    '  if (msg.content != null) { for (i = 0; i < msg.content.size(); i++) { var c = msg.content[i]; if (c.type == "tool_use") { tool = c.input; } } }',
+    '  usage = msg.usage;',
+    '}',
+    'var ok = tool != null || toolJson != "";',
     'var errText = "";',
     'if (!ok) { errText = "The model returned no dashboard operations."; }',
-    'var resp = {reqId: metadata.reqId, ok: ok, toolInput: tool, usage: msg.usage, error: errText};',
+    'var resp = {reqId: metadata.reqId, ok: ok, provider: p, toolInput: tool, toolInputJson: toolJson, usage: usage, error: errText};',
     'var out = {};',
     'out["dbb_chat_resp_" + metadata.userId] = resp;',
     'var md = {reqId: "" + metadata.reqId, userId: "" + metadata.userId};',
     'return {msg: out, metadata: md, msgType: "POST_ATTRIBUTES_REQUEST"};',
   ].join('\n');
+  // Also reached when the config asset is not linked (related-data node failure) or no key is set.
+  // Never echoes the key: only the provider's error text, capped at 300 characters.
   const errScript = [
     'var err = "LLM call failed";',
     'if (metadata.error != null) { err = "" + metadata.error; }',
-    'if (err.contains("401") || err.contains("authentication")) { err = "The LLM API key in the DBB Chat relay rule chain is missing or invalid."; }',
+    'var p = metadata.provider;',
+    'if (p == null) { p = ""; }',
+    `if (err == "NO_KEY") { err = "No LLM API key is set. A tenant admin sets dbb_llm_api_key (Claude, OpenAI or Gemini key) on the asset ${o.llmConfigName}."; }`,
+    `else if (p == "") { err = "The chat relay could not read the LLM settings. Check that asset ${o.llmConfigName} exists and is linked to this store (relation UsesLlmConfig)."; }`,
+    `else if (err.contains("401") || err.contains("403") || err.contains("authentication") || err.contains("API key not valid") || err.contains("API_KEY_INVALID")) { err = "The " + p + " API key on ${o.llmConfigName} is invalid or has no access to the model."; }`,
+    'else if (err.contains("404")) { err = "The " + p + " model was not found. Set dbb_llm_model_" + p + " on the LLM config asset."; }',
+    'else if (err.contains("429")) { err = "The " + p + " API is rate-limited or out of credit. Try again later or switch the key."; }',
     'if (err.length() > 300) { err = err.substring(0, 300); }',
-    'var resp = {reqId: metadata.reqId, ok: false, status: "" + metadata.status, error: err};',
+    'var resp = {reqId: metadata.reqId, ok: false, provider: p, status: "" + metadata.status, error: err};',
     'var out = {};',
     'out["dbb_chat_resp_" + metadata.userId] = resp;',
     'var md = {reqId: "" + metadata.reqId, userId: "" + metadata.userId};',
@@ -128,62 +208,79 @@ window.DBB_DEPLOY = async function (opts) {
   ].join('\n');
   // Node order matters: connections below refer to nodes by index (0 = first node).
   const tbel = (s) => ({ scriptLang: 'TBEL', tbelScript: s, jsScript: 'return msg;' });
-  const nodes = [
-    { type: 'org.thingsboard.rule.engine.filter.TbJsFilterNode', name: 'Is chat request', configuration: { scriptLang: 'TBEL', tbelScript: filterScript, jsScript: 'return false;' }, additionalInfo: { layoutX: 300, layoutY: 150 } },
-    { type: 'org.thingsboard.rule.engine.transform.TbTransformMsgNode', name: 'Build LLM request', configuration: tbel(buildScript), additionalInfo: { layoutX: 550, layoutY: 150 } },
-    {
-      type: 'org.thingsboard.rule.engine.rest.TbRestApiCallNode',
-      name: 'Call LLM',
-      configurationVersion: 3,
-      configuration: {
-        restEndpointUrlPattern: 'https://api.anthropic.com/v1/messages',
-        requestMethod: 'POST',
-        headers: keepHeaders || { 'Content-Type': 'application/json', 'anthropic-version': '2023-06-01', 'x-api-key': 'PASTE_ANTHROPIC_API_KEY_HERE' },
-        useSimpleClientHttpFactory: false,
-        readTimeoutMs: 28000,
-        maxParallelRequestsCount: 4,
-        parseToPlainText: false,
-        enableProxy: false,
-        useSystemProxyProperties: false,
-        proxyHost: null,
-        proxyPort: 0,
-        proxyUser: null,
-        proxyPassword: null,
-        proxyScheme: null,
-        credentials: { type: 'anonymous' },
-        ignoreRequestBody: false,
-        maxInMemoryBufferSizeInKb: 512,
-      },
-      additionalInfo: { layoutX: 800, layoutY: 150 },
+  // One REST node per provider: each sends only its own auth header (the key comes from metadata.llmKey,
+  // set by "Build LLM request"; ThingsBoard substitutes ${...} in URL and header values).
+  const rest = (name, url, headers, y) => ({
+    type: 'org.thingsboard.rule.engine.rest.TbRestApiCallNode',
+    name,
+    configurationVersion: 3,
+    configuration: {
+      restEndpointUrlPattern: url,
+      requestMethod: 'POST',
+      headers: Object.assign({ 'Content-Type': 'application/json' }, headers),
+      useSimpleClientHttpFactory: false,
+      readTimeoutMs: 28000,
+      maxParallelRequestsCount: 4,
+      parseToPlainText: false,
+      enableProxy: false,
+      useSystemProxyProperties: false,
+      proxyHost: null,
+      proxyPort: 0,
+      proxyUser: null,
+      proxyPassword: null,
+      proxyScheme: null,
+      credentials: { type: 'anonymous' },
+      ignoreRequestBody: false,
+      maxInMemoryBufferSizeInKb: 512,
     },
-    { type: 'org.thingsboard.rule.engine.transform.TbTransformMsgNode', name: 'Parse LLM reply', configuration: tbel(parseScript), additionalInfo: { layoutX: 1050, layoutY: 100 } },
-    { type: 'org.thingsboard.rule.engine.transform.TbTransformMsgNode', name: 'Error reply', configuration: tbel(errScript), additionalInfo: { layoutX: 1050, layoutY: 250 } },
-    {
+    additionalInfo: { layoutX: 1050, layoutY: y },
+  });
+  const nodes = [
+    /* 0 */ { type: 'org.thingsboard.rule.engine.filter.TbJsFilterNode', name: 'Is chat request', configuration: { scriptLang: 'TBEL', tbelScript: filterScript, jsScript: 'return false;' }, additionalInfo: { layoutX: 300, layoutY: 150 } },
+    /* 1 */ {
+      type: 'org.thingsboard.rule.engine.metadata.TbGetRelatedAttributeNode',
+      name: 'Read LLM settings',
+      configurationVersion: 1,
+      configuration: {
+        relationsQuery: { direction: 'FROM', maxLevel: 1, fetchLastLevelOnly: false, filters: [{ relationType: 'UsesLlmConfig', entityTypes: ['ASSET'], negate: false }] },
+        dataToFetch: 'ATTRIBUTES',
+        dataMapping: { dbb_llm_api_key: 'llmKey', dbb_llm_model_anthropic: 'llmModelAnthropic', dbb_llm_model_openai: 'llmModelOpenai', dbb_llm_model_gemini: 'llmModelGemini' },
+        fetchTo: 'METADATA',
+      },
+      additionalInfo: { layoutX: 300, layoutY: 300 },
+    },
+    /* 2 */ { type: 'org.thingsboard.rule.engine.transform.TbTransformMsgNode', name: 'Build LLM request', configuration: tbel(buildScript), additionalInfo: { layoutX: 550, layoutY: 300 } },
+    /* 3 */ { type: 'org.thingsboard.rule.engine.filter.TbJsSwitchNode', name: 'Pick provider', configuration: { scriptLang: 'TBEL', tbelScript: switchScript, jsScript: 'return [metadata.provider];' }, additionalInfo: { layoutX: 800, layoutY: 300 } },
+    /* 4 */ rest('Call Claude', 'https://api.anthropic.com/v1/messages', { 'anthropic-version': '2023-06-01', 'x-api-key': '${llmKey}' }, 150),
+    /* 5 */ rest('Call OpenAI', 'https://api.openai.com/v1/chat/completions', { Authorization: 'Bearer ${llmKey}' }, 300),
+    /* 6 */ rest('Call Gemini', 'https://generativelanguage.googleapis.com/v1beta/models/${llmModel}:generateContent', { 'x-goog-api-key': '${llmKey}' }, 450),
+    /* 7 */ { type: 'org.thingsboard.rule.engine.transform.TbTransformMsgNode', name: 'Parse LLM reply', configuration: tbel(parseScript), additionalInfo: { layoutX: 1300, layoutY: 200 } },
+    /* 8 */ { type: 'org.thingsboard.rule.engine.transform.TbTransformMsgNode', name: 'Error reply', configuration: tbel(errScript), additionalInfo: { layoutX: 1300, layoutY: 420 } },
+    /* 9 */ {
       type: 'org.thingsboard.rule.engine.telemetry.TbMsgAttributesNode',
       name: 'Save reply attribute',
       configurationVersion: 3,
       configuration: { processingSettings: { type: 'ON_EVERY_MESSAGE' }, scope: 'SERVER_SCOPE', notifyDevice: false, sendAttributesUpdatedNotification: false, updateAttributesOnlyOnValueChange: false },
-      additionalInfo: { layoutX: 1300, layoutY: 150 },
+      additionalInfo: { layoutX: 1550, layoutY: 300 },
     },
   ];
+  const connections = [
+    { fromIndex: 0, toIndex: 1, type: 'True' },
+    { fromIndex: 1, toIndex: 2, type: 'Success' },
+    { fromIndex: 1, toIndex: 8, type: 'Failure' },
+    { fromIndex: 2, toIndex: 3, type: 'Success' },
+    { fromIndex: 2, toIndex: 8, type: 'Failure' },
+    { fromIndex: 3, toIndex: 4, type: 'anthropic' },
+    { fromIndex: 3, toIndex: 5, type: 'openai' },
+    { fromIndex: 3, toIndex: 6, type: 'gemini' },
+    { fromIndex: 3, toIndex: 8, type: 'none' },
+    { fromIndex: 3, toIndex: 8, type: 'Failure' },
+  ];
+  for (const r of [4, 5, 6]) connections.push({ fromIndex: r, toIndex: 7, type: 'Success' }, { fromIndex: r, toIndex: 8, type: 'Failure' });
+  connections.push({ fromIndex: 7, toIndex: 9, type: 'Success' }, { fromIndex: 7, toIndex: 8, type: 'Failure' }, { fromIndex: 8, toIndex: 9, type: 'Success' });
   // Replaces all nodes and connections of the chain (passing the current version for optimistic locking).
-  await api('POST', '/api/ruleChain/metadata', {
-    ruleChainId: rc.id,
-    version: existingMeta.version,
-    firstNodeIndex: 0,
-    nodes,
-    connections: [
-      { fromIndex: 0, toIndex: 1, type: 'True' },
-      { fromIndex: 1, toIndex: 2, type: 'Success' },
-      { fromIndex: 2, toIndex: 3, type: 'Success' },
-      { fromIndex: 2, toIndex: 4, type: 'Failure' },
-      { fromIndex: 1, toIndex: 4, type: 'Failure' },
-      { fromIndex: 3, toIndex: 5, type: 'Success' },
-      { fromIndex: 4, toIndex: 5, type: 'Success' },
-    ],
-    ruleChainConnections: null,
-  });
-  say(`rule chain "${rcName}" ${keepHeaders ? 'updated (existing API key kept)' : 'written (paste the API key into "Call LLM")'}`);
+  await api('POST', '/api/ruleChain/metadata', { ruleChainId: rc.id, version: existingMeta.version, firstNodeIndex: 0, nodes, connections, ruleChainConnections: null });
+  say(`rule chain "${rcName}" written (Claude / OpenAI / Gemini, key read from ${o.llmConfigName})`);
 
   // --- asset profile + store asset
   const apName = 'DashboardStore';
@@ -205,6 +302,29 @@ window.DBB_DEPLOY = async function (opts) {
   if (!store.customerId || store.customerId.id !== cid) await api('POST', `/api/customer/${cid}/asset/${store.id.id}`);
   await api('POST', `/api/plugins/telemetry/ASSET/${store.id.id}/attributes/SERVER_SCOPE`, { poc: true, dbb_profile_keys: o.profileKeys });
   say('store asset assigned to ' + o.customerTitle + ', profile keys written');
+
+  // --- tenant-owned LLM config asset (D-021): holds the API key; never assigned to a customer.
+  const NULL_CUSTOMER = '13814000-1dd2-11b2-8080-808080808080';
+  let cfg = await api('GET', `/api/tenant/assets?assetName=${encodeURIComponent(o.llmConfigName)}`, undefined, true);
+  if (!cfg) {
+    cfg = await api('POST', '/api/asset', { name: o.llmConfigName, label: 'LLM API key (tenant only, never assign to a customer)' });
+    say(`LLM config asset ${o.llmConfigName} created (tenant-owned)`);
+  }
+  // Safety: a customer-assigned config asset would expose the key to that customer's users.
+  if (cfg.customerId && cfg.customerId.id !== NULL_CUSTOMER) throw new Error(`${o.llmConfigName} is assigned to a customer; unassign it first (its API key would be readable by that customer's users).`);
+  const cfgAttrs = {};
+  for (const a of (await api('GET', `/api/plugins/telemetry/ASSET/${cfg.id.id}/values/attributes/SERVER_SCOPE`)) || []) cfgAttrs[a.key] = a.value;
+  // Only missing values are written, so a key or model set by an admin is never overwritten.
+  const cfgNew = { poc: true };
+  if (!cfgAttrs.dbb_llm_model_anthropic) cfgNew.dbb_llm_model_anthropic = o.llmModel;
+  if (!cfgAttrs.dbb_llm_model_openai) cfgNew.dbb_llm_model_openai = o.openaiModel;
+  if (!cfgAttrs.dbb_llm_model_gemini) cfgNew.dbb_llm_model_gemini = o.geminiModel;
+  if (!cfgAttrs.dbb_llm_api_key) cfgNew.dbb_llm_api_key = legacyKey || '';
+  await api('POST', `/api/plugins/telemetry/ASSET/${cfg.id.id}/attributes/SERVER_SCOPE`, cfgNew);
+  if (legacyKey && !cfgAttrs.dbb_llm_api_key) say('API key from the old "Call LLM" node moved to ' + o.llmConfigName);
+  // store --UsesLlmConfig--> config (read by the "Read LLM settings" node). Idempotent (POST updates in place).
+  await api('POST', '/api/relation', { from: store.id, to: cfg.id, type: 'UsesLlmConfig', typeGroup: 'COMMON' });
+  say(`store linked to ${o.llmConfigName}` + (cfgAttrs.dbb_llm_api_key || legacyKey ? '' : ' (set dbb_llm_api_key on it to enable chat)'));
 
   // --- widget bundle + types
   const bundles = await all('/api/widgetsBundles?tenantOnly=true');

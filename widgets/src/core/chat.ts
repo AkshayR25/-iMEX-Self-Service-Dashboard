@@ -1,16 +1,18 @@
-// core/chat.ts — chat-to-dashboard (DECISIONS D-014, D-020).
+// core/chat.ts — chat-to-dashboard (DECISIONS D-014, D-020, D-021).
 //
 // Flow of one chat turn (`chatTurn`, called by the builder's Chat tab):
 //   1. `buildCatalog` turns the user's scope into an aliased catalogue: assets N1.., machines D1..,
 //      machine types with their property keys, names, units and kinds. Raw ThingsBoard ids never
 //      reach the model; machines outside the user's scope that a draft still references are shown
 //      as OUTSIDE_ACCESS and cannot be referenced back.
-//   2. `buildRequest` makes an Anthropic Messages API body (system prompt + last 10 turns + the
-//      draft as JSON + the request) with ONE forced tool, `dashboard_ops` (TOOL below).
+//   2. `buildRequest` makes a provider-neutral body (system prompt + last 10 turns + the draft as
+//      JSON + the request) with ONE forced tool, `dashboard_ops` (TOOL below), in Anthropic, OpenAI
+//      and Gemini formats (PROVIDER_TOOLS, D-021).
 //   3. `ruleChainTransport` relays it through ThingsBoard, because the browser must not hold the API
 //      key and there is no backend: write `dbb_chat_req` on the store asset -> rule chain
-//      "DBB Chat relay (POC)" adds model/max_tokens, calls the Messages API with the key held in its
-//      "Call LLM" node -> writes `dbb_chat_resp_<userId>` = {reqId, ok, toolInput | error, usage}
+//      "DBB Chat relay (POC)" reads the key from the tenant-owned asset DBB-LLM-CONFIG, picks Claude /
+//      OpenAI / Gemini from the key format, adds model/max tokens, calls that provider -> writes
+//      `dbb_chat_resp_<userId>` = {reqId, ok, provider, toolInput | toolInputJson | error, usage}
 //      -> the widget polls that attribute (every 1.2 s, up to 30 s). No ThingsBoard MCP server or
 //      other service is involved; the model never calls ThingsBoard.
 //   4. `normaliseToolInput` + Zod (`LlmOutput`) validate the tool input; `applyOps` maps aliases
@@ -491,6 +493,42 @@ export const TOOL = {
   },
 };
 
+/**
+ * Converts TOOL.input_schema to the OpenAPI subset Gemini's `parameters` accepts (D-021):
+ * - `type: ['object', 'null']` -> `type: 'object', nullable: true` (Gemini rejects type arrays);
+ * - an object without `properties` (settings, theme) -> a string holding JSON (Gemini rejects free-form
+ *   objects); `normaliseToolInput` parses such strings back into objects.
+ * Pure function; unit-tested in widgets/test/rich.test.ts.
+ */
+export function geminiSchema(s: any): any {
+  if (!s || typeof s !== 'object') return s;
+  if (Array.isArray(s)) return s.map(geminiSchema);
+  const out: any = {};
+  for (const [k, v] of Object.entries(s)) out[k] = k === 'properties' ? Object.fromEntries(Object.entries(v as any).map(([pk, pv]) => [pk, geminiSchema(pv)])) : k === 'items' ? geminiSchema(v) : v;
+  if (Array.isArray(out.type)) {
+    const types: string[] = out.type;
+    out.type = types.find((x) => x !== 'null') ?? 'string';
+    if (types.includes('null')) out.nullable = true;
+  }
+  if (out.type === 'object' && !out.properties) return { type: 'string', description: `${out.description ? out.description + '; ' : ''}a JSON object encoded as a string` };
+  return out;
+}
+
+/**
+ * Tool definitions in each provider's format. The rule chain picks one from the API key (D-021);
+ * the widget never knows which provider answers.
+ */
+export const PROVIDER_TOOLS = {
+  openai: {
+    tools: [{ type: 'function', function: { name: TOOL.name, description: TOOL.description, parameters: TOOL.input_schema } }],
+    tool_choice: { type: 'function', function: { name: TOOL.name } },
+  },
+  gemini: {
+    tools: [{ functionDeclarations: [{ name: TOOL.name, description: TOOL.description, parameters: geminiSchema(TOOL.input_schema) }] }],
+    toolConfig: { functionCallingConfig: { mode: 'ANY', allowedFunctionNames: [TOOL.name] } },
+  },
+};
+
 /** One earlier chat message (plain text) kept by the builder for context. */
 export interface Turn {
   role: 'user' | 'assistant';
@@ -498,7 +536,10 @@ export interface Turn {
 }
 
 /**
- * Messages API request body (without model/max_tokens, which the rule chain adds).
+ * Provider-neutral request body (without model/max_tokens, which the rule chain adds). `system`,
+ * `messages` (plain-text content only), `tools`, `tool_choice` are in Anthropic Messages format; `openai`
+ * and `gemini` carry the same tool in those providers' formats. The rule chain "Build LLM request"
+ * reshapes system/messages for OpenAI and Gemini (D-021).
  * Sends the last 10 turns, then the aliased draft and the user's message; `correction` appends the
  * validation problems of the previous attempt for the retry.
  * @param currentDeviceId machine the builder is open for (sent as its alias), or null.
@@ -514,6 +555,8 @@ export function buildRequest(ctx: UserContext, cat: Catalog, draft: Dashboard, h
     messages: msgs,
     tools: [TOOL],
     tool_choice: { type: 'tool', name: 'dashboard_ops' },
+    openai: PROVIDER_TOOLS.openai,
+    gemini: PROVIDER_TOOLS.gemini,
   };
 }
 
@@ -524,7 +567,17 @@ export function buildRequest(ctx: UserContext, cat: Catalog, draft: Dashboard, h
  * @throws ZodError when the result does not match LlmOutput.
  */
 export function normaliseToolInput(input: any): LlmOutput {
-  const ops = Array.isArray(input?.ops) ? input.ops : [];
+  // Gemini returns settings/theme as JSON strings (see geminiSchema); turn them back into objects.
+  const obj = (v: any) => {
+    if (typeof v !== 'string') return v;
+    try {
+      const p = JSON.parse(v);
+      return p && typeof p === 'object' ? p : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  const ops = (Array.isArray(input?.ops) ? input.ops : []).map((o: any) => (o && typeof o === 'object' ? { ...o, ...(o.settings !== undefined ? { settings: obj(o.settings) } : {}), ...(o.theme !== undefined ? { theme: obj(o.theme) } : {}) } : o));
   const pick = (o: any, keys: string[]) => Object.fromEntries(keys.filter((k) => o[k] !== undefined).map((k) => [k, o[k]]));
   const bind = (b: any) => (b && typeof b === 'object' ? pick(b, ['mode', 'machines', 'node', 'machineType']) : b);
   const norm = ops.map((o: any) => {
@@ -561,8 +614,10 @@ export interface Transport {
 
 /**
  * Writes `{reqId, userId, body}` to the store asset's SERVER attribute `dbb_chat_req`. The rule chain
- * "DBB Chat relay (POC)" (default chain of the DashboardStore profile, D-014, D-016) calls the LLM
- * with the key it holds and writes `dbb_chat_resp_<userId>` = {reqId, ok, toolInput | error, usage}.
+ * "DBB Chat relay (POC)" (default chain of the DashboardStore profile, D-014, D-016, D-021) reads the API key
+ * from the tenant-owned asset DBB-LLM-CONFIG, picks Claude / OpenAI / Gemini from the key format, calls it
+ * and writes `dbb_chat_resp_<userId>` = {reqId, ok, provider, toolInput | toolInputJson | error, usage}.
+ * The key never reaches the browser.
  * Polls that attribute every 1.2 s until the reqId matches or `timeoutMs` passes.
  * Concurrent requests from different users share `dbb_chat_req` but get separate response keys;
  * an older response with another reqId is ignored. The timeout message always says 30 seconds.
@@ -582,7 +637,16 @@ export function ruleChainTransport(ctx: UserContext, timeoutMs = 30000): Transpo
         const r = a[respKey];
         if (r?.reqId === reqId) {
           if (!r.ok) throw new Error(r.error || `LLM call failed (${r.status ?? 'error'})`);
-          return { toolInput: r.toolInput, usage: r.usage };
+          // OpenAI returns the tool arguments as a JSON string (toolInputJson); Claude and Gemini as an object.
+          let toolInput = r.toolInput;
+          if (toolInput == null && r.toolInputJson) {
+            try {
+              toolInput = JSON.parse(r.toolInputJson);
+            } catch {
+              throw new Error('The assistant returned an unreadable answer. Try again.');
+            }
+          }
+          return { toolInput, usage: r.usage };
         }
       }
       throw new Error('The assistant did not answer within 30 seconds. Your draft is unchanged.');
@@ -628,9 +692,9 @@ export function suggestedPrompts(ctx: UserContext, deviceId: string | null): str
   const out: string[] = [];
   const cur = deviceId ? ctx.nodes.get(deviceId) : null;
   if (cur) {
-    out.push(`Key values and a 24-hour trend for ${cur.label}`);
+    out.push(`Key values and an 8-hour trend for ${cur.label}`);
     const sib = scope.allDevices(ctx, cur.profile);
-    if (sib.length > 1) out.push(`Compare all ${cur.profile} machines this week`);
+    if (sib.length > 1) out.push(`Compare all ${cur.profile} machines over the last 8 hours`);
   }
   const sites = [...ctx.nodes.values()].filter((n) => n.entityType === 'ASSET' && n.profile === 'Site');
   if (sites[0]) out.push(`Overview of ${sites[0].label}`);

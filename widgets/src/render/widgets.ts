@@ -58,12 +58,13 @@
  * bar, default), 'accent', 'icon' or 'value'. Charts draw number rules as threshold lines, gauges
  * as zones, tables colour cells.
  *
- * REFRESH MODEL
- * The caller owns the timer: entries/renderer.ts ticks every settings.refreshSeconds (10 s) and,
- * through Grid.refreshAll(), calls handle.refresh() on every widget (every 60 s for historic
- * ranges, and not while the browser tab is hidden). Each refresh re-fetches everything over REST
- * and redraws the body. This polling is the place to switch to ThingsBoard WebSocket
- * subscriptions later (subscribe in renderWidget, unsubscribe in destroy()).
+ * REFRESH MODEL (D-021)
+ * The caller decides when to redraw: entries/renderer.ts calls Grid.refreshAll() when the WebSocket
+ * (core/live.ts) pushes a change for a machine on the page (batched, at most every 2 s), plus a safety
+ * redraw every 60 s. If the socket is down it falls back to the old REST polling (every
+ * settings.refreshSeconds, 60 s for historic ranges). A redraw calls handle.refresh() on every widget,
+ * which re-runs draw(); the data calls below are served from the live cache / short caches in
+ * core/api.ts, so a redraw normally makes no REST call.
  *
  * ADDING A NEW WIDGET TYPE (checklist)
  * 1. core/schema.ts: add to WIDGET_TYPES, WIDGET_LABELS, WIDGET_GROUPS (palette), WIDGET_CAPS
@@ -348,8 +349,11 @@ export function renderWidget(container: HTMLElement, w: Widget, env: RenderEnv, 
  * (limit is always passed: ThingsBoard returns only 100 points without it). Values stay strings.
  */
 async function rawSeries(deviceId: string, key: string, startTs: number, endTs: number): Promise<{ ts: number; value: string }[]> {
-  const r = await api.get<Record<string, { ts: number; value: string }[]>>(
+  // 60 s cache while the WebSocket is live (D-021); plain REST otherwise.
+  const r = await api.getCached<Record<string, { ts: number; value: string }[]>>(
+    `raw|${deviceId}|${key}|${Math.round((endTs - startTs) / 60e3)}`,
     `/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries?keys=${encodeURIComponent(key)}&startTs=${startTs}&endTs=${endTs}&agg=NONE&orderBy=ASC&limit=5000`,
+    60e3,
   );
   return (r?.[key] ?? []).slice().sort((a, b) => a.ts - b.ts);
 }
@@ -360,7 +364,11 @@ async function rawSeries(deviceId: string, key: string, startTs: number, endTs: 
  * @returns The number, or null when there is no data in the window.
  */
 async function aggValue(deviceId: string, key: string, startTs: number, endTs: number, agg: string): Promise<number | null> {
-  const r = await api.get<any>(`/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries?keys=${encodeURIComponent(key)}&startTs=${startTs}&endTs=${endTs}&agg=${agg}&interval=${endTs - startTs}&limit=10`);
+  const r = await api.getCached<any>(
+    `agg|${deviceId}|${key}|${agg}|${Math.round((endTs - startTs) / 60e3)}`,
+    `/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries?keys=${encodeURIComponent(key)}&startTs=${startTs}&endTs=${endTs}&agg=${agg}&interval=${endTs - startTs}&limit=10`,
+    60e3,
+  );
   const v = r?.[key]?.[0]?.value;
   return v == null ? null : Number(v);
 }
@@ -411,10 +419,11 @@ const fmtVal = (raw: unknown, dec: number) => (Number.isFinite(Number(raw)) && r
 /**
  * Draws the widget body. Returns the colour rule to apply to the card (undefined = leave card as is).
  * One branch per widget type; see the file header for the common steps and how to add a type.
- * REST calls (all through core/api with the user's JWT):
- * - api.latest: GET /api/plugins/telemetry/DEVICE/{id}/values/timeseries?keys=... (latest values)
- * - api.series, aggValue, rawSeries and the bar/heatmap queries: same endpoint with startTs/endTs/agg/interval/limit
- * - api.alarms: GET /api/v2/alarm/DEVICE/{id}?...
+ * Data calls (all through core/api with the user's JWT):
+ * - api.latest: WebSocket live cache; REST GET .../values/timeseries?keys=... only until the subscription is ready
+ * - api.series: REST once, then extended with live points (AVG/NONE windows ending now); re-fetched every 5 min
+ * - aggValue, rawSeries and the bar/heatmap queries: REST via api.getCached (60 s while live)
+ * - api.alarms: REST GET /api/v2/alarm/DEVICE/{id}?... (15 s cache while live)
  * Multi-device widgets issue one request per device (in parallel, except line/area which go in sequence).
  * Throws on REST errors; renderWidget's refresh() turns them into a placeholder.
  */
@@ -637,7 +646,11 @@ async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<Color
       barChart(body, bars, { unit: s.unit ?? meta.unit, decimals: dec, thresholds: thr });
     } else {
       const step = group === '15m' ? 15 * 60e3 : 3600e3;
-      const r = await api.get<any>(`/api/plugins/telemetry/DEVICE/${d0.id}/values/timeseries?keys=${key}&startTs=${startTs}&endTs=${endTs}&agg=${agg}&interval=${step}&limit=1000&orderBy=ASC`);
+      const r = await api.getCached<any>(
+        `bar|${d0.id}|${key}|${agg}|${step}|${Math.round((endTs - startTs) / 60e3)}`,
+        `/api/plugins/telemetry/DEVICE/${d0.id}/values/timeseries?keys=${key}&startTs=${startTs}&endTs=${endTs}&agg=${agg}&interval=${step}&limit=1000&orderBy=ASC`,
+        60e3,
+      );
       const pts: { ts: number; value: string }[] = r?.[key] ?? [];
       const bars = pts.map((p) => {
         const dt = new Date(p.ts);
@@ -717,7 +730,11 @@ async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<Color
     const agg = s.agg && s.agg !== 'NONE' ? s.agg : 'AVG';
     const rows: HeatRow[] = await Promise.all(
       devices.map(async (d) => {
-        const r = await api.get<any>(`/api/plugins/telemetry/DEVICE/${d.id}/values/timeseries?keys=${encodeURIComponent(key)}&startTs=${first}&endTs=${endTs}&agg=${agg}&interval=${bucketMs}&limit=500&orderBy=ASC`);
+        const r = await api.getCached<any>(
+          `heat|${d.id}|${key}|${agg}|${bucketMs}|${first}`,
+          `/api/plugins/telemetry/DEVICE/${d.id}/values/timeseries?keys=${encodeURIComponent(key)}&startTs=${first}&endTs=${endTs}&agg=${agg}&interval=${bucketMs}&limit=500&orderBy=ASC`,
+          60e3,
+        );
         const cells: (number | null)[] = cols.map(() => null);
         for (const p of r?.[key] ?? []) {
           const i = Math.floor((p.ts - first) / bucketMs);

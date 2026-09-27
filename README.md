@@ -10,7 +10,8 @@ Customer users build their own machine dashboards **inside ThingsBoard CE**, by 
 |---|---|
 | ThingsBoard sample data, simulator, teardown (Phase 1) | done on demo.thingsboard.io (CE 4.3.0.3) |
 | Dashboard Builder widgets, renderer, stand-in app (Map → Machines → machine) | deployed and tested live as admin and viewer |
-| Chat relay rule chain | deployed, tested up to the Anthropic call; **needs your API key** |
+| Chat relay rule chain (Claude / OpenAI / Gemini, picked from the key) | deployed; scripts tested on ThingsBoard's TBEL engine for all three providers; **needs your API key on DBB-LLM-CONFIG** |
+| Live values over the ThingsBoard WebSocket (REST fallback) | see D-021 |
 
 ## How it works
 
@@ -28,7 +29,7 @@ Everyone is a ThingsBoard customer user. Scope comes from the user attribute `se
 |---|---|
 | At most **10 widgets per page** | load time on the machine page |
 | At most **4 properties per widget**, at most 4 specific machines, at most 8 lines in one chart | load on the server |
-| **Time range**: *Realtime* (latest values, refreshed every 10 s; charts show a rolling last hour) or *Historic* 1 h / 2 h / 4 h / 8 h (refreshed every 60 s) | nothing longer than 8 h; dashboards saved earlier with 24 h / 7 d / 30 d open as 8 h |
+| **Time range**: *Realtime* (latest values pushed over the WebSocket; charts show a rolling last hour) or *Historic* 1 h / 2 h / 4 h / 8 h (refreshed every 60 s) | nothing longer than 8 h; dashboards saved earlier with 24 h / 7 d / 30 d open as 8 h |
 | **Property kind vs widget**: gauge, KPI, level bar, min/avg/max, line, area, bar, heatmap need a number; status and state timeline need on/off or text states; value, multi-value and table take anything | impossible combinations are greyed out in the builder (hover for why) and rejected from chat and on save (`widgets/src/core/compat.ts`) |
 | **Alignment**: values and labels left / centre / right and top / middle / bottom; title above or below | Style tab → Layout |
 
@@ -61,7 +62,7 @@ Older dashboards that break a limit still open; they can't be saved until trimme
    });
    ```
    Repeat per customer (it creates a store asset for each). `profileKeys` is the catalogue shown in the builder and given to the LLM; keys not listed are still usable, just without nice names and units.
-3. **API key:** Rule chains → **DBB Chat relay (POC)** → node **Call LLM** → Headers → set `x-api-key` to your Anthropic key → Apply → Save. Re-deploys keep it.
+3. **API key:** Assets → **DBB-LLM-CONFIG** (tenant-owned; created by the deploy script; never assign it to a customer) → Attributes → Server attributes → set `dbb_llm_api_key` to a Claude (`sk-ant-…`), OpenAI (`sk-…`) or Gemini (`AIza…`) key. The relay picks the provider from the key; swap providers by replacing it. Optional model per provider: `dbb_llm_model_anthropic` / `_openai` / `_gemini`. Re-deploys keep all of these.
 4. **Put the button in your real app.** Two options:
    - Add the widget **iMEX Navbar / edit menu** (bundle "iMEX Self-Service (POC)") to your app's header state. Its edit icon shows only for `Role` = Admin (setting `adminOnly`); with `navbar` off it renders only the icon, or
    - keep your own header button and call `window.IMEX_DBB.open({ deviceId })` from its action. That function is registered by the launcher widget, so the launcher widget must also be on the page (a small cell is enough).
@@ -81,7 +82,7 @@ npm run setup:tb          # idempotent
 npm run backfill          # 7 days at 5-min intervals
 npm run simulator         # live telemetry every 10 s
 npm run teardown          # lists every POC entity (incl. widgets, dashboard, rule chain), deletes after you type DELETE
-npm test                  # 48 unit tests (store, scope, chat ops, rules, limits, compatibility, generator)
+npm test                  # 56 unit tests (store, scope, chat ops, providers, live WebSocket, rules, limits, compatibility, generator)
 npm run typecheck
 ```
 

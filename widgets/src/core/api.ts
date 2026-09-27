@@ -16,8 +16,11 @@
 // Main exports:
 //   request / get / post          low-level call; JSON in, JSON out; throws ApiError on non-2xx
 //   getAttrs / saveAttrs / deleteAttrs   attributes (SERVER_SCOPE by default) of any entity
-//   latest / series               device timeseries (latest values, windowed history)
-//   alarms                        alarm list of an entity (/api/v2/alarm)
+//   latest / series               device timeseries (latest values, windowed history). Both read the
+//                                 WebSocket live cache (core/live.ts, D-021) first and use REST only until
+//                                 the subscription is ready or while the socket is down.
+//   getCached                     GET with a time-to-live while the socket is live (window aggregates)
+//   alarms                        alarm list of an entity (/api/v2/alarm); 15 s cache while live
 //   childrenOf / parentsOf        relations (default type `Contains`, the hierarchy relation)
 //   devicesByIds / assetsByIds    bulk entity lookup (chunks of 100 ids)
 //   timeseriesKeys                telemetry keys a device has ever reported
@@ -41,6 +44,8 @@
 //   - Attribute values written as objects come back as JSON strings; `getAttrs()` parses them back.
 
 /** Minimal ThingsBoard entity id: `{ id: uuid, entityType: 'DEVICE' | 'ASSET' | 'USER' | ... }`. */
+import { liveHub } from './live';
+
 export interface EntityRef {
   id: string;
   entityType: string;
@@ -182,6 +187,13 @@ export type Latest = Record<string, { ts: number; value: number | string } | und
  */
 export async function latest(deviceId: string, keys: string[]): Promise<Latest> {
   if (!keys.length) return {};
+  // Live cache first (WebSocket, D-021); REST only until the subscription's first reply or while the socket is down.
+  const L = liveHub();
+  if (L) {
+    L.want(deviceId, keys);
+    const c = L.get(deviceId, keys);
+    if (c) return c as Latest;
+  }
   const r = await get<Record<string, { ts: number; value: string }[]>>(
     `/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries?keys=${encodeURIComponent(keys.join(','))}`,
   );
@@ -214,6 +226,34 @@ export async function series(
   maxPoints = 500,
 ): Promise<Record<string, { ts: number; value: number }[]>> {
   if (!keys.length) return {};
+  // Cache + live append (D-021). A window ending "now" with AVG/NONE aggregation is fetched over REST once,
+  // then extended with the points pushed over the WebSocket; it is re-fetched every 5 minutes (bucket drift).
+  // SUM/MIN/MAX windows and past windows can't be extended point by point: they are re-fetched after 55 s /
+  // 5 min. With the socket down the cache is bypassed (REST every call, the pre-D-021 behaviour).
+  const L = liveHub();
+  const now = Date.now();
+  const offsetMin = Math.round((now - endTs) / 60e3);
+  const ck = `s|${deviceId}|${keys.join(',')}|${agg}|${maxPoints}|${Math.round((endTs - startTs) / 60e3)}|${offsetMin}`;
+  const appendable = !!L && (agg === 'AVG' || agg === 'NONE') && offsetMin <= 1;
+  if (L && appendable) L.want(deviceId, keys);
+  if (L?.isLive()) {
+    const c = seriesCache.get(ck);
+    if (c) {
+      const age = now - c.fetchedAt;
+      const since = appendable ? L.liveSince(deviceId, keys) : null;
+      if (appendable && since != null && since <= c.fetchedAt && age < 5 * 60e3) {
+        const out: Record<string, { ts: number; value: number }[]> = {};
+        for (const k of keys) {
+          const base = c.data[k] ?? [];
+          const lastTs = base.length ? base[base.length - 1].ts : c.fetchedAt - 1;
+          const extra = (L.since(deviceId, k, lastTs) ?? []).map((p) => ({ ts: p.ts, value: p.value as number }));
+          out[k] = base.concat(extra).filter((p) => p.ts >= startTs);
+        }
+        return out;
+      }
+      if (!appendable && age < (offsetMin > 1 ? 5 * 60e3 : 55e3)) return c.data;
+    }
+  }
   const span = Math.max(1, endTs - startTs);
   const interval = pickInterval(span, maxPoints);
   // assumes roughly one sample per 10 s (the simulator rate)
@@ -224,7 +264,40 @@ export async function series(
   const r = await get<Record<string, { ts: number; value: string }[]>>(`/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries?${q}`);
   const out: Record<string, { ts: number; value: number }[]> = {};
   for (const k of keys) out[k] = (r?.[k] ?? []).map((p) => ({ ts: p.ts, value: toNum(p.value) as number })).sort((a, b) => a.ts - b.ts);
+  if (L) cachePut(seriesCache, ck, { fetchedAt: now, data: out });
   return out;
+}
+
+// ---------- caches used while the WebSocket is live (D-021) ----------
+
+const seriesCache = new Map<string, { fetchedAt: number; data: Record<string, { ts: number; value: number }[]> }>();
+const getCache = new Map<string, { fetchedAt: number; data: any }>();
+
+/** Map insert with a 300-entry cap (oldest dropped first). */
+function cachePut<V>(m: Map<string, V>, k: string, v: V) {
+  m.delete(k);
+  m.set(k, v);
+  if (m.size > 300) m.delete(m.keys().next().value as string);
+}
+
+/**
+ * GET with a time-to-live, for window queries the WebSocket can't keep current (bar buckets, heatmap,
+ * state timeline, window aggregates, alarms). `key` must identify the query without its exact timestamps.
+ * While the socket is down the cache is bypassed, so behaviour is the same as a plain `get`.
+ */
+export async function getCached<T = any>(key: string, path: string, ttlMs: number): Promise<T> {
+  const L = liveHub();
+  const hit = getCache.get(key);
+  if (L?.isLive() && hit && Date.now() - hit.fetchedAt < ttlMs) return hit.data as T;
+  const data = await get<T>(path);
+  if (L) cachePut(getCache, key, { fetchedAt: Date.now(), data });
+  return data;
+}
+
+/** Clears the caches (tests). */
+export function clearCaches() {
+  seriesCache.clear();
+  getCache.clear();
 }
 
 /**
@@ -275,9 +348,9 @@ export async function alarms(
   const status = opts.status && opts.status !== 'ANY' ? `&statusList=${opts.status}` : '';
   const sev = opts.severities?.length ? `&severityList=${opts.severities.join(',')}` : '';
   const start = opts.startTs ? `&startTime=${opts.startTs}` : '';
-  const r = await get<any>(
-    `/api/v2/alarm/${e.entityType}/${e.id}?pageSize=${opts.limit ?? 20}&page=0&sortProperty=createdTime&sortOrder=DESC${status}${sev}${start}`,
-  );
+  // Alarms are not pushed over the socket; while it is live they are re-read at most every 15 s per query.
+  const path = `/api/v2/alarm/${e.entityType}/${e.id}?pageSize=${opts.limit ?? 20}&page=0&sortProperty=createdTime&sortOrder=DESC${status}${sev}`;
+  const r = await getCached<any>(`a|${path}|${opts.startTs ? Math.round((Date.now() - opts.startTs) / 60e3) : ''}`, path + start, 15e3);
   return (r?.data ?? []).map((a: any) => ({
     id: a.id.id,
     type: a.type,
