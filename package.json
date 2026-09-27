@@ -3,7 +3,9 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "setup:tb": "tsx scripts/setup-tb.ts",
     "backfill": "tsx scripts/backfill.ts",
@@ -11,16 +13,19 @@
     "teardown": "tsx scripts/teardown.ts",
     "build:browser": "esbuild scripts/browser/entry.ts --bundle --format=iife --global-name=POC --target=es2020 --outfile=scripts/output/poc-browser.js",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build:widgets": "node widgets/build.mjs"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
     "esbuild": "^0.23.0",
+    "playwright": "1.56",
     "tsx": "^4.16.0",
     "typescript": "^5.5.0",
     "vitest": "^2.0.0"
   },
   "dependencies": {
-    "dotenv": "^16.4.5"
+    "dotenv": "^16.4.5",
+    "zod": "^3.25.76"
   }
 }

@@ -9,13 +9,18 @@ export interface TeardownPlan {
   customers: { id: string; name: string }[];
   deviceProfiles: { id: string; name: string }[];
   assetProfiles: { id: string; name: string }[];
+  users: { id: string; name: string }[];
+  dashboards: { id: string; name: string }[];
+  widgetBundles: { id: string; name: string }[];
+  widgetTypes: { id: string; name: string }[];
+  ruleChains: { id: string; name: string }[];
 }
 
 const eid = (id: string, entityType: string): EntityId => ({ id, entityType });
 
 /** Lists everything teardown would delete. Checks the poc attribute on every candidate. */
 export async function planTeardown(tb: TbClient, log: Log): Promise<TeardownPlan> {
-  const plan: TeardownPlan = { devices: [], assets: [], customers: [], deviceProfiles: [], assetProfiles: [] };
+  const plan: TeardownPlan = { devices: [], assets: [], customers: [], deviceProfiles: [], assetProfiles: [], users: [], dashboards: [], widgetBundles: [], widgetTypes: [], ruleChains: [] };
 
   const devices = await fetchAll<any>(tb, '/api/tenant/devices');
   for (const d of devices) if (await tb.isPoc(eid(d.id.id, 'DEVICE'))) plan.devices.push({ id: d.id.id, name: d.name });
@@ -32,6 +37,20 @@ export async function planTeardown(tb: TbClient, log: Log): Promise<TeardownPlan
   for (const p of await fetchAll<any>(tb, '/api/assetProfiles'))
     if (String(p.description ?? '').includes(POC_MARKER)) plan.assetProfiles.push({ id: p.id.id, name: p.name });
 
+  if (customer) {
+    for (const u of await fetchAll<any>(tb, `/api/customer/${customer.id.id}/users`))
+      if (await tb.isPoc(eid(u.id.id, 'USER'))) plan.users.push({ id: u.id.id, name: u.email });
+  }
+  for (const d of await fetchAll<any>(tb, '/api/tenant/dashboards'))
+    if (d.title === 'iMEX App (POC)') plan.dashboards.push({ id: d.id.id, name: d.title });
+  for (const b of await fetchAll<any>(tb, '/api/widgetsBundles?tenantOnly=true'))
+    if (String(b.description ?? '').includes(POC_MARKER)) plan.widgetBundles.push({ id: b.id.id, name: b.title });
+  for (const fqn of ['imex_dbb_launcher', 'imex_dbb_renderer', 'imex_dbb_listing']) {
+    const w = await tb.find<any>(`/api/widgetType?fqn=tenant.${fqn}`);
+    if (w && String(w.description ?? '').includes(POC_MARKER)) plan.widgetTypes.push({ id: w.id.id, name: fqn });
+  }
+  for (const r of await fetchAll<any>(tb, '/api/ruleChains'))
+    if (String(r.configuration?.description ?? '').includes(POC_MARKER)) plan.ruleChains.push({ id: r.id.id, name: r.name });
   log(
     `teardown plan: ${plan.devices.length} devices, ${plan.assets.length} assets, ${plan.customers.length} customers, ` +
       `${plan.deviceProfiles.length} device profiles, ${plan.assetProfiles.length} asset profiles`,
@@ -40,6 +59,18 @@ export async function planTeardown(tb: TbClient, log: Log): Promise<TeardownPlan
 }
 
 export async function executeTeardown(tb: TbClient, plan: TeardownPlan, log: Log) {
+  const quiet = async (what: string, path: string) => {
+    try {
+      await tb.del(path);
+      log(`deleted ${what}`);
+    } catch (e) {
+      log(`could not delete ${what}: ${(e as Error).message}`);
+    }
+  };
+  for (const d of plan.dashboards ?? []) await quiet(`dashboard ${d.name}`, `/api/dashboard/${d.id}`);
+  for (const u of plan.users ?? []) await quiet(`user ${u.name}`, `/api/user/${u.id}`);
+  for (const w of plan.widgetTypes ?? []) await quiet(`widget type ${w.name}`, `/api/widgetType/${w.id}`);
+  for (const b of plan.widgetBundles ?? []) await quiet(`widget bundle ${b.name}`, `/api/widgetsBundle/${b.id}`);
   // re-check the marker right before each delete
   for (const d of plan.devices) {
     if (!(await tb.isPoc(eid(d.id, 'DEVICE')))) { log(`skip device ${d.name}: poc missing`); continue; }
@@ -64,4 +95,5 @@ export async function executeTeardown(tb: TbClient, plan: TeardownPlan, log: Log
     try { await tb.del(`/api/assetProfile/${p.id}`); log(`deleted asset profile ${p.name}`); }
     catch (e) { log(`could not delete asset profile ${p.name}: ${(e as Error).message}`); }
   }
+  for (const r of plan.ruleChains ?? []) await quiet(`rule chain ${r.name}`, `/api/ruleChain/${r.id}`);
 }

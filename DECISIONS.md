@@ -20,7 +20,9 @@ The Node entry points (`npm run setup:tb`, `backfill`, `simulator`, `teardown`) 
 
 A consequence: **the live simulator currently runs inside a browser tab.** It stops if that tab reloads. For anything longer-lived, run `npm run simulator` on a PC.
 
-### D-002 No ThingsBoard customer users (changes section 3 "Users and roles" and 4.1 step 7)
+### D-002 No ThingsBoard customer users — SUPERSEDED by D-010
+*Kept for history. The user decided against an external service, so app users are ThingsBoard customer users after all (D-010). The risk described here is real and is now handled as described in D-012.*
+
 In CE, a customer user can log in to the ThingsBoard UI or REST API directly. From there they see every device assigned to the customer and can act on alarms, which bypasses our node scope, our role permissions and our audit log. That breaks proofs 4 and 5.
 
 So app users live only in the config service's own database (password hashes, roles, scopes), and the service uses the tenant service account for every ThingsBoard call.
@@ -52,8 +54,74 @@ On rerun, setup writes `thr_*` attributes only if they are absent. Thresholds a 
 ### D-008 `setup-result.json` holds IDs only
 It contains no credentials. The simulator reads access tokens from ThingsBoard at start-up.
 
-### D-009 SQLite seeding moves to Phase 2
+### D-009 SQLite seeding moves to Phase 2 — SUPERSEDED by D-010
+*There is no SQLite and no service; all state lives in ThingsBoard attributes.*
+
 Spec 4.1 step 8 seeds SQLite during setup. The service schema doesn't exist until Phase 2, so the service will seed itself on first start from `setup-result.json` and `model.ts`.
+
+### D-010 No external service: everything runs as ThingsBoard widgets (user decision, 26 Sep 2026)
+The build instructions describe a Node config service plus a React app. The user asked for no service outside ThingsBoard. So:
+
+- The Dashboard Builder, the machine dashboard renderer and a stand-in app listing are **three custom ThingsBoard widgets** (`tenant.imex_dbb_launcher`, `imex_dbb_renderer`, `imex_dbb_listing`) in the bundle "iMEX Self-Service (POC)".
+- They are plain TypeScript + DOM + SVG (no framework), bundled by esbuild into one IIFE (`widgets/dist/imex-dbb.js`, about 190 KB) that is embedded in each widget type's controller script.
+- The widgets call the ThingsBoard REST API **with the logged-in user's own JWT**. No tenant credentials exist anywhere in the widgets.
+- App users are ordinary ThingsBoard **customer users**. Their scope and role come from their existing user attributes (D-011).
+
+### D-011 Scope and role come from the existing user attributes
+Matches the production app's user attributes (screenshots from the user, 26 Sep 2026):
+
+- `selectedNodes`: a JSON list of `{entityId, name, ...}`. `entityId` may be a string or `{id, entityType}`, and the name is used as a fallback. The user's scope is these nodes plus everything below them via `Contains` relations.
+- `Role`: `Admin` (also `Customer Admin`, `Administrator`, or the attribute `dbbAdmin=true`) may apply a dashboard to several machines, a location or the whole customer. Any other role may only change their own view or the one machine they are editing, and only if that machine is in scope.
+- "Customer-wide" is only offered to admins whose scope nodes are top-level (they have no parent asset). A site-scoped admin gets "all machines under a location" instead.
+
+### D-012 Security model in CE, and what it does not protect
+Checked live on demo.thingsboard.io with a real customer user:
+
+| Customer user can | Result |
+|---|---|
+| Read telemetry and attributes of every device and asset assigned to the customer | yes (so scope is **UI-enforced only**) |
+| Write SERVER/SHARED attributes on those devices and assets, and on their own user | yes |
+| Write customer attributes | no (403) |
+| Create assets or dashboards | no (403) |
+| Read or write other users' attributes | no (403) |
+
+Consequences:
+
+- Dashboards are stored as attributes on one **DashboardStore asset per customer**, which is assigned to the customer (customers can't write customer attributes).
+- Admin-only actions (apply to many machines) are **enforced in the widget only**. A user with the browser console and REST knowledge could write `dbb_assign` on any device of their customer. This is the same trust boundary as the existing app: CE has no per-user entity permissions. PE's role-based permissions or a rule-chain validator would close it. Out of scope for the POC; call it out before production.
+- Every save and apply writes an audit entry (`dbb_audit` timeseries on the store asset: who, what, when, affected machines).
+
+### D-013 Storage model
+| Where | Key | Content |
+|---|---|---|
+| Store asset | `dbb_d_<id>` | dashboard JSON (versioned; optimistic concurrency by `version`) |
+| Store asset | `dbb_h_<id>` | last 10 versions, for History/restore |
+| Store asset | `dbb_assign_customer` | `{profile: {dashboardId, by, at}}` customer-wide defaults |
+| Store asset | `dbb_profile_keys` | per profile: key, display name, unit, decimals (the catalogue for the builder and the LLM) |
+| Store asset | `dbb_chat_req`, `dbb_chat_resp_<userId>` | chat relay request and responses |
+| Asset (site/plant/line) | `dbb_assign` | `{profile: {dashboardId, by, at}}` for all machines of that type below it |
+| Device | `dbb_assign` | `{dashboardId, mode: linked\|copy\|customised}` |
+| User | `dbb_personal` | `{deviceId: dashboardId}` personal views |
+
+A machine shows the first match of: personal → device → nearest ancestor location → customer-wide → built-in default layout. The renderer header says which one ("From: All Compressor machines") and offers a switcher between all that apply.
+
+### D-014 Chat goes through a rule chain, not the browser
+The browser can't hold the Anthropic API key safely, and there is no service. So:
+
+1. The builder writes `dbb_chat_req` (catalogue, masked entity names, conversation) to the store asset.
+2. Rule chain **"DBB Chat relay (POC)"** (default chain of the DashboardStore asset profile) filters that update, builds the Messages API request, calls `https://api.anthropic.com/v1/messages` with the key held in the **"Call LLM" REST node header** `x-api-key`, and writes `dbb_chat_resp_<userId>` back.
+3. The widget polls that attribute for up to 30 s.
+
+- The model returns operations through one tool (`dashboard_ops`). They are validated with Zod, retried once with the validation errors, then auto-laid-out. The user sees a summary and can undo.
+- Entity names are replaced by aliases (D1, N1…). Machines outside the user's scope are sent as `OUTSIDE_ACCESS` and can't be referenced.
+- Limit: 30 chat requests per user per hour (browser-side).
+- The API key is **not set by the agent**. Paste it into the "Call LLM" node (Rule chains → DBB Chat relay (POC) → Call LLM → Headers → `x-api-key`). Until then chat answers "The LLM API key … is missing or invalid."
+
+### D-015 Non-admins can't overwrite a shared dashboard
+If a non-admin edits a dashboard that is linked to more than one machine, or that comes from a location/customer assignment, Save offers **Save as copy** instead. The copy can then be applied to "only me" or to the one machine being edited.
+
+### D-016 Deployment into ThingsBoard
+`widgets/deploy/deploy-browser.js` defines `DBB_DEPLOY()` for a tenant-admin page. It idempotently creates or updates the rule chain (keeping an existing API key), the DashboardStore profile and store asset, the widget bundle and the 3 widget types, and the stand-in dashboard "iMEX App (POC)", and it sets that as the home dashboard of the listed users. Teardown (`scripts/lib/teardown.ts`) now also removes these.
 
 ## ThingsBoard quirks found
 
@@ -62,3 +130,8 @@ Spec 4.1 step 8 seeds SQLite during setup. The service schema doesn't exist unti
 - `POST /api/relation` behaves as an upsert, so reruns don't duplicate relations.
 - Each server-attribute write is a separate call, and the demo server takes about 0.4–0.8 s per call. A full setup run takes about 25 s.
 - No HTTP 429s were seen during the 8,064-point backfill at 200 points per request and a 1 s pause.
+- `GET /api/widgetType?fqn=` needs the `tenant.` prefix for tenant widgets (`fqn=tenant.imex_dbb_launcher`); the response omits `description`, so read `/api/widgetType/{id}` before an update. Dashboards reference them as `typeFullFqn: "tenant.imex_dbb_launcher"`.
+- TBEL: a ternary inside a map literal (`{a: x ? 1 : 2}`) is mis-parsed (the `:` is taken as a key separator). Compute into a variable first.
+- The "save attributes" node rejects `ATTRIBUTES_UPDATED` messages. A transform that feeds it must return `msgType: "POST_ATTRIBUTES_REQUEST"` and string-only metadata.
+- `GET /api/user/{id}/token` lets a tenant admin get a user's token (used only to test as the sample users).
+- The demo server is slow: the builder's "affected machines" preview and the renderer's refresh after an apply take 3–10 s there.

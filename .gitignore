@@ -3,3 +3,5 @@ node_modules/
 scripts/output/*
 !scripts/output/.gitkeep
 *.db
+widgets/dist/*.gz.b64
+widgets/harness/harness.js
