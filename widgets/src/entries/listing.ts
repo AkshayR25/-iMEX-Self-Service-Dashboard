@@ -31,10 +31,27 @@ interface Card {
   html: string;
 }
 
+const M_CSS = `
+.dbb-map{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:#f6f6f4;padding:24px;text-align:center}
+.dbb-map h1{font-size:28px;font-weight:500;margin:0}
+.dbb-map .dbb-map-ph{width:min(720px,100%);height:240px;border:1px dashed #c9c8c2;border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--ink-3);background:#fff}
+`;
+
+/** Map page (settings.mode = 'map'): a title and a button to the listing. The map itself comes later. */
+function initMap(tbCtx: any, host: HTMLElement) {
+  ensureCss('dbb-css-map', M_CSS);
+  const s = tbCtx.settings ?? {};
+  host.innerHTML = `<div class="dbb-root dbb-map"><h1>${esc(s.title || 'Map page')}</h1>
+    <div class="dbb-map-ph">Map placeholder</div>
+    <button type="button" class="dbb-btn primary" data-go>${esc(s.buttonLabel || 'Go to machine listing')}</button></div>`;
+  host.querySelector<HTMLElement>('[data-go]')!.onclick = () => tbCtx.stateController.openState(s.listingState || 'listing', {}, false);
+}
+
 export function init(tbCtx: any) {
   ensureCss('dbb-css-core', CSS);
-  ensureCss('dbb-css-list', L_CSS);
   const host: HTMLElement = tbCtx.$container[0];
+  if (tbCtx.settings?.mode === 'map') return initMap(tbCtx, host);
+  ensureCss('dbb-css-list', L_CSS);
   host.innerHTML = `<div class="dbb-root dbb-list"><aside class="dbb-tree"><input placeholder="Search" aria-label="Search the hierarchy"/><div class="dbb-tlist"></div></aside><section class="dbb-cards"><div class="dbb-ph">Loading…</div></section></div>`;
   const treeEl = host.querySelector('.dbb-tlist') as HTMLElement;
   const cardsEl = host.querySelector('.dbb-cards') as HTMLElement;

@@ -7,21 +7,18 @@ Customer users build their own machine dashboards **inside ThingsBoard CE**, by 
 | Part | State |
 |---|---|
 | ThingsBoard sample data, simulator, teardown (Phase 1) | done on demo.thingsboard.io (CE 4.3.0.3) |
-| Dashboard Builder widgets, renderer, stand-in app | deployed and tested live as admin and viewer |
+| Dashboard Builder widgets, renderer, stand-in app (Map → Machines → machine) | deployed and tested live as admin and viewer |
 | Chat relay rule chain | deployed, tested up to the Anthropic call; **needs your API key** |
 
-## How it works for a user
+## How it works
 
-1. The app's navbar has a **Dashboard Builder** button. It opens a full-screen builder.
-2. Pick a machine (only machines in your `selectedNodes` scope are listed).
-3. Build: drag widgets from the palette (value card, gauge, status, line chart, bar chart, table, alarm list, text), or ask in the Chat tab ("add a 7-day power chart and the site weather station's temperature").
-4. **Save.** On the first save you are asked where to apply it:
-   - only for me, on this machine
-   - this machine, for everyone
-   - admins only: selected machines of the same type (linked or copied), all of that type under a location, or all of that type customer-wide
-5. The machine page shows the dashboard with a "From: …" chip that says where it comes from. There you can switch views, clear your personal view, customise a machine's copy, or reset it.
+Everyone is a ThingsBoard customer user. Scope comes from the user attribute `selectedNodes`, role from `Role`.
 
-Roles come from the user attribute `Role` (`Admin` can apply to many machines). Scope comes from `selectedNodes`.
+1. **Map page** (home) → button → **Machines** listing (hierarchy + machine cards) → click a card → **machine page**. The navbar has Map and Machines links and a breadcrumb.
+2. **Admins** (`Role` = Admin) also see a **Dashboard Builder** button in the navbar, and an Edit button on the machine page. It opens a full-screen builder.
+3. The admin picks a machine and builds by drag and drop, or asks in the Chat tab ("add a 7-day power chart and the site weather station's temperature").
+4. **Save.** The admin is then asked where it should show: only this machine, or all machines of the same type. From then on every user of that customer who opens those machines sees it.
+5. **Everyone else only views.** No builder, no edit controls.
 
 ## One-time setup in your own ThingsBoard
 
@@ -38,7 +35,7 @@ Roles come from the user attribute `Role` (`Admin` can apply to many machines). 
    Repeat per customer (it creates a store asset for each). `profileKeys` is the catalogue shown in the builder and given to the LLM; keys not listed are still usable, just without nice names and units.
 3. **API key:** Rule chains → **DBB Chat relay (POC)** → node **Call LLM** → Headers → set `x-api-key` to your Anthropic key → Apply → Save. Re-deploys keep it.
 4. **Put the button in your real app.** Two options:
-   - Add the widget **iMEX Dashboard Builder button** (bundle "iMEX Self-Service (POC)") to your app's header state, or
+   - Add the widget **iMEX Dashboard Builder button** (bundle "iMEX Self-Service (POC)") to your app's header state. It shows only for `Role` = Admin (setting `adminOnly`), or
    - keep your own header button and call `window.IMEX_DBB.open({ deviceId })` from its action. That function is registered by the launcher widget, so the launcher widget must also be on the page (a small cell is enough).
 5. **Show the dashboards:** put the **iMEX Machine dashboard** widget in your machine-detail state. It reads the machine from the dashboard state entity, as the stand-in app does.
 

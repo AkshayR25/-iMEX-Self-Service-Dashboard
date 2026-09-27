@@ -16,7 +16,7 @@ for (const s of steps) {
   if (s.fill) await page.fill(s.fill[0], s.fill[1]).catch((e) => errs.push('fill: ' + e.message.split('\n')[0]));
   if (s.select) await page.selectOption(s.select[0], s.select[1]).catch((e) => errs.push('select: ' + e.message.split('\n')[0]));
   if (s.drag) await page.dragAndDrop(s.drag[0], s.drag[1], { targetPosition: s.drag[2] }).catch((e) => errs.push('drag: ' + e.message.split('\n')[0]));
-  if (s.eval) console.log('eval:', JSON.stringify(await page.evaluate(s.eval)).slice(0, 1500));
+  if (s.eval) console.log('eval:', String(JSON.stringify(await page.evaluate(s.eval))).slice(0, 1500));
   await page.waitForTimeout(s.wait ?? 600);
   if (s.shot) await page.screenshot({ path: `/tmp/claude-0/shot-${s.shot}.png` });
 }

@@ -33,6 +33,7 @@ function roleList(s: string | undefined): string[] {
 export async function open(tbCtx: any, opts: { deviceId?: string | null; dashboardId?: string | null } = {}) {
   const ctx = await userContext(tbCtx, true);
   const settings = tbCtx?.settings ?? {};
+  if (settings.adminOnly !== false && !ctx.isAdmin) throw new Error('Only admins can build dashboards.');
   const chatRoles = roleList(settings.chatEnabledRoles);
   const chatEnabled = settings.chatEnabled !== false && (!chatRoles.length || chatRoles.includes(ctx.role.toLowerCase()));
   const ent = stateEntity(tbCtx);
@@ -55,15 +56,20 @@ export function init(tbCtx: any) {
     <span>${esc(s.label || 'Dashboard Builder')}</span></button>`;
   if (s.navbar) {
     host.innerHTML = `<div class="dbb-root dbb-nav"><div class="dbb-nav-app">${esc(s.appName || 'iMEX')}</div>
-      <button type="button" class="dbb-nav-link" data-home>Home</button><div class="dbb-nav-crumb"></div><div style="flex:1"></div>
+      <button type="button" class="dbb-nav-link" data-go="${esc(s.homeState || 'default')}">${esc(s.homeLabel || 'Map')}</button>
+      <button type="button" class="dbb-nav-link" data-go="${esc(s.listingState || 'listing')}">${esc(s.listingLabel || 'Machines')}</button>
+      <div class="dbb-nav-crumb"></div><div style="flex:1"></div>
       <div class="dbb-launch">${btnHtml}</div><div class="dbb-nav-user"></div></div>`;
-    host.querySelector<HTMLElement>('[data-home]')!.onclick = () => {
-      try {
-        tbCtx.stateController.openState(s.homeState || 'default', {}, false);
-      } catch {
-        /* ignore */
-      }
-    };
+    host.querySelectorAll<HTMLElement>('[data-go]').forEach(
+      (b) =>
+        (b.onclick = () => {
+          try {
+            tbCtx.stateController.openState(b.dataset.go!, {}, false);
+          } catch {
+            /* ignore */
+          }
+        }),
+    );
     const crumb = host.querySelector('.dbb-nav-crumb') as HTMLElement;
     const paint = () =>
       void userContext(tbCtx)
@@ -77,14 +83,18 @@ export function init(tbCtx: any) {
     paint();
   } else host.innerHTML = `<div class="dbb-root dbb-launch ${s.lightStyle ? 'light' : ''}">${btnHtml}</div>`;
   const btn = host.querySelector('.dbb-launch-btn') as HTMLButtonElement;
-  // hide for roles listed in settings.hideForRoles
+  // Admin-only by default (settings.adminOnly=false shows it to everyone). Also hidden for roles in
+  // settings.hideForRoles. Hidden until the role is known, so non-admins never see it flash.
+  // NB: hiding is UI only; see DECISIONS D-012.
   const hide = roleList(s.hideForRoles);
-  if (hide.length)
-    void userContext(tbCtx)
-      .then((c) => {
-        if (hide.includes(c.role.toLowerCase())) btn.remove();
-      })
-      .catch(() => undefined);
+  btn.style.display = 'none';
+  void userContext(tbCtx)
+    .then((c) => {
+      const allowed = (s.adminOnly === false || c.isAdmin) && !hide.includes(c.role.toLowerCase());
+      if (allowed) btn.style.display = '';
+      else btn.remove();
+    })
+    .catch(() => btn.remove());
   btn.onclick = async () => {
     btn.disabled = true;
     try {

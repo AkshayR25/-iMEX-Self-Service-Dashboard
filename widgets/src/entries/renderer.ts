@@ -1,6 +1,7 @@
 // Machine dashboard widget: shows the dashboard resolved for the machine in the dashboard state
-// (personal > machine > location > customer-wide > default layout), with the source, a switcher,
-// customise / reset, thresholds, and an Edit button that opens the builder.
+// (personal > machine > location > customer-wide > default layout). Admins also get the source chip,
+// a switcher, customise / reset, thresholds and an Edit button; everyone else only views (scope decision
+// 27 Sep 2026: building is admin-only).
 // Also renders a standalone dashboard when the state carries `dbbDashboardId`.
 import * as api from '../core/api';
 import * as scope from '../core/scope';
@@ -105,19 +106,20 @@ export function init(tbCtx: any) {
     const rs = latest.runStatus?.value;
     const running = !offline && (rs === undefined || Number(rs) === 1);
     const status = offline ? ['Offline', STATUS.neutral] : running ? ['Running', STATUS.good] : ['Stopped', STATUS.warning];
-    const canCustomise = (level === 'node' || level === 'customer') && (ctx.isAdmin || ctx.role.toLowerCase() === 'manager');
-    const canReset = level === 'device' && res.deviceAssignment?.mode === 'customised' && (ctx.isAdmin || ctx.role.toLowerCase() === 'manager');
-    const canThresholds = ctx.isAdmin || ctx.role.toLowerCase() === 'manager';
+    const admin = ctx.isAdmin;
+    const canCustomise = admin && (level === 'node' || level === 'customer');
+    const canReset = admin && level === 'device' && res.deviceAssignment?.mode === 'customised';
+    const canThresholds = admin;
     head.innerHTML = `
       <div>
         <div class="dbb-crumb">${esc(scope.ancestors(ctx, deviceId).reverse().map((a) => a.label).join(' › '))}</div>
         <div class="dbb-rtitle">${esc(node.label)} <span class="dbb-muted" style="font-size:13px">${esc(node.profile)}</span>
           <span class="dbb-chip" style="margin-left:8px"><span class="dbb-dot" style="background:${status[1]}"></span>${status[0]}${lastTs ? ` · ${ago(lastTs)}` : ''}</span></div>
       </div>
-      <span class="dbb-src-chip" title="Where this dashboard comes from">From: ${esc(label)}${dash ? ` · ${esc(dash.name)}` : ''}</span>
+      ${admin ? `<span class="dbb-src-chip" title="Where this dashboard comes from">From: ${esc(label)}${dash ? ` · ${esc(dash.name)}` : ''}</span>` : ''}
       <div class="dbb-rtools">
         ${
-          res.candidates.length > 1
+          admin && res.candidates.length > 1
             ? `<select data-a="switch" title="Switch dashboard (does not change the assignment)">${res.candidates
                 .map((c) => `<option value="${c.dashboard.id}" ${c.dashboard.id === st.shownId ? 'selected' : ''}>${esc(c.dashboard.name)} — ${esc(c.sourceLabel)}</option>`)
                 .join('')}</select>`
@@ -127,7 +129,7 @@ export function init(tbCtx: any) {
         ${canCustomise && dash ? `<button class="dbb-btn" data-a="cust">Customise for this machine</button>` : ''}
         ${canReset ? `<button class="dbb-btn" data-a="reset">Reset to template</button>` : ''}
         ${canThresholds ? `<button class="dbb-btn" data-a="thr">Thresholds</button>` : ''}
-        <button class="dbb-btn primary" data-a="edit">${dash ? 'Edit dashboard' : 'Build a dashboard'}</button>
+        ${admin ? `<button class="dbb-btn primary" data-a="edit">${dash ? 'Edit dashboard' : 'Build a dashboard'}</button>` : ''}
       </div>`;
     const range = dash?.timeRange ?? '24h';
     const grid = ensureGrid(ctx, deviceId, range);
@@ -175,7 +177,7 @@ export function init(tbCtx: any) {
       return;
     }
     head.innerHTML = `<div class="dbb-rtitle">${esc(d.name)}</div><span class="dbb-src-chip">By ${esc(d.ownerName)}</span>
-      <div class="dbb-rtools"><button class="dbb-btn primary" data-a="edit">Edit dashboard</button></div>`;
+      <div class="dbb-rtools">${ctx.isAdmin ? `<button class="dbb-btn primary" data-a="edit">Edit dashboard</button>` : ''}</div>`;
     ensureGrid(ctx, null, d.timeRange).render(d.widgets);
     head.querySelector('[data-a="edit"]')?.addEventListener('click', () => openBuilder({ ctx, dashboardId: d.id, onClose: (ch) => ch && notifyChanged() }));
   }

@@ -32,6 +32,8 @@ const ICON: Record<WidgetType, string> = {
 };
 
 export function openBuilder(o: BuilderOptions) {
+  // Building is admin-only (scope decision 27 Sep 2026). UI-level check; see DECISIONS D-012.
+  if (!o.ctx.isAdmin) throw new Error('Only admins can build dashboards.');
   ensureCss('dbb-css-core', CSS);
   ensureCss('dbb-css-grid', GRID_CSS);
   ensureCss('dbb-css-builder', BUILDER_CSS);
@@ -924,37 +926,30 @@ class Builder {
     const admin = this.ctx.isAdmin;
     const p = this.pendingApply;
     this.pendingApply = null;
-    const initial = p?.target === 'customer' && admin ? 'customer' : p?.target === 'node' && admin ? 'node' : dev && isDeviceDash ? 'device' : 'none';
+    // Scope decision 27 Sep 2026: building is admin-only, and a save applies to the selected machine
+    // with the option to apply it to every machine of the same type in the admin's scope.
+    const others = sameType.filter((x) => x.id !== dev?.id);
+    const allLabel = this.ctx.rootsAreTop ? `All ${profile} machines` : `All ${profile} machines you manage`;
+    const initial = (p?.target === 'customer' || p?.target === 'node') && admin && others.length ? 'all' : dev && isDeviceDash ? 'device' : 'none';
+    void nodes;
 
     const m = modal(
       this.root,
       'Apply dashboard',
       `
       <div class="dbb-form">
-        <div class="dbb-hint">Choose which machines show “${esc(d.name)}”. ${isDeviceDash ? `It is a <b>${esc(profile!)}</b> dashboard: “This machine” widgets follow each machine.` : 'It is a standalone dashboard (fixed machines); open it from My dashboards.'}</div>
+        <div class="dbb-hint">${isDeviceDash ? `Which <b>${esc(profile!)}</b> machines should show “${esc(d.name)}” to all their users? “This machine” widgets follow each machine.` : `“${esc(d.name)}” is a standalone dashboard (fixed machines); open it from My dashboards.`}</div>
         ${
           isDeviceDash && dev && dev.profile === profile
-            ? `<label class="dbb-check"><input type="radio" name="t" value="personal"/> Only for me, on ${esc(dev.label)}</label>
-               <label class="dbb-check"><input type="radio" name="t" value="device" ${initial === 'device' ? 'checked' : ''}/> ${esc(dev.label)} (everyone)</label>`
+            ? `<label class="dbb-check"><input type="radio" name="t" value="device" ${initial === 'device' ? 'checked' : ''}/> Only ${esc(dev.label)}</label>`
             : ''
         }
         ${
-          isDeviceDash
-            ? `<label class="dbb-check ${admin ? '' : 'dis'}"><input type="radio" name="t" value="selected" ${admin ? '' : 'disabled'}/> Selected ${esc(profile!)} machines${admin ? '' : ' <span class="dbb-muted">(admins only)</span>'}</label>
-               <div class="dbb-sub" data-for="selected" hidden><div class="dbb-keys">${sameType
-                 .map((x) => `<label class="dbb-check"><input type="checkbox" data-sel value="${x.id}" ${x.id === dev?.id ? 'checked' : ''}/> ${esc(x.label)} <span class="dbb-muted">${esc(scope.pathLabel(this.ctx, x.parentId ?? x.id))}</span></label>`)
-                 .join('')}</div>
-                 <div class="dbb-row"><label class="dbb-check"><input type="radio" name="lm" value="linked" checked/> Linked <span class="dbb-muted">(one dashboard; later edits update all)</span></label></div>
-                 <div class="dbb-row"><label class="dbb-check"><input type="radio" name="lm" value="copy"/> Copy <span class="dbb-muted">(each machine gets its own copy)</span></label></div></div>
-               <label class="dbb-check ${admin ? '' : 'dis'}"><input type="radio" name="t" value="node" ${initial === 'node' ? 'checked' : ''} ${admin && nodes.length ? '' : 'disabled'}/> All ${esc(profile!)} machines under a location <span class="dbb-muted">(includes machines added later)</span></label>
-               <div class="dbb-sub" data-for="node" hidden><select data-node>${nodes
-                 .map((n) => `<option value="${n.id}" ${p?.nodeId === n.id ? 'selected' : ''}>${esc(scope.pathLabel(this.ctx, n.id))}</option>`)
-                 .join('')}</select></div>
-               <label class="dbb-check ${admin ? '' : 'dis'}"><input type="radio" name="t" value="customer" ${initial === 'customer' ? 'checked' : ''} ${admin ? '' : 'disabled'}/> All ${esc(profile!)} machines <span class="dbb-muted">(customer-wide, includes machines added later)</span></label>`
+          isDeviceDash && others.length
+            ? `<label class="dbb-check ${admin ? '' : 'dis'}"><input type="radio" name="t" value="all" ${initial === 'all' ? 'checked' : ''} ${admin ? '' : 'disabled'}/> ${esc(allLabel)} <span class="dbb-muted">(${sameType.length} machines${this.ctx.rootsAreTop ? ', and machines added later' : ''})</span></label>`
             : ''
         }
         <label class="dbb-check"><input type="radio" name="t" value="none" ${initial === 'none' ? 'checked' : ''}/> Don't apply now</label>
-        ${!admin ? `<div class="dbb-hint">Applying to more than one machine needs an Admin role.</div>` : ''}
         <div class="dbb-preview"></div>
       </div>`,
       [
@@ -965,16 +960,9 @@ class Builder {
     const body = m.body;
     const target = (): store.ApplyTarget => {
       const t = (body.querySelector('input[name="t"]:checked') as HTMLInputElement)?.value ?? 'none';
-      if (t === 'personal') return { type: 'personal', deviceId: dev!.id };
       if (t === 'device') return { type: 'devices', deviceIds: [dev!.id], mode: 'linked' };
-      if (t === 'selected')
-        return {
-          type: 'devices',
-          deviceIds: [...body.querySelectorAll<HTMLInputElement>('[data-sel]:checked')].map((i) => i.value),
-          mode: ((body.querySelector('input[name="lm"]:checked') as HTMLInputElement)?.value as any) ?? 'linked',
-        };
-      if (t === 'node') return { type: 'node', nodeId: (body.querySelector('[data-node]') as HTMLSelectElement).value, profile: profile! };
-      if (t === 'customer') return { type: 'customer', profile: profile! };
+      if (t === 'all')
+        return this.ctx.rootsAreTop ? { type: 'customer', profile: profile! } : { type: 'devices', deviceIds: sameType.map((x) => x.id), mode: 'linked' };
       return { type: 'none' };
     };
     let seq = 0;

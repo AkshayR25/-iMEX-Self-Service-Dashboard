@@ -25,5 +25,7 @@ const mk = (sel: string, settings: any) => ({
 });
 const rctx = mk('#body', {});
 launcher.init(mk('#nav', { navbar: true, appName: 'iMEX · ITHENA' }));
-if (new URLSearchParams(location.search).get('page') === 'list') listing.init(mk('#body', {}));
+const pg = new URLSearchParams(location.search).get('page');
+if (pg === 'list') listing.init(mk('#body', {}));
+else if (pg === 'map') listing.init(mk('#body', { mode: 'map' }));
 else renderer.init(rctx);

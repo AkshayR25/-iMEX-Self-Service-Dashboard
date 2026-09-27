@@ -123,6 +123,14 @@ If a non-admin edits a dashboard that is linked to more than one machine, or tha
 ### D-016 Deployment into ThingsBoard
 `widgets/deploy/deploy-browser.js` defines `DBB_DEPLOY()` for a tenant-admin page. It idempotently creates or updates the rule chain (keeping an existing API key), the DashboardStore profile and store asset, the widget bundle and the 3 widget types, and the stand-in dashboard "iMEX App (POC)", and it sets that as the home dashboard of the listed users. Teardown (`scripts/lib/teardown.ts`) now also removes these.
 
+### D-017 Scope alignment, 27 Sep 2026 (user decision): admin-only builder, view-only users
+- **Navigation of the stand-in app:** Map page (title + button, placeholder for a real map) → Machines listing (hierarchy tree + machine cards) → machine page. The navbar has Map and Machines links and a breadcrumb.
+- **Dashboard Builder button:** only users with `Role` = Admin see it (`adminOnly` setting, on by default). The builder also refuses to open for non-admins. Both checks are UI-level (D-012).
+- **Everyone else views only:** no Edit, no source chip, no switcher, no personal views, no Customise/Reset/Thresholds.
+- **Save → apply:** after saving, the admin is asked "Only <this machine>" or "All <type> machines" (customer-wide when the admin's scope is the whole customer, otherwise every machine of that type in their scope), or "Don't apply now".
+- **"Saved as a state"** means the per-machine layout stored in attributes and shown in the app's single `machine` state. Real ThingsBoard dashboard states can't be written by customer users (403), and writing them from a rule chain would need tenant credentials.
+- Personal views (D-013's `dbb_personal`) are still resolved if present, but nothing in the UI creates them any more.
+
 ## ThingsBoard quirks found
 
 - `GET /api/plugins/telemetry/.../values/timeseries` returns **at most 100 points** when `limit` is omitted and `agg` is NONE. The service must always pass `limit` (checked: 2,016 stored, 100 returned without a limit).
