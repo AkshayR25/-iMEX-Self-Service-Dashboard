@@ -147,7 +147,7 @@ If a non-admin edits a dashboard that is linked to more than one machine, or tha
 - **Builder:** grouped searchable palette, duplicate/delete on the selected card, Settings / Style / Colours / Chat tabs, Dashboard tab (theme) when nothing is selected.
 - **Pages restyled:** gradient navbar with state chip and avatar, hero + stat tiles on the Map page, cards with status stripe on the Listing page.
 - Link widgets can open another app page (Map/Listing/Machine) or a website; they're inert while editing.
-- Image upload is capped at 150 KB and stored inline; large images should use an https address.
+- Image upload is capped at 150 KB and stored inline as a data URI (schema allows data:image URIs up to 210k characters; web addresses stay capped at 2000). Larger images should use an https address.
 - Line/area charts break the line only when the gap is more than max(3x the median sample step, 15 min).
 
 ## ThingsBoard quirks found

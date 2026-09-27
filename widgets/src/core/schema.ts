@@ -214,7 +214,11 @@ export const WidgetSettings = z
     // heatmap
     heatColor: z.enum(['blue', 'orange', 'rules']).optional(),
     // image / link / embed
-    url: z.string().max(2000).optional(),
+    url: z
+      .string()
+      .max(210000)
+      .refine((u) => u.length <= 2000 || /^data:image\//i.test(u), 'Web addresses are limited to 2000 characters')
+      .optional(),
     fit: z.enum(['contain', 'cover']).optional(),
     linkKind: z.enum(['url', 'state']).optional(),
     linkState: z.string().max(60).optional(),

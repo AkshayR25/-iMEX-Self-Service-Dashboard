@@ -149,3 +149,11 @@ describe('templates and chat with the new options', () => {
     expect(res.draft.widgets.find((w) => w.type === 'kpi')!.settings.colorRules?.[0].label).toBe('Hot');
   });
 });
+
+import { WidgetSettings } from '../src/core/schema';
+describe('image url limits', () => {
+  it('accepts an uploaded data URI up to ~150 KB but caps web addresses', () => {
+    expect(WidgetSettings.safeParse({ url: 'data:image/png;base64,' + 'A'.repeat(200000) }).success).toBe(true);
+    expect(WidgetSettings.safeParse({ url: 'https://x.io/' + 'a'.repeat(2100) }).success).toBe(false);
+  });
+});
