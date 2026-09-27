@@ -152,7 +152,7 @@ Rough REST call counts for a machine page with 10 widgets (estimated from the co
 |---|---|---|
 | First page load | ~40 | ~40 (unchanged: user context, layout resolution, first values) |
 | Opening another machine | ~20 | ~20 |
-| Per viewer, steady state (realtime) | ~10 every 10 s (~3,600/hour) | alarms ≤ every 15 s + window queries ≤ every 60 s; charts every 5 min (~100–300/hour, depending on widget mix) |
+| Per viewer, steady state (realtime) | ~10 every 10 s (~3,600/hour) | **measured on the demo: 2 calls in 74 s** (alarm refreshes); window queries ≤ every 60 s and chart re-fetch every 5 min where those widgets exist |
 
 **What it does not change:** first page load. Still to do for that:
 - Load the library once as a ThingsBoard JS *resource* instead of embedding ~330 KB in each widget type's controller script. That also lets the widgets share one user context.
