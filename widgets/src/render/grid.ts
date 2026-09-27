@@ -1,23 +1,58 @@
-// 12-column grid used for viewing (static) and editing (drag to move, corner to resize, drop from palette).
+/**
+ * The 12-column dashboard grid. Used read-only by the machine dashboard renderer
+ * (`entries/renderer.ts`) and editable by the Dashboard Builder (`builder/builder.ts`): drag the
+ * top bar to move, drag the bottom-right corner to resize, drop a widget type from the palette.
+ * Runs in the browser inside a ThingsBoard widget.
+ *
+ * Layout model:
+ * - Widgets store integer cells: `x` (0..11 column), `y` (row, unbounded downwards), `w`
+ *   (1..12 columns) and `h` (rows, 1..20 when resized here). `GRID_COLS` comes from core/schema.
+ * - Column width is fluid: (container width − 13 gaps) / 12, recomputed by a ResizeObserver.
+ *   Rows are a fixed `ROW_H` px. `GAP` px separates cells and surrounds the grid.
+ * - Every widget is an absolutely positioned box (`.dbb-gbox`) inside the host; the host's
+ *   min-height is set from the lowest widget (plus 3 empty rows while editing, as drop space).
+ *
+ * Editing:
+ * - During a drag the box follows the pointer snapped to whole cells, clamped to the grid; no
+ *   other widget moves yet. On release, `resolveCollisions` pushes overlapped widgets down and
+ *   compacts upward, and the new layout goes to `opts.onChange`. The grid does NOT keep the new
+ *   positions itself: the owner (the builder) stores them and calls `render()` again.
+ * - Palette drops use the HTML5 drag data type `text/dbb-widget` (set by the builder palette)
+ *   and report the target cell through `opts.onDrop`; the builder creates the widget.
+ *
+ * Exports: `Grid` (the component), `resolveCollisions` and `firstFit` (pure layout helpers, also
+ * used by the builder for new/duplicated widgets and by `core/chat.ts` to place chat-created widgets),
+ * `ROW_H` / `GAP`, and `GRID_CSS` (injected once with `ensureCss('dbb-css-grid', GRID_CSS)` by
+ * the builder and the renderer entry). Widget content is drawn by `renderWidget` (render/widgets.ts).
+ */
 import type { Widget } from '../core/schema';
 import { GRID_COLS } from '../core/schema';
 import { renderWidget, RenderEnv, WidgetHandle } from './widgets';
 
+/** Row height in px (one grid row). */
 export const ROW_H = 64;
+/** Gap in px between cells and around the grid edge. */
 export const GAP = 10;
 
+/** Options for `Grid`. All callbacks are optional; a read-only grid needs none. */
 export interface GridOptions {
+  /** Adds drag/resize handles, quick-action buttons and palette drop support. Fixed at construction. */
   editable?: boolean;
+  /** Widget id drawn with the selection outline. */
   selectedId?: string | null;
+  /** Called with a widget id when a box is pressed, or null when the empty grid is pressed. */
   onSelect?(id: string | null): void;
+  /** Called after a move/resize with the full new widget list (collisions already resolved). */
   onChange?(widgets: Widget[]): void;
   /** Called when a palette item is dropped: type and target cell. */
   onDrop?(type: string, x: number, y: number): void;
   /** Quick actions on the selected widget (builder). */
   onAction?(id: string, action: 'dup' | 'del'): void;
+  /** Widget ids to highlight (e.g. widgets just changed by chat). */
   highlight?: Set<string>;
 }
 
+/** A widget's position and size in grid cells. */
 export interface Rect {
   x: number;
   y: number;
@@ -25,12 +60,26 @@ export interface Rect {
   h: number;
 }
 
+/** True if two cell rectangles share at least one cell (touching edges do not overlap). */
 const overlaps = (a: Rect, b: Rect) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 
-/** Pushes widgets down so none overlap the moved one, then compacts upward. Pure. */
+/**
+ * Removes overlaps after one widget was moved or resized. Pure: returns shallow copies and
+ * leaves `items` untouched; order of the returned array matches the input.
+ *
+ * 1. The moved widget keeps the position the user chose.
+ * 2. Every other widget, taken top-to-bottom then left-to-right, is pushed down one row at a
+ *    time until it overlaps nothing placed so far.
+ * 3. Compaction: every widget except the moved one slides up while the cell above is free,
+ *    closing gaps left behind. A widget never jumps over another one.
+ * Horizontal positions never change.
+ * @param items All widgets of the page with their new positions.
+ * @param movedId Id of the widget that was moved; if not found, all widgets are just packed.
+ */
 export function resolveCollisions<T extends Rect & { id: string }>(items: T[], movedId: string): T[] {
   const out = items.map((i) => ({ ...i }));
   const moved = out.find((i) => i.id === movedId);
+  // `order` and `placed` hold the same objects as `out`, so bumping `it.y` updates `out`.
   const order = out.filter((i) => i.id !== movedId).sort((a, b) => a.y - b.y || a.x - b.x);
   const placed: T[] = moved ? [moved] : [];
   for (const it of order) {
@@ -50,7 +99,11 @@ export function resolveCollisions<T extends Rect & { id: string }>(items: T[], m
   return out;
 }
 
-/** First free slot of size w x h, scanning rows top-down. Pure. */
+/**
+ * First free slot of size w x h, scanning rows top-down and columns left-to-right. Pure.
+ * Used by the builder for widgets added by click (not dropped) and duplicates, and by chat.
+ * @returns Top-left cell; if nothing fits in the first 500 rows, the first row below all widgets.
+ */
 export function firstFit(items: Rect[], w: number, h: number): { x: number; y: number } {
   for (let y = 0; y < 500; y++)
     for (let x = 0; x + w <= GRID_COLS; x++) {
@@ -60,13 +113,30 @@ export function firstFit(items: Rect[], w: number, h: number): { x: number; y: n
   return { x: 0, y: Math.max(0, ...items.map((i) => i.y + i.h)) };
 }
 
+/**
+ * Grid component. Owns one absolutely positioned box per widget inside `host` and the
+ * `WidgetHandle` returned by `renderWidget` for each (used to refresh and destroy them).
+ *
+ * Lifecycle: `new Grid(host, env, opts)` → `render(widgets)` whenever the widget list changes →
+ * `refreshAll()` on the data refresh timer → `destroy()` when the ThingsBoard widget or the
+ * builder closes. The caller keeps the source of truth for the widget list.
+ */
 export class Grid {
+  /** Live widget renderers by widget id. */
   private handles = new Map<string, WidgetHandle>();
+  /** Positioned `.dbb-gbox` elements by widget id. */
   private boxes = new Map<string, HTMLElement>();
+  /** Copy of the last list passed to `render`. */
   private widgets: Widget[] = [];
+  /** Current column width in px. */
   private colW = 0;
   private ro: ResizeObserver;
 
+  /**
+   * @param host Empty container; its position is set to relative. Its width drives the columns.
+   * @param env Render environment passed to every widget (user context, device, time range, theme).
+   * @param opts See `GridOptions`; `editable` must be set here to get drag, resize and drop.
+   */
   constructor(private host: HTMLElement, private env: RenderEnv, private opts: GridOptions = {}) {
     host.style.position = 'relative';
     this.ro = new ResizeObserver(() => this.layout(true));
@@ -77,18 +147,28 @@ export class Grid {
     });
   }
 
+  /** Replaces the render environment (e.g. new time range or theme) and redraws every widget. */
   setEnv(env: RenderEnv) {
     this.env = env;
     this.render(this.widgets, true);
   }
 
+  /** Merges options (selection, highlight, callbacks) and repaints selection; does not redraw widgets. */
   setOptions(o: Partial<GridOptions>) {
     Object.assign(this.opts, o);
     this.paintSelection();
   }
 
-  /** Renders widgets; only (re)draws widgets whose config changed unless force. */
+  /**
+   * Syncs the grid to `widgets`: removes boxes of deleted widgets, creates boxes for new ones,
+   * repositions all, and redraws a widget's content only when needed (new widget, config
+   * changed, size changed, or `force`). A pure move keeps the existing content, so charts do
+   * not flicker or re-fetch data while dragging things around.
+   * @param widgets The full widget list (copied; the grid never mutates the caller's objects).
+   * @param force Redraw every widget (used after an environment change).
+   */
   render(widgets: Widget[], force = false) {
+    // Config signature with the position zeroed out, so moves alone don't count as a change.
     const prev = new Map(this.widgets.map((w) => [w.id, JSON.stringify({ ...w, x: 0, y: 0, w: 0, h: 0 })]));
     this.widgets = widgets.map((w) => ({ ...w }));
     const ids = new Set(widgets.map((w) => w.id));
@@ -103,6 +183,7 @@ export class Grid {
     for (const w of this.widgets) {
       let box = this.boxes.get(w.id);
       const sig = JSON.stringify({ ...w, x: 0, y: 0, w: 0, h: 0 });
+      // Size is tracked separately (on the box's data attributes) because charts must redraw at the new size.
       const sizeChanged = box && (box.dataset.w !== String(w.w) || box.dataset.h !== String(w.h));
       if (!box) {
         box = this.makeBox(w);
@@ -118,24 +199,32 @@ export class Grid {
       box.dataset.w = String(w.w);
       box.dataset.h = String(w.h);
     }
+    // At least 4 rows; in edit mode 3 extra empty rows give room to drop below the last widget.
     const rows = Math.max(4, ...this.widgets.map((w) => w.y + w.h)) + (this.opts.editable ? 3 : 0);
     this.host.style.minHeight = `${rows * (ROW_H + GAP)}px`;
     this.paintSelection();
   }
 
+  /** Asks every widget to re-fetch and redraw (fire-and-forget; each widget shows its own errors). Called by the renderer's refresh timer. */
   refreshAll() {
     for (const h of this.handles.values()) void h.refresh();
   }
 
+  /** Stops observing size, destroys all widget renderers and empties the host. */
   destroy() {
     this.ro.disconnect();
     for (const h of this.handles.values()) h.destroy();
     this.host.innerHTML = '';
   }
 
+  /**
+   * Recomputes the column width from the host width. With `reflow` (ResizeObserver path) and a
+   * real width change, repositions every box and refreshes widgets so charts redraw at the new size.
+   */
   private layout(reflow: boolean) {
     const W = this.host.clientWidth;
     const colW = (W - GAP * (GRID_COLS + 1)) / GRID_COLS;
+    // Ignore sub-pixel jitter (e.g. a scrollbar flickering) to avoid redraw loops.
     const changed = Math.abs(colW - this.colW) > 1;
     this.colW = colW;
     if (reflow && changed) {
@@ -147,6 +236,7 @@ export class Grid {
     }
   }
 
+  /** Converts cell coordinates to pixel left/top/width/height inside the host. */
   private px(w: { x: number; y: number; w: number; h: number }) {
     return {
       left: GAP + w.x * (this.colW + GAP),
@@ -161,6 +251,11 @@ export class Grid {
     Object.assign(box.style, { left: `${p.left}px`, top: `${p.top}px`, width: `${p.width}px`, height: `${p.height}px` });
   }
 
+  /**
+   * Creates the positioned box for a widget: `.dbb-gi` is where the widget draws itself. In edit
+   * mode it also adds the move bar (`.dbb-gdrag`, top strip), the resize corner (`.dbb-gresize`)
+   * and the duplicate/delete buttons (`.dbb-gtools`, visible when selected).
+   */
   private makeBox(w: Widget): HTMLElement {
     const box = document.createElement('div');
     box.className = 'dbb-gbox';
@@ -181,6 +276,7 @@ export class Grid {
       tools.innerHTML = `<button data-q="dup" title="Duplicate"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg></button><button data-q="del" title="Remove (Delete)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button>`;
       tools.querySelectorAll<HTMLElement>('[data-q]').forEach((b) =>
         b.addEventListener('mousedown', (e) => {
+          // Stop the box's own mousedown (select) and focus change; the action handles selection.
           e.stopPropagation();
           e.preventDefault();
           this.opts.onAction?.(box.dataset.id!, b.dataset.q as 'dup' | 'del');
@@ -194,6 +290,7 @@ export class Grid {
     return box;
   }
 
+  /** Applies the `sel` / `hl` classes from `opts.selectedId` and `opts.highlight`. */
   private paintSelection() {
     for (const [id, b] of this.boxes) {
       b.classList.toggle('sel', id === this.opts.selectedId);
@@ -201,6 +298,13 @@ export class Grid {
     }
   }
 
+  /**
+   * Pointer-based move or resize of one box. The pointer delta is rounded to whole cells.
+   * Move clamps x so the widget stays inside the 12 columns (y ≥ 0); resize keeps the top-left
+   * corner and clamps w to the columns left and h to 1..20 rows. Only the box is moved while
+   * dragging; on release, if anything changed, collisions are resolved and `onChange` is called.
+   * Pointer capture keeps events coming even when the pointer leaves the handle.
+   */
   private wireDrag(box: HTMLElement, handle: HTMLElement, kind: 'move' | 'resize') {
     handle.addEventListener('pointerdown', (e) => {
       e.preventDefault();
@@ -228,6 +332,7 @@ export class Grid {
         handle.removeEventListener('pointermove', move);
         handle.removeEventListener('pointerup', up);
         box.classList.remove('dragging');
+        // A click without movement is just a selection; no layout change.
         if (cur.x === w0.x && cur.y === w0.y && cur.w === w0.w && cur.h === w0.h) return;
         const next = resolveCollisions(
           this.widgets.map((w) => (w.id === id ? cur : w)),
@@ -240,6 +345,10 @@ export class Grid {
     });
   }
 
+  /**
+   * HTML5 drop target for palette tiles. Shows a dashed ghost at the hovered cell and, on drop,
+   * calls `onDrop(type, x, y)`. Drags that do not carry `text/dbb-widget` (files, text) are ignored.
+   */
   private wireDrop() {
     const ghost = document.createElement('div');
     ghost.className = 'dbb-ghost';
@@ -255,6 +364,7 @@ export class Grid {
       if (!e.dataTransfer?.types.includes('text/dbb-widget')) return;
       e.preventDefault();
       const c = cell(e);
+      // The ghost is a nominal 3x2 preview; the real size is chosen by the builder per widget type.
       const p = this.px({ x: c.x, y: c.y, w: 3, h: 2 });
       Object.assign(ghost.style, { display: 'block', left: `${p.left}px`, top: `${p.top}px`, width: `${p.width}px`, height: `${p.height}px` });
     });
@@ -270,6 +380,7 @@ export class Grid {
   }
 }
 
+/** Grid-only styles (boxes, drag/resize handles, quick tools, drop ghost). Inject with ensureCss. */
 export const GRID_CSS = `
 .dbb-gbox{transition:left .15s,top .15s,width .15s,height .15s}
 .dbb-gbox.dragging{transition:none;z-index:10;opacity:.92}

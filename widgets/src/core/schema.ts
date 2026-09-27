@@ -1,7 +1,38 @@
-// Dashboard JSON schema (schemaVersion 1). Shared by builder, renderer and chat validation.
+// core/schema.ts — the saved dashboard JSON format (schemaVersion 1), as Zod schemas, plus limits,
+// time ranges and semantic checks. Shared by the builder, the renderer, the store and chat
+// validation. Changing a schema here changes what can be stored and loaded, so keep changes
+// backward compatible: dashboards already saved in `dbb_d_<id>` attributes must still parse.
+//
+// Saved format (one attribute value `dbb_d_<id>` on the DashboardStore asset; see core/store.ts):
+//   {
+//     schemaVersion: 1,
+//     id: 'd…',                         // newId('d'); also the attribute key suffix
+//     name, ownerId, ownerName,         // owner = ThingsBoard user id / display name
+//     kind: 'device' | 'standalone',    // 'device' when any widget uses a machine-relative binding
+//     profile: string | null,           // machine type (device profile) a 'device' dashboard is for
+//     timeRange: 'realtime'|'1h'|'2h'|'4h'|'8h',
+//     theme?: DashboardTheme,           // optional (D-019); absent in older saves
+//     widgets: Widget[],                // see Widget below
+//     version, updatedAt, updatedBy,    // optimistic concurrency (store.saveDashboard)
+//     copiedFrom?: string | null,       // template id for per-machine copies
+//   }
+//   Widget = { id, type, title, x, y, w, h (12-column grid units), binding, keys: string[], settings }
+//   Binding.mode: current | fixed(deviceIds) | siblings(profile) | nearest(profile)
+//                 | nodeQuery(nodeId, profile) | none (content widgets)
+//
+// Limits (D-020): two layers.
+//   - The Zod schema only enforces the LEGACY limits (40 widgets, 10 keys / 10 fixed machines) so
+//     dashboards saved before 27 Sep 2026 still open.
+//   - `checkDashboard()` enforces the current limits (MAX_WIDGETS, MAX_KEYS per type via
+//     WIDGET_CAPS, MAX_DEVICES) plus property-kind compatibility, and is run on save and on chat
+//     output. MAX_SERIES is enforced by the renderer (render/widgets.ts draws at most 8 lines
+//     / devices and says how many were not drawn).
+//
+// Time ranges (D-020): stored ranges longer than 8 h (e.g. '24h', '7d') are read as '8h' by
+// `normalizeRange` inside a Zod preprocess; nothing in the store is rewritten.
 import { z } from 'zod';
 
-/** Widgets per dashboard page (load on the demo server; user decision 27 Sep 2026). */
+/** Widgets per dashboard page (load on the demo server; user decision 27 Sep 2026, D-020). Enforced by checkDashboard. */
 export const MAX_WIDGETS = 10;
 /** Properties per widget. */
 export const MAX_KEYS = 4;
@@ -10,10 +41,13 @@ export const MAX_DEVICES = 4;
 /** Series drawn in one chart (machines x properties). */
 export const MAX_SERIES = 8;
 /** Legacy limits, only so dashboards saved before 27 Sep 2026 still load (checkDashboard enforces the new ones on save). */
+// used only in the Zod shapes below; do not lower them or old saves stop parsing
 const LEGACY_MAX_WIDGETS = 40;
 const LEGACY_MAX_KEYS = 10;
+/** Columns of the layout grid; widget x/w are in grid columns. */
 export const GRID_COLS = 12;
 
+/** Every widget type (D-019). Adding one means updating every Record<WidgetType, …> below and in core/compat.ts, plus a renderer. */
 export const WIDGET_TYPES = [
   'value', 'kpi', 'gauge', 'progress', 'status', 'multivalue', 'summary',
   'line', 'area', 'bar', 'donut', 'timeline', 'heatmap',
@@ -22,6 +56,7 @@ export const WIDGET_TYPES = [
 ] as const;
 export type WidgetType = (typeof WIDGET_TYPES)[number];
 
+/** User-facing name per widget type (palette, reasons, error messages). */
 export const WIDGET_LABELS: Record<WidgetType, string> = {
   value: 'Value card',
   kpi: 'KPI + trend',
@@ -52,7 +87,11 @@ export const WIDGET_GROUPS: { title: string; types: WidgetType[] }[] = [
   { title: 'Content', types: ['text', 'image', 'link', 'embed'] },
 ];
 
-/** How many keys and devices each widget type accepts. */
+/**
+ * Per widget type: allowed number of property keys [min, max], whether it may show several
+ * machines (`multiDevice`), and whether it needs a data source (`needsData`; false for content).
+ * `keys[1]` is checked by checkDashboard; chat trims extra keys to it.
+ */
 export const WIDGET_CAPS: Record<WidgetType, { keys: [number, number]; multiDevice: boolean; needsData: boolean }> = {
   value: { keys: [1, 1], multiDevice: false, needsData: true },
   kpi: { keys: [1, 1], multiDevice: false, needsData: true },
@@ -75,6 +114,7 @@ export const WIDGET_CAPS: Record<WidgetType, { keys: [number, number]; multiDevi
   embed: { keys: [0, 0], multiDevice: false, needsData: false },
 };
 
+/** Default size in grid units for a newly added widget (builder palette and chat autoPlace). */
 export const DEFAULT_SIZE: Record<WidgetType, { w: number; h: number }> = {
   value: { w: 3, h: 2 },
   kpi: { w: 3, h: 2 },
@@ -100,6 +140,11 @@ export const DEFAULT_SIZE: Record<WidgetType, { w: number; h: number }> = {
 /** Widget types that have no data source. */
 export const CONTENT_TYPES = new Set<WidgetType>(['text', 'image', 'link', 'embed']);
 
+/**
+ * Where a widget's data comes from. Machine-relative modes ('current', 'siblings', 'nearest') make
+ * the dashboard a 'device' dashboard (see RELATIVE_MODES / dashboardKind). Resolution against the
+ * hierarchy happens in the renderer using core/scope.ts helpers.
+ */
 export const Binding = z.discriminatedUnion('mode', [
   /** The machine the dashboard is opened for. */
   z.object({ mode: z.literal('current') }),
@@ -116,10 +161,13 @@ export const Binding = z.discriminatedUnion('mode', [
 ]);
 export type Binding = z.infer<typeof Binding>;
 
+// legacy colour bands; render/rules.ts converts them to colour rules at draw time (D-019)
 const Band = z.object({ upTo: z.number().nullable(), color: z.string() });
 
+// only #hex, rgb()/rgba() or 'transparent' -- keeps user/chat input out of CSS injection territory
 const Color = z.string().max(40).regex(/^(#[0-9a-fA-F]{3,8}|rgba?\([\d\s.,%]+\)|transparent)$/, 'colour must be #hex or rgb()');
 
+/** Colour-rule operators; the builder offers a subset depending on the property kind (D-019). */
 export const RULE_OPS = ['gt', 'gte', 'lt', 'lte', 'between', 'eq', 'neq', 'contains', 'isTrue', 'isFalse'] as const;
 export type RuleOp = (typeof RULE_OPS)[number];
 export const RULE_OP_LABELS: Record<RuleOp, string> = {
@@ -147,6 +195,7 @@ export const ColorRule = z.object({
 });
 export type ColorRule = z.infer<typeof ColorRule>;
 
+/** Built-in icon names for `CardStyle.icon` (drawn by the renderer). */
 export const ICONS = [
   'gauge', 'bolt', 'thermometer', 'droplet', 'fan', 'wind', 'clock', 'alert', 'check', 'power',
   'factory', 'wrench', 'chart', 'speed', 'battery', 'flame', 'snow', 'info', 'star', 'pin', 'link', 'cpu', 'home', 'list',
@@ -184,6 +233,13 @@ export const CardStyle = z
   .strict();
 export type CardStyle = z.infer<typeof CardStyle>;
 
+/**
+ * All widget settings in one strict object (unknown fields are rejected); each widget type uses a
+ * subset. `html` and `description` must be sanitised (render/rich.ts `sanitizeHtml`) before saving;
+ * chat output is sanitised in core/chat.ts. `url` allows data:image URIs up to 210k characters
+ * (uploaded images, D-019), web addresses up to 2000; checkDashboard also requires https:// for
+ * image/embed.
+ */
 export const WidgetSettings = z
   .object({
     unit: z.string().optional(),
@@ -245,6 +301,7 @@ export const WidgetSettings = z
   .strict();
 export type WidgetSettings = z.infer<typeof WidgetSettings>;
 
+/** One widget on the grid. `keys` are telemetry keys of the bound machines. */
 export const Widget = z.object({
   id: z.string(),
   type: z.enum(WIDGET_TYPES),
@@ -259,24 +316,36 @@ export const Widget = z.object({
 });
 export type Widget = z.infer<typeof Widget>;
 
-/** 'realtime' = latest values, refreshed every 10 s; charts show a rolling last hour. The others are historic windows ending now. */
+/**
+ * Allowed time ranges (D-020). 'realtime' = latest values, refreshed every 10 s; charts show a
+ * rolling last hour. The others are historic windows ending now, refreshed every 60 s.
+ */
 export const TIME_RANGES = ['realtime', '1h', '2h', '4h', '8h'] as const;
 export type TimeRange = (typeof TIME_RANGES)[number];
+/** Time ranges other than realtime (for pickers). */
 export const HISTORIC_RANGES = ['1h', '2h', '4h', '8h'] as const;
-/** Ranges longer than 8 h were removed (load time). Older saves are read as 8 h. */
+/**
+ * Maps any stored/legacy range to an allowed one: allowed values pass through, 'live' -> 'realtime',
+ * any other '<n>h' / '<n>d' (e.g. '24h', '7d') -> '8h', anything else -> 'realtime'.
+ * Ranges longer than 8 h were removed (load time); older saves are read as 8 h.
+ * Note that '3h' also becomes '8h' (not rounded).
+ */
 export function normalizeRange(r: unknown): TimeRange {
   if (typeof r !== 'string') return 'realtime';
   if ((TIME_RANGES as readonly string[]).includes(r)) return r as TimeRange;
   if (r === 'live') return 'realtime';
   return /^\d+[hd]$/.test(r) ? '8h' : 'realtime';
 }
+/** Display label: 'Realtime' or 'Last 8 h'. */
 export function rangeLabel(r: string): string {
   const n = normalizeRange(r);
   return n === 'realtime' ? 'Realtime' : `Last ${n.replace('h', ' h')}`;
 }
 
+/** Dashboard theme presets and selectable fonts (D-019). */
 export const THEME_PRESETS = ['light', 'dark', 'slate', 'ocean', 'sand'] as const;
 export const FONTS = ['Roboto', 'Inter', 'Poppins', 'Montserrat', 'Source Serif 4', 'JetBrains Mono'] as const;
+/** Dashboard-level look (D-019). Optional in Dashboard so dashboards saved before themes still load. */
 export const DashboardTheme = z
   .object({
     preset: z.enum(THEME_PRESETS).optional(),
@@ -293,6 +362,12 @@ export const DashboardTheme = z
   .strict();
 export type DashboardTheme = z.infer<typeof DashboardTheme>;
 
+/**
+ * The saved dashboard document (see the file header for the full format). Parse stored values with
+ * `Dashboard.safeParse` and skip failures; they may be hand-edited or from a newer build.
+ * The widget count is only checked against the legacy limit here; use checkDashboard for the
+ * current limits.
+ */
 export const Dashboard = z.object({
   schemaVersion: z.literal(1),
   id: z.string(),
@@ -313,13 +388,15 @@ export const Dashboard = z.object({
 });
 export type Dashboard = z.infer<typeof Dashboard>;
 
+/** Binding modes that depend on the machine the dashboard is opened for. */
 export const RELATIVE_MODES = new Set(['current', 'siblings', 'nearest']);
 
+/** 'device' when any widget uses a machine-relative binding (then a profile is required), else 'standalone'. */
 export function dashboardKind(widgets: Widget[]): 'device' | 'standalone' {
   return widgets.some((w) => RELATIVE_MODES.has(w.binding.mode)) ? 'device' : 'standalone';
 }
 
-/** Window length of a range. Realtime charts use a rolling hour. */
+/** Window length of a range in ms. Realtime charts use a rolling hour. */
 export function rangeMs(r: string): number {
   const n = normalizeRange(r);
   return n === 'realtime' ? 3600e3 : Number(n.replace('h', '')) * 3600e3;
@@ -333,7 +410,16 @@ export function setCompatCheck(fn: typeof compatCheck) {
   compatCheck = fn;
 }
 
-/** Semantic checks beyond the Zod shape. Returns human-readable problems. */
+/**
+ * Semantic checks beyond the Zod shape, run on save (core/store.ts) and on chat output
+ * (core/chat.ts). Enforces the current limits (D-020): widgets per page, keys per widget type,
+ * grid width, single-machine types, machines per 'fixed' binding, a data source for data widgets,
+ * https:// (or data:image) for image/embed, and a profile for 'device' dashboards.
+ * @param d      parsed dashboard.
+ * @param metaOf optional property metadata lookup (core/compat.ts `metaLookup`); when given and the
+ *               compat hook is registered, property-kind mismatches are reported too.
+ * @returns human-readable problems; empty = OK. Older dashboards may fail here but still render.
+ */
 export function checkDashboard(d: Dashboard, metaOf?: MetaOf): string[] {
   const errs: string[] = [];
   if (d.widgets.length > MAX_WIDGETS) errs.push(`At most ${MAX_WIDGETS} widgets per page (this one has ${d.widgets.length}).`);
@@ -359,6 +445,7 @@ export function checkDashboard(d: Dashboard, metaOf?: MetaOf): string[] {
   return errs;
 }
 
+/** Short unique-enough id: prefix + base-36 time + 5 random chars ('w' widgets, 'd' dashboards, 'r' chat requests). */
 export function newId(prefix = 'w'): string {
   return `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
 }

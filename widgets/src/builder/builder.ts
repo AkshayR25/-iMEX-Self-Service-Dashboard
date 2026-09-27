@@ -1,4 +1,47 @@
-// Full-screen Dashboard Builder overlay. Opened from the navbar button (launcher widget).
+/**
+ * Full-screen Dashboard Builder overlay.
+ *
+ * Where it runs: in the browser, inside a ThingsBoard CE page. The code is part of the shared
+ * IIFE bundle (`widgets/dist/imex-dbb.js`) embedded in each custom widget type (DECISIONS D-010).
+ * The builder is not a widget itself: it appends a fixed overlay `<div class="dbb-root dbb-overlay">`
+ * to `document.body` and removes it on close.
+ *
+ * Main export: `openBuilder(options)`. Callers:
+ *   - `entries/launcher.ts` `open()` - the navbar edit menu's "Dashboard Builder" item
+ *     (also reachable via `window.IMEX_DBB.open`).
+ *   - `entries/renderer.ts` - "Edit this dashboard" on the machine page.
+ * Both pass an `onClose(changed)` callback so the page can refresh after a save/apply/delete.
+ *
+ * Modules it calls:
+ *   - `core/store`  - load/save/apply/delete dashboards and resolve what a machine shows. Every
+ *                     write goes to ThingsBoard attributes over REST with the user's own JWT
+ *                     (storage layout: DECISIONS D-013).
+ *   - `core/chat`   - chat turns via the rule-chain relay (D-014).
+ *   - `core/schema` - Dashboard/Widget types, limits (MAX_WIDGETS, MAX_KEYS, MAX_DEVICES) and
+ *                     `checkDashboard` (D-020).
+ *   - `core/compat` - which property kinds each widget type accepts (D-020).
+ *   - `core/scope`  - the user's machine tree (from `selectedNodes`, D-011).
+ *   - `core/audit`  - `dbb_audit` entries for save/apply/restore/delete/chat (D-012).
+ *   - `render/grid` - the 12-column drag/resize canvas; `render/*` draws the widget cards.
+ *   - `./editors`   - Style / Colours / Theme / rich-text sub-editors; `./ui` - modal, toast.
+ *
+ * Key concepts and data flow:
+ *   - `draft` is the in-memory Dashboard being edited. Nothing reaches ThingsBoard until Save
+ *     (or Apply / Restore / Delete, which write immediately).
+ *   - `baseline` is the JSON of the last loaded/saved draft; `dirty()` compares against it.
+ *   - Undo/redo are stacks of JSON snapshots (max 50). `commit`/`mutate` push one snapshot per
+ *     change and redraw everything. `quiet`/`quietWidget` are for sub-editors: they coalesce
+ *     rapid edits from the same source into one undo step and do not rebuild the right panel,
+ *     so inputs keep focus.
+ *   - Layout: top bar (machine, name, time range, tools), banner row, left palette, centre
+ *     canvas (Grid), right panel (Widget/Dashboard settings, Style, Colours, Chat tabs).
+ *   - Save validates with `checkDashboard`, stores via `store.saveDashboard` (optimistic
+ *     concurrency on `version`), then on first save / chat proposal / save-as opens the Apply
+ *     dialog (D-017).
+ *
+ * Security: the admin check in `openBuilder` and every "only admins" branch here are UI-only.
+ * CE lets any customer user write these attributes through REST (DECISIONS D-012).
+ */
 import * as api from '../core/api';
 import * as scope from '../core/scope';
 import type { UserContext } from '../core/scope';
@@ -17,17 +60,28 @@ import { audit } from '../core/audit';
 import { compatible, metaLookup, propKind } from '../core/compat';
 import type { KeyMeta } from '../core/types';
 
+/** Options for {@link openBuilder}. */
 export interface BuilderOptions {
+  /** Logged-in user's context: scope tree, role, store asset, profile key catalogue (see core/scope). */
   ctx: UserContext;
+  /** Machine to start on. Ignored (treated as none) if it is not in the user's scope. */
   deviceId?: string | null;
+  /** Saved dashboard to open directly; takes precedence over `deviceId` for what is loaded. */
   dashboardId?: string | null;
+  /** Show the Chat tab and "Describe it in chat" button. Defaults to true (only `false` hides it). */
   chatEnabled?: boolean;
+  /** Called after the overlay is removed. `changed` is true if anything was saved, applied or deleted. */
   onClose?(changed: boolean): void;
 }
 
+/** Palette icons (SVG markup) per widget type. */
 const ICON = WIDGET_ICON as Record<WidgetType, string>;
 
-/** One-line descriptions shown in the palette tooltip. */
+/**
+ * One-line descriptions shown in the palette tooltip; also matched by the palette search.
+ * Note: some texts predate the D-020 limits (8 lines per chart, bars per 15 min/hour, heatmap
+ * as machines x time); the schema/renderer are authoritative.
+ */
 const HELP: Record<WidgetType, string> = {
   value: 'Latest value of one property, coloured by rules',
   kpi: 'Big number with a trend sparkline and % change',
@@ -36,12 +90,12 @@ const HELP: Record<WidgetType, string> = {
   status: 'Running / stopped / fault pill',
   multivalue: 'Several properties of one machine in one card',
   summary: 'Min, average, max and current over the time range',
-  line: 'Trends of up to 10 series, with threshold lines',
+  line: 'Trends of up to 4 properties, with threshold lines',
   area: 'Filled trend; can stack series',
-  bar: 'Per hour, per day or machine-by-machine bars',
+  bar: 'Every 15 minutes, per hour or machine-by-machine bars',
   donut: 'Share of time in each state, or share by machine',
   timeline: 'When each machine was running, stopped or faulted',
-  heatmap: 'Hour-of-day by day pattern of a property',
+  heatmap: 'Machines × time pattern of a property',
   table: 'Machines as rows, properties as columns, coloured cells',
   alarms: 'Alarm list with severity filters',
   text: 'Headings and notes with fonts, colours and live values',
@@ -50,8 +104,19 @@ const HELP: Record<WidgetType, string> = {
   embed: 'Another web page inside the dashboard',
 };
 
+/**
+ * Opens the full-screen Dashboard Builder over the current page.
+ *
+ * Side effects: injects the core, grid and builder stylesheets once (by id), appends the overlay
+ * to `document.body`, adds `keydown` and `beforeunload` listeners (removed on close) and starts
+ * loading `o.dashboardId` or the dashboard `o.deviceId` currently shows.
+ *
+ * @param o builder options; `o.ctx.isAdmin` must be true.
+ * @returns the Builder instance (callers normally ignore it).
+ * @throws Error if the user is not an admin.
+ */
 export function openBuilder(o: BuilderOptions) {
-  // Building is admin-only (scope decision 27 Sep 2026). UI-level check; see DECISIONS D-012.
+  // Building is admin-only (scope decision 27 Sep 2026, DECISIONS D-017). UI-level check only; see D-012.
   if (!o.ctx.isAdmin) throw new Error('Only admins can build dashboards.');
   ensureCss('dbb-css-core', CSS);
   ensureCss('dbb-css-grid', GRID_CSS);
@@ -61,30 +126,59 @@ export function openBuilder(o: BuilderOptions) {
   return b;
 }
 
+/**
+ * The builder overlay: holds the draft, undo/redo stacks and UI state, and renders every region.
+ * Not exported; create it through {@link openBuilder}.
+ *
+ * Rendering is plain innerHTML + event wiring per region (`renderTop`, `renderBanner`,
+ * `renderLeft`, `renderCanvas`, `renderRight`). `renderAll` redraws all of them; most state
+ * changes go through `commit`, which calls it.
+ */
 class Builder {
   ctx: UserContext;
+  /** The overlay element; all DOM queries are scoped to it. */
   root!: HTMLElement;
+  /** Canvas grid, created lazily on the first `renderCanvas`. */
   grid: Grid | null = null;
+  /** Machine the draft is previewed for ("This machine" widgets read from it); null = standalone. */
   deviceId: string | null;
+  /** Dashboard being edited. Replace it via commit/mutate/quiet/loadDraft, not by direct assignment. */
   draft: Dashboard;
+  /** JSON of the last loaded or saved draft; `dirty()` compares against it. */
   baseline = '';
+  /** Id of the selected widget, or null (right panel then shows dashboard settings/theme). */
   selected: string | null = null;
+  /** Undo/redo stacks of draft JSON snapshots. Undo is capped at 50 entries. */
   undo: string[] = [];
   redo: string[] = [];
+  /** Preview mode hides the side panels and disables selection. */
   preview = false;
+  /** Active right-panel tab ('rules' is shown as "Colours"). */
   tab: 'settings' | 'style' | 'rules' | 'chat' = 'settings';
+  /** Palette search text. */
   palFilter = '';
+  /** Time and tag of the last `quiet` update; used to merge rapid edits into one undo step. */
   quietAt = 0;
   quietKey = '';
+  /** Messages shown in the Chat tab (UI only). */
   chatLog: { role: 'user' | 'assistant' | 'system'; text: string; changed?: chat.ChatResult['changed']; options?: string[] }[] = [];
+  /** Conversation sent to the LLM on each turn. Reset when another dashboard is loaded. */
   chatHistory: chat.Turn[] = [];
+  /** Draft JSON from before the first chat change since load/save; enables "Discard chat changes". */
   preChat: string | null = null;
+  /** Apply target suggested by chat; the Apply dialog opens with it pre-selected after the next Save. */
   pendingApply: chat.ApplyProposal | null = null;
+  /** Widget ids briefly highlighted on the canvas ("Highlight" link in chat). */
   highlight = new Set<string>();
+  /** True while a REST call or chat turn is in flight (spinner shown, chat Send disabled). */
   busy = false;
+  /** Reported to `onClose` so the host page knows to reload. */
   savedAnything = false;
+  /** What the selected machine currently shows (store.resolveForDevice); drives the banner. */
   source: store.Resolved | null = null;
+  /** Machines using the draft and machines with customised copies of it (store.usage). */
   usageInfo: { devices: string[]; customised: string[] } | null = null;
+  // Kept as fields so the same function references can be removed in close().
   keyHandler = (e: KeyboardEvent) => this.onKey(e);
   unloadHandler = (e: BeforeUnloadEvent) => {
     if (this.dirty()) {
@@ -93,8 +187,10 @@ class Builder {
     }
   };
 
+  /** Starts with a blank draft; `mount()` then loads the real dashboard asynchronously. */
   constructor(private o: BuilderOptions) {
     this.ctx = o.ctx;
+    // A device outside the user's scope is silently dropped (standalone mode).
     this.deviceId = o.deviceId && this.ctx.nodes.has(o.deviceId) ? o.deviceId : null;
     this.draft = store.blankDashboard(this.ctx, 'Untitled dashboard', this.deviceId ? this.ctx.nodes.get(this.deviceId)!.profile : null);
     this.baseline = JSON.stringify(this.draft);
@@ -102,6 +198,10 @@ class Builder {
 
   // ---------- lifecycle ----------
 
+  /**
+   * Adds the overlay to `document.body`, registers keyboard and beforeunload listeners and
+   * loads the initial content: `dashboardId` first, else what `deviceId` shows, else an empty draft.
+   */
   mount() {
     this.root = el('div', { class: 'dbb-root dbb-overlay', role: 'dialog', 'aria-label': 'Dashboard Builder' });
     document.body.appendChild(this.root);
@@ -113,6 +213,10 @@ class Builder {
     else this.renderAll();
   }
 
+  /**
+   * Closes the overlay after confirming if there are unsaved changes. Removes listeners,
+   * destroys the grid and calls `onClose(savedAnything)`. Does nothing if the user cancels.
+   */
   async close() {
     if (this.dirty() && !(await confirmModal(this.root, 'Discard unsaved changes?', 'You have changes that are not saved.', 'Discard', true))) return;
     document.removeEventListener('keydown', this.keyHandler);
@@ -122,36 +226,48 @@ class Builder {
     this.o.onClose?.(this.savedAnything);
   }
 
+  /** True if the draft differs from the baseline. An empty draft is never dirty (nothing to lose). */
   dirty() {
     return JSON.stringify(this.draft) !== this.baseline && this.draft.widgets.length > 0;
   }
 
   // ---------- state changes ----------
+  // Every edit replaces `draft` with a new object and pushes the old one (as JSON) on the undo stack.
 
+  /**
+   * Makes `next` the draft as one undo step and redraws everything.
+   * Clears redo unless `opts.keepRedo`. Recomputes `kind` (device vs standalone) from the widgets.
+   * @param next new draft; must not share objects with the current draft.
+   */
   commit(next: Dashboard, opts: { keepRedo?: boolean } = {}) {
     this.undo.push(JSON.stringify(this.draft));
     if (this.undo.length > 50) this.undo.shift();
     if (!opts.keepRedo) this.redo = [];
+    // kind decides whether the dashboard can be applied to machines (device) or is standalone.
     next.kind = dashboardKind(next.widgets);
     this.draft = next;
     this.renderAll();
   }
 
+  /** Edits a deep copy of the draft with `fn`, then commits it (one undo step, full redraw). */
   mutate(fn: (d: Dashboard) => void) {
     const d: Dashboard = JSON.parse(JSON.stringify(this.draft));
     fn(d);
     this.commit(d);
   }
 
+  /** Restores the previous snapshot (Ctrl+Z, toolbar, or "undo" in chat). No-op when the stack is empty. */
   undoLast() {
     const prev = this.undo.pop();
     if (!prev) return;
     this.redo.push(JSON.stringify(this.draft));
     this.draft = JSON.parse(prev);
+    // The selected widget may not exist in the older snapshot.
     if (this.selected && !this.draft.widgets.some((w) => w.id === this.selected)) this.selected = null;
     this.renderAll();
   }
 
+  /** Re-applies the last undone snapshot (Ctrl+Shift+Z). */
   redoLast() {
     const nxt = this.redo.pop();
     if (!nxt) return;
@@ -160,8 +276,13 @@ class Builder {
     this.renderAll();
   }
 
+  /**
+   * Document-level shortcuts: Ctrl/Cmd+Z undo, +Shift redo, Delete/Backspace removes the selected
+   * widget, Escape closes (unless a modal is open). Ignored while typing in form fields.
+   */
   onKey(e: KeyboardEvent) {
     const t = e.target as HTMLElement;
+    // Let inputs keep their native undo and Backspace. (contenteditable is not excluded.)
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return;
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
       e.preventDefault();
@@ -176,8 +297,16 @@ class Builder {
 
   // ---------- machine / dashboard selection ----------
 
+  /**
+   * Switches the builder to machine `id` (or to no machine) and loads the dashboard that machine
+   * shows now (personal -> device -> location -> customer-wide, see D-013), or a blank draft
+   * for its profile when it only shows the default layout.
+   * Asks first if the draft is dirty. REST: store.resolveForDevice, then store.usage in the background.
+   * Load errors are shown as a toast; the previous draft stays.
+   */
   async selectMachine(id: string | null) {
     if (this.dirty() && !(await confirmModal(this.root, 'Switch machine?', 'Unsaved changes to the current dashboard will be lost.', 'Switch', true))) {
+      // Re-render so the machine <select> goes back to the current machine.
       this.renderTop();
       return;
     }
@@ -201,6 +330,12 @@ class Builder {
     }
   }
 
+  /**
+   * Loads saved dashboard `id` from the store asset into the draft. If its machine type differs
+   * from the selected machine, switches to the first in-scope machine of that type (or none),
+   * so "This machine" widgets have data to preview. Does not ask about unsaved changes;
+   * callers (Open dialog, mount) are responsible for that.
+   */
   async openDashboard(id: string) {
     this.setBusy(true, 'Loading…');
     try {
@@ -222,6 +357,10 @@ class Builder {
     }
   }
 
+  /**
+   * Replaces the draft with a copy of `d` and treats it as clean: resets baseline, undo/redo,
+   * selection and the chat conversation. Redraws everything.
+   */
   loadDraft(d: Dashboard) {
     this.draft = JSON.parse(JSON.stringify(d));
     this.baseline = JSON.stringify(this.draft);
@@ -234,6 +373,11 @@ class Builder {
     this.renderAll();
   }
 
+  /**
+   * Refreshes `usageInfo` (which machines use the draft / have customised copies) and the banner.
+   * Skipped for unsaved or standalone dashboards. store.usage resolves every same-type machine
+   * in scope, so this can take several seconds on a slow server; errors are ignored.
+   */
   async loadUsage() {
     if (this.draft.version === 0 || !this.draft.profile) {
       this.usageInfo = null;
@@ -249,6 +393,13 @@ class Builder {
 
   // ---------- widgets ----------
 
+  /**
+   * Adds a widget of `type` with sensible defaults: first compatible property of the machine type
+   * (D-020), a title from that property, type-specific settings, and "This machine" binding when a
+   * machine is selected. Placed at `at` (a canvas drop) or in the first free grid slot.
+   * Refuses with a toast when the page already has MAX_WIDGETS (10, D-020) or no property of the
+   * machine type fits. Selects the new widget and opens the Widget tab.
+   */
   addWidget(type: WidgetType, at?: { x: number; y: number }) {
     if (this.draft.widgets.length >= MAX_WIDGETS) return toast(this.root, `A dashboard can have at most ${MAX_WIDGETS} widgets.`, 'warn');
     const size = DEFAULT_SIZE[type];
@@ -256,9 +407,12 @@ class Builder {
     const metas = profile ? this.ctx.profileKeys[profile] ?? [] : [];
     const keys = metas.map((k) => k.key);
     const content = CONTENT_TYPES.has(type);
+    // A new donut starts in "time in each state" mode.
     const mode = type === 'donut' ? 'state' : undefined;
     const ok = metas.filter((m) => compatible(type, m, { donutMode: mode }).ok);
+    // With no catalogue for the profile we can't judge, so allow it.
     if (!content && type !== 'alarms' && profile && metas.length && !ok.length) return toast(this.root, this.paletteBlock(type) ?? `No property of ${profile} fits this widget.`, 'warn');
+    // Prefer a live property over running-hours counters.
     const firstKey = (ok.find((m) => !/hours/i.test(m.key)) ?? ok[0])?.key;
     const statusKey = ok.find((m) => compatible('status', m).ok)?.key;
     const w: Widget = {
@@ -284,6 +438,7 @@ class Builder {
                   ? { sparkline: true }
                   : {},
     };
+    // On/off property on a state widget: start with the Running/Stopped preset.
     if (firstKey && firstKey === statusKey && ['status', 'timeline', 'donut'].includes(type))
       w.settings.colorRules = [
         { op: 'isTrue', color: '#0ca30c', label: 'Running' },
@@ -291,6 +446,7 @@ class Builder {
       ];
     if (w.keys.length === 1 && profile && !content) w.title = keyMeta(this.ctx, profile, w.keys[0]).displayName + (type === 'timeline' ? ' · timeline' : type === 'heatmap' ? ' · heatmap' : '');
     if (at) {
+      // Keep the widget inside the 12-column grid.
       w.x = Math.min(at.x, 12 - w.w);
       w.y = at.y;
     } else {
@@ -299,10 +455,12 @@ class Builder {
       w.y = p.y;
     }
     this.mutate((d) => {
+      // The first "This machine" widget ties the dashboard to the machine type.
       if (!d.profile && profile && w.binding.mode === 'current') d.profile = profile;
       d.widgets.push(w);
     });
-    // resolve overlaps from a drop position
+    // Resolve overlaps from a drop position. Assigned directly (not via mutate), so it is part of
+    // the same undo step as the add.
     if (at) {
       this.draft.widgets = resolveCollisions(this.draft.widgets, w.id) as Widget[];
       this.renderAll();
@@ -312,12 +470,17 @@ class Builder {
     this.renderAll();
   }
 
+  /** Removes widget `id` (one undo step) and clears the selection if it was selected. */
   removeWidget(id: string) {
     this.mutate((d) => (d.widgets = d.widgets.filter((w) => w.id !== id)));
     if (this.selected === id) this.selected = null;
     this.renderAll();
   }
 
+  /**
+   * Edits widget `id` in a copy of the draft as one undo step, with a full redraw (including the
+   * right panel). Use for form fields in the Widget tab; sub-editors use `quietWidget` instead.
+   */
   updateWidget(id: string, fn: (w: Widget) => void) {
     this.mutate((d) => {
       const w = d.widgets.find((x) => x.id === id);
@@ -326,14 +489,18 @@ class Builder {
   }
 
   /**
-   * Update from a sub-editor (rich text, rules, style, theme): redraws the canvas but keeps the
-   * right panel (so colour pickers and the text editor keep focus). Rapid edits from the same
-   * source coalesce into one undo step.
+   * Update from a sub-editor (rich text, rules, style, theme): redraws the top bar and canvas but
+   * keeps the right panel (so colour pickers and the text editor keep focus), unless
+   * `opts.panel` is set. Edits with the same `tag` less than 1.5 s apart coalesce into one undo
+   * step. Always clears redo.
+   * @param tag identifies the edit source, e.g. 'theme' or '<widgetId>:style'.
    */
   quiet(tag: string, fn: (d: Dashboard) => void, opts: { panel?: boolean } = {}) {
     const d: Dashboard = JSON.parse(JSON.stringify(this.draft));
     fn(d);
     const now = Date.now();
+    // Only the first edit of a burst pushes an undo snapshot. The 1.5 s window restarts on every
+    // edit, so continuous typing or dragging a colour picker stays one step.
     if (!(tag === this.quietKey && now - this.quietAt < 1500)) {
       this.undo.push(JSON.stringify(this.draft));
       if (this.undo.length > 50) this.undo.shift();
@@ -348,6 +515,7 @@ class Builder {
     if (opts.panel) this.renderRight();
   }
 
+  /** `quiet` for a single widget; the undo-coalescing tag is `<id>:<tag>`. No-op if the widget is gone. */
   quietWidget(id: string, tag: string, fn: (w: Widget) => void, opts: { panel?: boolean } = {}) {
     this.quiet(`${id}:${tag}`, (d) => {
       const w = d.widgets.find((x) => x.id === id);
@@ -356,7 +524,9 @@ class Builder {
   }
 
   // ---------- rendering ----------
+  // Each render* method rebuilds one region's innerHTML and re-attaches its handlers.
 
+  /** Creates the empty region containers once; the render* methods fill them. */
   renderShell() {
     this.root.innerHTML = `
       <div class="dbb-top"></div>
@@ -369,6 +539,7 @@ class Builder {
       <div class="dbb-busy" hidden><div class="dbb-spin"></div><span></span></div>`;
   }
 
+  /** Redraws every region. */
   renderAll() {
     this.renderTop();
     this.renderBanner();
@@ -377,6 +548,7 @@ class Builder {
     this.renderRight();
   }
 
+  /** Shows or hides the full-overlay spinner with `label`, and sets `busy`. */
   setBusy(on: boolean, label = '') {
     this.busy = on;
     const b = this.root.querySelector('.dbb-busy') as HTMLElement;
@@ -385,6 +557,10 @@ class Builder {
     (b.querySelector('span') as HTMLElement).textContent = label;
   }
 
+  /**
+   * `<option>` HTML for the Machine select: in-scope devices sorted by path and grouped by their
+   * parent location, plus a "No machine (standalone)" option.
+   */
   machineOptions(): string {
     const devices = scope.allDevices(this.ctx).sort((a, b) => scope.pathLabel(this.ctx, a.id).localeCompare(scope.pathLabel(this.ctx, b.id)));
     const groups = new Map<string, scope.Node[]>();
@@ -398,6 +574,11 @@ class Builder {
     return html;
   }
 
+  /**
+   * Info/warning strip under the top bar: scope warnings from the user context, what the
+   * selected machine shows now and where it comes from, how many machines a save will update,
+   * machines with customised copies (not updated by a save), and "machine-specific copy".
+   */
   renderBanner() {
     const row = this.root.querySelector('.dbb-banner-row') as HTMLElement;
     const parts: string[] = [];
@@ -421,10 +602,17 @@ class Builder {
     row.hidden = !parts.length;
   }
 
+  /**
+   * Top bar: machine picker, dashboard name, time range (Realtime or Historic 1-8 h, D-020) and
+   * tools (Open, Templates, Undo/Redo, Preview, History, Delete, Save as, Apply, Save, Close).
+   * History, Save as and Apply appear only once the dashboard has been saved (version > 0).
+   */
   renderTop() {
     const top = this.root.querySelector('.dbb-top') as HTMLElement;
     const d = this.draft;
+    // Mirrors store.deleteDashboard's owner-or-admin rule (UI-only, D-012).
     const canDelete = d.version > 0 && (d.ownerId === this.ctx.userId || this.ctx.isAdmin);
+    // Wraps SVG path markup in a 24x24 stroke icon.
     const U = (p: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
     top.innerHTML = `
       <div class="dbb-brand"><span class="dbb-logo">${U('<rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="5" rx="2"/><rect x="13" y="10" width="8" height="11" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/>')}</span><span>Dashboard Builder</span></div>
@@ -454,6 +642,7 @@ class Builder {
     q('range')?.addEventListener('change', (e) => this.mutate((x) => (x.timeRange = normalizeRange((e.target as HTMLSelectElement).value))));
     top.querySelectorAll<HTMLElement>('[data-rng]').forEach((b) =>
       b.addEventListener('click', () => {
+        // Switching to Historic from Realtime starts at 1 h; clicking Historic again keeps the current range.
         const next = b.dataset.rng === 'realtime' ? 'realtime' : this.draft.timeRange === 'realtime' ? '1h' : this.draft.timeRange;
         if (next !== this.draft.timeRange) this.mutate((x) => (x.timeRange = next));
       }),
@@ -475,6 +664,11 @@ class Builder {
     q('delete')?.addEventListener('click', () => void this.deleteDialog());
   }
 
+  /**
+   * Left palette: searchable widget tiles grouped by WIDGET_GROUPS, and the "n / MAX_WIDGETS"
+   * counter. Tiles that can't be added (see `paletteBlock`) are greyed out and only explain why
+   * on click. Other tiles add on click or can be dragged onto the canvas ('text/dbb-widget').
+   */
   renderLeft() {
     const left = this.root.querySelector('.dbb-left') as HTMLElement;
     left.hidden = this.preview;
@@ -495,6 +689,7 @@ class Builder {
       }).join('') || '<div class="dbb-hint">No widget matches.</div>'}
       <div class="dbb-count ${this.draft.widgets.length >= MAX_WIDGETS ? 'full' : ''}">${this.draft.widgets.length} / ${MAX_WIDGETS} widgets on this page</div>`;
     const inp = left.querySelector('.dbb-pal-search input') as HTMLInputElement;
+    // Re-rendering replaces the search input, so restore focus and caret on the new one.
     inp.oninput = () => {
       this.palFilter = inp.value;
       const pos = inp.selectionStart;
@@ -513,12 +708,19 @@ class Builder {
     });
   }
 
+  /**
+   * Draws the draft on the Grid canvas (live data for the selected machine), applies the theme,
+   * and shows the empty-state card (templates, default layout, chat) when there are no widgets.
+   * Creates the Grid on first call; its callbacks route selection, drag/resize, palette drops and
+   * card actions (delete/duplicate) back into the builder.
+   */
   renderCanvas() {
     const canvas = this.root.querySelector('.dbb-canvas') as HTMLElement;
     const center = this.root.querySelector('.dbb-center') as HTMLElement;
     const empty = this.root.querySelector('.dbb-empty') as HTMLElement;
     const themeSig = JSON.stringify(this.draft.theme ?? {});
     const { dark } = applyTheme(center, this.draft.theme);
+    // editing: true keeps link widgets inert and marks cards as editable in the renderers.
     const env = { ctx: this.ctx, deviceId: this.deviceId, timeRange: this.draft.timeRange, theme: this.draft.theme ?? null, dark, editing: true };
     if (!this.grid) {
       this.grid = new Grid(canvas, env, {
@@ -527,6 +729,7 @@ class Builder {
           if (this.preview) return;
           const was = this.selected;
           this.selected = id;
+          // Selecting a widget from the dashboard view leaves Chat for the widget's settings.
           if (id && !was && this.tab === 'chat') this.tab = 'settings';
           this.grid!.setOptions({ selectedId: id });
           this.renderRight();
@@ -535,10 +738,13 @@ class Builder {
         onDrop: (t, x, y) => this.addWidget(t as WidgetType, { x, y }),
         onAction: (id, a) => (a === 'del' ? this.removeWidget(id) : this.duplicate(id)),
       });
+      // Remember the theme the grid was built with (ad-hoc field) to detect theme changes below.
       (this.grid as any).__theme = themeSig;
     }
     canvas.classList.toggle('preview', this.preview);
     this.grid.setOptions({ selectedId: this.selected, highlight: this.highlight });
+    // setEnv force-redraws every card (reloading its data), so only call it when machine, range or
+    // theme changed. render() alone redraws just the widgets whose config changed.
     const g = this.grid as any;
     const envChanged = g.env?.deviceId !== this.deviceId || g.env?.timeRange !== this.draft.timeRange || g.__theme !== themeSig;
     g.__theme = themeSig;
@@ -577,12 +783,19 @@ class Builder {
       cnt.textContent = `${this.draft.widgets.length} / ${MAX_WIDGETS} widgets on this page`;
       cnt.classList.toggle('full', this.draft.widgets.length >= MAX_WIDGETS);
     }
+    // Redraw the palette only when the page crosses the MAX_WIDGETS limit (tiles grey out / come back).
     if (this.palFull !== this.draft.widgets.length >= MAX_WIDGETS) this.renderLeft();
   }
 
+  /** Whether the palette was last drawn with a full page; set as a side effect of `paletteBlock`. */
   palFull = false;
 
-  /** Why a palette widget can't be added right now (page full, or no property of this machine type fits), or null. */
+  /**
+   * Why a palette widget can't be added right now (page full, or no property of this machine type
+   * fits, D-020), or null. Content widgets and alarms never need a property. With no machine type
+   * or an empty catalogue nothing is blocked. A donut is allowed if either of its modes fits.
+   * Side effect: updates `palFull`.
+   */
   paletteBlock(t: WidgetType): string | null {
     this.palFull = this.draft.widgets.length >= MAX_WIDGETS;
     if (this.palFull) return `This page already has ${MAX_WIDGETS} widgets (the limit, to keep it fast). Remove one to add another.`;
@@ -596,6 +809,7 @@ class Builder {
     return `${WIDGET_LABELS[t]} isn't available for ${profile}: ${c.reason?.split(';')[0].replace(WIDGET_LABELS[t] + ' needs', 'it needs')} and no ${profile} property is one.`;
   }
 
+  /** Copies widget `id` (new id, first free grid slot) and selects the copy. Respects MAX_WIDGETS. */
   duplicate(id: string) {
     const w = this.draft.widgets.find((x) => x.id === id);
     if (!w) return;
@@ -610,6 +824,7 @@ class Builder {
     this.renderAll();
   }
 
+  /** HTML for one template tile: a mini layout preview in the template's colours, name and description. */
   tplCard(t: (typeof TEMPLATES)[number]): string {
     const [a, b, c] = t.swatch;
     return `<button class="dbb-tpl" data-tpl="${t.id}" title="${esc(t.description)}">
@@ -617,6 +832,12 @@ class Builder {
       <span class="nm">${esc(t.name)}</span><span class="ds">${esc(t.description)}</span></button>`;
   }
 
+  /**
+   * Replaces the draft's widgets, theme and time range with template `id`, built from the selected
+   * machine's properties (D-019). Needs a selected machine. Asks first if the draft has widgets.
+   * Renames the draft only if it is unsaved and still has a default or template-generated name.
+   * One undo step.
+   */
   async useTemplate(id: string) {
     const t = TEMPLATES.find((x) => x.id === id);
     const n = this.deviceId ? this.ctx.nodes.get(this.deviceId) : null;
@@ -637,6 +858,7 @@ class Builder {
     toast(this.root, `Started from “${t.name}”. Everything is editable.`, 'ok');
   }
 
+  /** Modal with every template; picking one calls `useTemplate`. */
   async templatesDialog() {
     const n = this.deviceId ? this.ctx.nodes.get(this.deviceId) : null;
     const m = modal(
@@ -654,12 +876,18 @@ class Builder {
     );
   }
 
+  /**
+   * Right panel. With a widget selected: Widget / Style / Colours (data widgets only) tabs.
+   * With nothing selected: Dashboard (theme) tab. Plus Chat when enabled. Falls back to the
+   * settings tab when the current tab doesn't apply to the selection.
+   */
   renderRight() {
     const right = this.root.querySelector('.dbb-right') as HTMLElement;
     right.hidden = this.preview;
     const chatOn = this.o.chatEnabled !== false;
     const w = this.draft.widgets.find((x) => x.id === this.selected);
     if (!w && (this.tab === 'style' || this.tab === 'rules')) this.tab = 'settings';
+    // Content widgets and alarms have no values to colour.
     const dataW = w && !CONTENT_TYPES.has(w.type) && w.type !== 'alarms';
     if (w && this.tab === 'rules' && !dataW) this.tab = 'settings';
     const tabs: [string, string][] = w
@@ -686,6 +914,7 @@ class Builder {
     else this.renderSettings(panel);
   }
 
+  /** Dashboard tab: theme editor (D-019). Changes are quiet updates tagged 'theme'; null theme removes it. */
   renderTheme(panel: HTMLElement) {
     themeEditor(panel, this.draft.theme, (t) => {
       this.quiet('theme', (d) => {
@@ -696,6 +925,11 @@ class Builder {
     }, { onTemplates: () => void this.templatesDialog() });
   }
 
+  /**
+   * Style tab for widget `w` (D-019/D-020: icon, title, card look, alignment, description, footer).
+   * Edits are quiet updates. "Copy style to all" is a normal (full-redraw) step and keeps each
+   * widget's own icon. Empty description text removes the description.
+   */
   renderStyle(panel: HTMLElement, w: Widget) {
     styleEditor(panel, {
       widget: w,
@@ -703,6 +937,7 @@ class Builder {
         this.quietWidget(w.id, 'style', (x) => {
           if (style) x.settings.style = style;
           else delete x.settings.style;
+          // extra: non-style settings the editor owns (e.g. footer); undefined deletes the key.
           if (extra) for (const [k, v] of Object.entries(extra)) v === undefined ? delete (x.settings as any)[k] : ((x.settings as any)[k] = v);
         });
         this.renderRight();
@@ -726,6 +961,12 @@ class Builder {
     });
   }
 
+  /**
+   * Colours tab: value-based colour rules for widget `w` (D-019).
+   * For a "This machine" widget it first reads the latest values (REST `api.latest`) so the rule
+   * editor can guess the property type from real samples; on failure it uses the catalogue only.
+   * Setting rules drops the legacy `bands` / `statusMap` settings.
+   */
   async renderRules(panel: HTMLElement, w: Widget) {
     const profs = this.profilesForBinding(w);
     const metas = (w.keys.length ? w.keys : []).map((k) => keyMeta(this.ctx, profs[0] ?? '', k));
@@ -741,8 +982,10 @@ class Builder {
       } catch {
         /* type inference falls back to metadata */
       }
+      // The user may have switched widget or tab while the request was in flight.
       if (this.selected !== w.id || this.tab !== 'rules') return;
     }
+    // Use the current copy: the draft may have changed during the await.
     const cur = this.draft.widgets.find((x) => x.id === w.id) ?? w;
     ruleEditor(panel, {
       widget: cur,
@@ -762,11 +1005,17 @@ class Builder {
           if (!rules && extra && 'bands' in extra) delete x.settings.colorRules;
         }),
     });
+    // Keeps the import referenced (unused here).
     void initialRules;
   }
 
   // ---------- settings panel ----------
 
+  /**
+   * Machine types (device profiles) a widget's data source can cover: the dashboard's profile for
+   * "This machine", the profiles of the chosen devices for "Specific machines", none for content
+   * widgets, else the binding's own profile (siblings / nearest / nodeQuery).
+   */
   profilesForBinding(w: Widget): string[] {
     const b = w.binding;
     if (b.mode === 'current') return this.draft.profile ? [this.draft.profile] : this.deviceId ? [this.ctx.nodes.get(this.deviceId)!.profile] : [];
@@ -775,6 +1024,13 @@ class Builder {
     return [b.profile];
   }
 
+  /**
+   * Widget tab for the selected widget: title, type, then either content fields (text/image/
+   * link/embed) or 1 Data source, 2 Properties, 3 Options. Enforces the D-020 limits in the UI:
+   * at most MAX_KEYS properties, MAX_DEVICES specific machines, and greys out properties and
+   * widget types that don't fit (reason in the tooltip). Every change is a normal undo step
+   * via `updateWidget`.
+   */
   renderSettings(panel: HTMLElement) {
     const w = this.draft.widgets.find((x) => x.id === this.selected);
     if (!w) return this.renderTheme(panel);
@@ -786,6 +1042,7 @@ class Builder {
     const devices = scope.allDevices(this.ctx);
     const b = w.binding;
     const metas = this.metasFor(w);
+    // Property list: radios for single-key widgets, checkboxes (capped at cap.keys[1]) otherwise.
     const keyRows = (() => {
       if (cap.keys[1] === 0) return '';
       if (!metas.length) return `<div class="dbb-hint">Choose a data source first.</div>`;
@@ -860,6 +1117,7 @@ class Builder {
         </div>
       </div>`;
 
+    // ----- event wiring -----
     const on = (sel: string, ev: string, fn: (e: any) => void) => panel.querySelectorAll(sel).forEach((x) => x.addEventListener(ev, fn));
     on('[data-go]', 'click', (e) => {
       e.preventDefault();
@@ -867,6 +1125,9 @@ class Builder {
       this.renderRight();
     });
     on('[data-s="title"]', 'change', (e) => this.updateWidget(w.id, (x) => (x.title = e.target.value)));
+    // Changing the widget type: trim keys to the new cap, switch binding between content (none) and
+    // data, keep only style/description/footer for content types, swap to a fitting property
+    // (D-020), and grow to the new type's minimum height (full width if the type is full-width).
     on('[data-s="type"]', 'change', (e) =>
       this.updateWidget(w.id, (x) => {
         const t = e.target.value as WidgetType;
@@ -882,6 +1143,7 @@ class Builder {
           x.binding = this.deviceId ? { mode: 'current' } : { mode: 'fixed', deviceIds: [scope.allDevices(this.ctx)[0]?.id].filter(Boolean) as string[] };
           this.fixKeys(x);
         }
+        // Single-machine types can't keep multi-machine bindings.
         if (!c.multiDevice && x.binding.mode === 'fixed') x.binding.deviceIds = x.binding.deviceIds.slice(0, 1);
         if (!c.multiDevice && (x.binding.mode === 'siblings' || x.binding.mode === 'nodeQuery')) x.binding = this.deviceId ? { mode: 'current' } : x.binding;
         if (!CONTENT_TYPES.has(t)) this.fixKeys(x);
@@ -893,6 +1155,7 @@ class Builder {
         x.h = Math.max(x.h, size.h);
       }),
     );
+    // Data source radio: build a default binding for the chosen mode.
     on(`input[name="src-${w.id}"]`, 'change', (e) =>
       this.updateWidget(w.id, (x) => {
         const mode = e.target.value;
@@ -900,6 +1163,7 @@ class Builder {
         if (mode === 'current') x.binding = { mode: 'current' };
         if (mode === 'fixed') x.binding = { mode: 'fixed', deviceIds: this.deviceId ? [this.deviceId] : ([devices[0]?.id].filter(Boolean) as string[]) };
         if (mode === 'siblings') x.binding = { mode: 'siblings', profile: curProf };
+        // "Nearest" usually means another type (e.g. the site weather station), so default to a different profile.
         if (mode === 'nearest') x.binding = { mode: 'nearest', profile: allProfiles.find((p) => p !== curProf) ?? curProf };
         if (mode === 'nodeQuery') x.binding = { mode: 'nodeQuery', nodeId: this.ctx.rootIds[0] ?? nodes[0]?.id, profile: curProf };
         this.fixKeys(x);
@@ -908,6 +1172,8 @@ class Builder {
     on('[data-s="dev"]', 'change', () =>
       this.updateWidget(w.id, (x) => {
         const ids = [...panel.querySelectorAll<HTMLInputElement>('[data-s="dev"]:checked')].map((i) => i.value).slice(0, WIDGET_CAPS[x.type].multiDevice ? MAX_DEVICES : 1);
+        // Machines outside this user's scope aren't listed but are kept (another admin chose them).
+        // Unticking everything leaves the binding unchanged.
         const hidden = x.binding.mode === 'fixed' ? x.binding.deviceIds.filter((id) => !this.ctx.nodes.has(id)) : [];
         if (ids.length || hidden.length) x.binding = { mode: 'fixed', deviceIds: [...hidden, ...ids] };
         this.fixKeys(x);
@@ -923,6 +1189,7 @@ class Builder {
     on(`input[name="k-${w.id}"]`, 'change', () =>
       this.updateWidget(w.id, (x) => {
         const ks = [...panel.querySelectorAll<HTMLInputElement>(`input[name="k-${w.id}"]:checked`)].map((i) => i.value).slice(0, Math.min(MAX_KEYS, WIDGET_CAPS[x.type].keys[1]));
+        // Only retitle if the title was still automatic (empty, the type label, or the old property name).
         const wasAuto = !x.title || x.title === WIDGET_LABELS[x.type] || profiles.some((p) => x.keys[0] && x.title.startsWith(keyMeta(this.ctx, p, x.keys[0]).displayName));
         x.keys = ks;
         if (wasAuto && ks.length === 1 && profiles[0]) x.title = keyMeta(this.ctx, profiles[0], ks[0]).displayName;
@@ -934,7 +1201,10 @@ class Builder {
     on('[data-s="dup"]', 'click', () => this.duplicate(w.id));
   }
 
-  /** Content widgets: rich text, image, button/link, embedded page. */
+  /**
+   * Form HTML for content widgets (no data source, D-019): rich text, image (https address or
+   * upload up to 150 KB), link/button (app page or website) and embedded page. Wired by `wireContent`.
+   */
   contentFields(w: Widget): string {
     const s = w.settings;
     if (w.type === 'text') return `<div data-rte></div><div class="dbb-hint">Live values: pick <b>+ Live value</b> or type <code>{{key}}</code>. <code>{{machine}}</code>, <code>{{location}}</code>, <code>{{time}}</code> and <code>{{date}}</code> also work.</div>`;
@@ -947,6 +1217,7 @@ class Builder {
       return `<label class="dbb-field"><span>Page address (https://…)</span><input data-c="url" value="${esc(s.url ?? '')}" placeholder="https://…"/></label><div class="dbb-hint">Many sites (Google, YouTube pages, banking) refuse to be shown inside another page. Use their “embed” link where offered.</div>`;
     // link
     const devices = scope.allDevices(this.ctx);
+    // The stand-in app's ThingsBoard dashboard state ids (D-018). An unknown stored state is kept as an extra option.
     const states: [string, string][] = [
       ['default', 'Map page'],
       ['listing', 'Listing page'],
@@ -978,6 +1249,12 @@ class Builder {
       <div class="dbb-hint">Pick the button icon in the Style tab. Buttons don't navigate while you're editing.</div>`;
   }
 
+  /**
+   * Wires the content fields from `contentFields`. All edits are quiet updates (per-field tag),
+   * so typing doesn't lose focus. The rich-text editor offers {{placeholders}} for machine,
+   * location, time, date and every catalogue property of the dashboard's machine type; its output
+   * replaces the legacy `markdown` setting (sanitising happens in the editor, D-019).
+   */
   wireContent(panel: HTMLElement, w: Widget) {
     const rte = panel.querySelector('[data-rte]') as HTMLElement | null;
     if (rte) {
@@ -1000,6 +1277,8 @@ class Builder {
           }),
       });
     }
+    // Sets or (for '' / undefined) deletes one setting. panelRefresh re-renders the panel, needed
+    // when the field changes which other fields are shown (link kind, image upload, toggles).
     const set = (k: string, v: any, panelRefresh = false) =>
       this.quietWidget(w.id, `c-${k}`, (x) => (v === undefined || v === '' ? delete (x.settings as any)[k] : ((x.settings as any)[k] = v)), { panel: panelRefresh });
     panel.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-c]').forEach((inp) => {
@@ -1008,6 +1287,7 @@ class Builder {
         inp.addEventListener('change', () => {
           const f = (inp as HTMLInputElement).files?.[0];
           if (!f) return;
+          // Uploads are stored inline as a data: URI in the dashboard JSON, hence the 150 KB cap (D-019).
           if (f.size > 150 * 1024) return toast(this.root, 'That image is over 150 KB. Use a smaller file or an https:// address.', 'warn');
           const r = new FileReader();
           r.onload = () => set('url', String(r.result), true);
@@ -1022,6 +1302,7 @@ class Builder {
         });
         return;
       }
+      // Colour pickers update live while dragging; they must not re-render the panel or the picker closes.
       inp.addEventListener(inp.type === 'color' ? 'input' : 'change', () => {
         if (inp.type === 'color') (inp.parentElement as HTMLElement).style.background = inp.value;
         set(k, k === 'url' ? inp.value.trim() : inp.value, k !== 'url' && inp.type !== 'color');
@@ -1032,6 +1313,12 @@ class Builder {
     panel.querySelectorAll<HTMLElement>('[data-bs]').forEach((b) => b.addEventListener('click', () => set('buttonStyle', b.dataset.bs, true)));
   }
 
+  /**
+   * "3 · Options" form HTML for data widgets: unit/decimals, min/max, orientation, KPI options,
+   * aggregation, smoothing/stacking/legend, bar grouping, donut mode, heatmap colours, per-widget
+   * time range and alarm filters, depending on the type. Placeholders show the catalogue defaults.
+   * Wired by `wireAppearance`.
+   */
   appearanceFields(w: Widget): string {
     const s = w.settings;
     const prof = this.profilesForBinding(w)[0];
@@ -1061,9 +1348,12 @@ class Builder {
       if (w.type === 'area') f.push(chk('stacked', 'Stack series (same unit only)', !!s.stacked));
       f.push(chk('showLegend', 'Show legend', s.showLegend !== false));
     }
+    // 'day' grouping was dropped with the 8 h cap (D-020); stored 'day' is shown as 'hour'.
     if (w.type === 'bar') f.push(sel('groupBy', 'Group by', [['15m', 'Every 15 minutes'], ['hour', 'Hour'], ['device', 'Compare machines']], s.groupBy === 'day' ? 'hour' : s.groupBy ?? 'hour'));
     if (w.type === 'donut') f.push(sel('donutMode', 'Show', [['state', 'Time in each state (one machine)'], ['devices', 'Share by machine']], s.donutMode ?? 'state'));
     if (w.type === 'heatmap') f.push(sel('heatColor', 'Colours', [['blue', 'Blue scale'], ['orange', 'Orange scale'], ['rules', 'Use the Colours rules']], s.heatColor ?? 'blue'));
+    // Per-widget time range override for time-based widgets; '' means follow the dashboard.
+    // Legacy values (24h/7d/30d) are normalised to 8h for display (D-020).
     if (['line', 'area', 'bar', 'alarms', 'kpi', 'summary', 'donut', 'timeline', 'heatmap'].includes(w.type))
       f.push(sel('timeRange', 'Time range', [['', `Same as dashboard (${rangeLabel(this.draft.timeRange)})`], ...TIME_RANGES.map((r) => [r, r === 'realtime' ? 'Realtime (rolling 1 h)' : rangeLabel(r)] as [string, string])], s.timeRange ? normalizeRange(s.timeRange) : ''));
     if (w.type === 'alarms') {
@@ -1076,6 +1366,11 @@ class Builder {
     return f.join('') || '<div class="dbb-hint">No options for this widget.</div>';
   }
 
+  /**
+   * Wires the Options form. Settings are stored sparsely: a value equal to the renderer's default
+   * is deleted rather than stored (e.g. showLegend/sparkline/upIsGood default true, smooth/stacked
+   * default false, empty inputs mean "use the catalogue default"). Each change is one undo step.
+   */
   wireAppearance(panel: HTMLElement, w: Widget) {
     panel.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-ap]').forEach((inp) =>
       inp.addEventListener('change', () =>
@@ -1083,6 +1378,7 @@ class Builder {
           const a = inp.dataset.ap!;
           const v = (inp as HTMLInputElement).type === 'checkbox' ? (inp as HTMLInputElement).checked : inp.value;
           const s: any = x.settings;
+          // Numeric fields; decimals and maxRows are non-negative integers.
           if (['decimals', 'min', 'max', 'maxRows'].includes(a)) {
             if (v === '') delete s[a];
             else s[a] = a === 'decimals' || a === 'maxRows' ? Math.max(0, Math.round(Number(v))) : Number(v);
@@ -1094,6 +1390,7 @@ class Builder {
             else delete s[a];
           } else if (v === '') delete s[a];
           else s[a] = v;
+          // "Share by machine" needs several machines: move "This machine" to same-type machines at its location.
           if (a === 'donutMode' && v === 'devices' && x.binding.mode === 'current') x.binding = this.deviceId ? { mode: 'siblings', profile: this.ctx.nodes.get(this.deviceId)!.profile } : x.binding;
           if (a === 'donutMode') this.fixKeys(x);
         }),
@@ -1103,6 +1400,7 @@ class Builder {
       c.addEventListener('change', () =>
         this.updateWidget(w.id, (x) => {
           const sel = [...panel.querySelectorAll<HTMLInputElement>('[data-sev]:checked')].map((i) => i.value);
+          // All four ticked = no filter (setting removed).
           if (sel.length === 4) delete x.settings.severities;
           else x.settings.severities = sel as any;
         }),
@@ -1110,21 +1408,31 @@ class Builder {
     );
   }
 
-  /** Properties that can be chosen for this widget's data source. */
+  /**
+   * Properties that can be chosen for this widget's data source: the catalogue entries
+   * (`ctx.profileKeys`, from `dbb_profile_keys`, D-013) of every profile it covers, deduplicated by key.
+   */
   metasFor(w: Widget): KeyMeta[] {
     const seen = new Map<string, KeyMeta>();
     for (const p of this.profilesForBinding(w)) for (const k of this.ctx.profileKeys[p] ?? []) if (!seen.has(k.key)) seen.set(k.key, k);
     return [...seen.values()];
   }
 
-  /** Donut mode as the renderer will use it. */
+  /**
+   * Donut mode as the renderer will use it: the explicit setting, else "time in each state" for a
+   * single-machine binding and "share by machine" for multi-machine bindings.
+   */
   donutMode(w: Widget): 'state' | 'devices' {
     if (w.settings.donutMode) return w.settings.donutMode;
     const b = w.binding;
     return b.mode === 'current' || b.mode === 'nearest' || (b.mode === 'fixed' && b.deviceIds.length === 1) ? 'state' : 'devices';
   }
 
-  /** Can this property be shown with widget type t? anyDonutMode: a donut fits if either of its modes fits. */
+  /**
+   * Can property `m` be shown with widget type `t` (core/compat rules, D-020)? Returns
+   * `{ ok, reason? }`. For a donut, uses `w`'s effective mode, or with `anyDonutMode` accepts
+   * either mode (used for the widget-type dropdown).
+   */
   fits(t: WidgetType, m: KeyMeta, w: Widget, anyDonutMode = false) {
     if (t === 'donut' && anyDonutMode) {
       const a = compatible(t, m, { donutMode: 'state' });
@@ -1133,11 +1441,17 @@ class Builder {
     return compatible(t, m, { donutMode: t === 'donut' ? this.donutMode(w) : undefined });
   }
 
+  /** Short label for a property's kind, shown next to greyed-out properties. */
   kindWord(m: KeyMeta): string {
     return { number: 'number', boolean: 'on/off', string: 'text', coded: 'state' }[propKind(m)];
   }
 
-  /** Keep only known properties that fit the widget type (at most MAX_KEYS); pick a fitting one if none are left. */
+  /**
+   * Keep only known properties that fit the widget type (at most MAX_KEYS and the type's cap);
+   * pick a fitting one if none are left and the type needs one. May also set a donut to
+   * "share by machine" when its property is a plain number. Mutates `x` in place; call it inside
+   * an updateWidget/mutate callback after changing type, binding or donut mode.
+   */
   fixKeys(x: Widget) {
     const metas = this.metasFor(x);
     const cap = WIDGET_CAPS[x.type];
@@ -1155,7 +1469,13 @@ class Builder {
   }
 
   // ---------- chat panel ----------
+  // Chat edits the draft only; nothing is saved until Save. Transport is the rule-chain relay (D-014).
 
+  /**
+   * Chat tab: message log (with change summaries and a "Highlight" link), clarification option
+   * buttons, suggested prompts for an empty draft, "Discard chat changes" (back to `preChat`) and
+   * "Undo last", and the input form (Enter sends, Shift+Enter is a newline).
+   */
   renderChat(panel: HTMLElement) {
     const n = this.deviceId ? this.ctx.nodes.get(this.deviceId) : null;
     const sugg = !this.draft.widgets.length && !this.chatLog.length ? chat.suggestedPrompts(this.ctx, this.deviceId) : [];
@@ -1211,6 +1531,7 @@ class Builder {
           }, 2500);
         }),
     );
+    // Discard is itself an undoable step (commit), so it can be reverted with Ctrl+Z.
     panel.querySelector<HTMLElement>('[data-a="discard"]')?.addEventListener('click', () => {
       if (!this.preChat) return;
       this.commit(JSON.parse(this.preChat));
@@ -1225,10 +1546,21 @@ class Builder {
     });
   }
 
+  /**
+   * Sends one chat message and applies the result to the draft.
+   *
+   * Flow: local "undo" shortcut -> browser-side rate limit (30/hour, `rateOk`) -> `chat.chatTurn`,
+   * which writes `dbb_chat_req` on the store asset and polls `dbb_chat_resp_<userId>` for up to
+   * 30 s (D-014). The reply is either a clarification (options shown as buttons, draft unchanged)
+   * or a new draft, committed as one undo step. The draft from before the first chat change is kept
+   * in `preChat`. An apply target proposed by the model is remembered in `pendingApply` for Save.
+   * Writes a `chat` audit entry on success and failure. Errors are shown in the chat log.
+   */
   async sendChat(text: string) {
     text = text.trim();
     if (!text || this.busy) return;
     if (text.length > 1000) return toast(this.root, 'Please keep messages under 1000 characters.', 'warn');
+    // "undo" is handled locally and does not count towards the rate limit or call the LLM.
     if (/^undo$/i.test(text)) {
       this.undoLast();
       this.chatLog.push({ role: 'user', text }, { role: 'assistant', text: 'Reverted the last change.' });
@@ -1246,6 +1578,7 @@ class Builder {
       if (res.clarification) {
         this.chatLog.push({ role: 'assistant', text: res.clarification.question || res.reply, options: res.clarification.options });
       } else {
+        // Also commit when only layout/dashboard fields changed (no widget added/updated/removed).
         if (changedCount || JSON.stringify(res.draft) !== before) {
           if (!this.preChat) this.preChat = before;
           this.commit(res.draft);
@@ -1266,7 +1599,26 @@ class Builder {
 
   // ---------- save / apply ----------
 
+  /**
+   * Saves the draft to the store asset (`dbb_d_<id>` + history `dbb_h_<id>`, D-013).
+   *
+   * Steps, in order:
+   *   1. Non-admin editing a shared dashboard -> offer "Save as copy" instead (D-015). Since
+   *      D-017 only admins can open the builder, so this branch is normally unreachable.
+   *   2. Validate with `checkDashboard` (D-020 limits and property/widget compatibility) and
+   *      require at least one widget; problems are shown as a toast and nothing is written.
+   *   3. Save as: ask for a name and turn the draft into a new dashboard (new id, version 0).
+   *   4. For machine dashboards, warn if some same-type machines (first 50) don't report a used
+   *      property (REST: one resolve + key list per machine; slow on the demo server).
+   *   5. `store.saveDashboard` (optimistic concurrency on `version`). On ConflictError the user
+   *      can reload the other version or save theirs as a copy.
+   *   6. On first save, a pending chat apply proposal, or save-as, open the Apply dialog (D-017).
+   * Writes a `dashboard.save` / `dashboard.saveAs` audit entry.
+   *
+   * @param asCopy true for "Save as" (always creates a new dashboard).
+   */
   async save(asCopy: boolean): Promise<void> {
+    // UI-only guard (D-012, D-015).
     if (!asCopy && !this.ctx.isAdmin && this.draft.version > 0) {
       const u = this.usageInfo ?? (await store.usage(this.ctx, this.draft).catch(() => null));
       const shared = (u?.devices.length ?? 0) > 1 || (this.source?.level === 'node' || this.source?.level === 'customer') && this.source.dashboard?.id === this.draft.id;
@@ -1283,6 +1635,7 @@ class Builder {
     }
     const d: Dashboard = JSON.parse(JSON.stringify(this.draft));
     d.kind = dashboardKind(d.widgets);
+    // A machine dashboard must name its machine type so it can be applied to same-type machines.
     if (d.kind === 'device' && !d.profile && this.deviceId) d.profile = this.ctx.nodes.get(this.deviceId)!.profile;
     const problems = checkDashboard(d, metaLookup(this.ctx, d));
     if (!d.widgets.length) problems.push('Add at least one widget.');
@@ -1292,7 +1645,7 @@ class Builder {
       if (!name) return;
       Object.assign(d, { id: newId('d'), name, version: 0, ownerId: this.ctx.userId, ownerName: this.ctx.displayName, copiedFrom: null });
     }
-    // warn about keys missing on same-type machines
+    // Warn about keys missing on same-type machines (capped at 50 machines to bound REST calls).
     if (d.kind === 'device' && d.profile) {
       const pv = await store.previewApply(this.ctx, d, { type: 'devices', deviceIds: scope.allDevices(this.ctx, d.profile).map((x) => x.id).slice(0, 50), mode: 'linked' }).catch(() => null);
       if (pv?.missingKeys.length) {
@@ -1311,8 +1664,9 @@ class Builder {
       toast(this.root, `Saved “${saved.name}” (version ${saved.version}).`, 'ok');
       this.renderAll();
       void this.loadUsage();
+      // Hide the spinner before the Apply dialog, which runs its own busy state.
       this.setBusy(false);
-      // first save or a chat proposal -> ask where to apply
+      // First save, a chat proposal or a new copy -> ask where to apply (D-017).
       if (saved.version === 1 || this.pendingApply || asCopy) await this.applyDialog();
     } catch (e: any) {
       this.setBusy(false);
@@ -1327,6 +1681,18 @@ class Builder {
     }
   }
 
+  /**
+   * "Apply dashboard" dialog (D-017): only the selected machine, all machines of this type, or
+   * don't apply. "All" means customer-wide (`dbb_assign_customer` on the store asset) when the
+   * admin's scope roots are top-level, otherwise a device-level `dbb_assign` on every same-type
+   * machine in scope (D-011, D-013). Standalone dashboards can't be applied.
+   *
+   * While open, each selection change runs `store.previewApply` (affected machines, dashboards
+   * that will be replaced, machines keeping their own, missing properties); a sequence counter
+   * drops stale previews. Replacing an existing assignment must be ticked before Apply enables.
+   * On Apply: `store.apply` (REST attribute writes), `dashboard.apply` audit entry, then refreshes
+   * `source` and `usageInfo`. Consumes `pendingApply` (it only sets the initial choice).
+   */
   async applyDialog() {
     const d = this.draft;
     if (d.version === 0) return toast(this.root, 'Save the dashboard first.', 'warn');
@@ -1342,7 +1708,9 @@ class Builder {
     // with the option to apply it to every machine of the same type in the admin's scope.
     const others = sameType.filter((x) => x.id !== dev?.id);
     const allLabel = this.ctx.rootsAreTop ? `All ${profile} machines` : `All ${profile} machines you manage`;
+    // A chat proposal for a location/customer maps to "all"; otherwise default to "only this machine".
     const initial = (p?.target === 'customer' || p?.target === 'node') && admin && others.length ? 'all' : dev && isDeviceDash ? 'device' : 'none';
+    // Location targets are no longer offered (D-017); `nodes` is kept referenced only.
     void nodes;
 
     const m = modal(
@@ -1370,6 +1738,7 @@ class Builder {
       ],
     );
     const body = m.body;
+    // Maps the selected radio to a store.ApplyTarget.
     const target = (): store.ApplyTarget => {
       const t = (body.querySelector('input[name="t"]:checked') as HTMLInputElement)?.value ?? 'none';
       if (t === 'device') return { type: 'devices', deviceIds: [dev!.id], mode: 'linked' };
@@ -1377,6 +1746,7 @@ class Builder {
         return this.ctx.rootsAreTop ? { type: 'customer', profile: profile! } : { type: 'devices', deviceIds: sameType.map((x) => x.id), mode: 'linked' };
       return { type: 'none' };
     };
+    // Recomputes the preview; `seq` makes sure only the latest (possibly slow) preview is shown.
     let seq = 0;
     const refresh = async () => {
       const t = target();
@@ -1405,12 +1775,14 @@ class Builder {
         for (const mk of pv.missingKeys) parts.push(`<div class="dbb-banner warn">${mk.devices.length} of ${pv.affected.length} don't report ${esc(profile ? keyMeta(this.ctx, profile, mk.key).displayName : mk.key)} (${esc(mk.devices.join(', '))})</div>`);
       }
       pvEl.innerHTML = parts.join('');
+      // Apply stays disabled on errors, an unticked "Replace existing assignment", or no machines.
       const rep = pvEl.querySelector('[data-replace]') as HTMLInputElement | null;
       const setBtn = () => (m.button('apply').disabled = !!pv.errors?.length || (!!rep && !rep.checked) || (t.type === 'devices' && !t.deviceIds.length));
       rep?.addEventListener('change', setBtn);
       setBtn();
     };
     body.addEventListener('change', (e) => {
+      // The replace checkbox only toggles the button; re-running the preview would reset it.
       if ((e.target as HTMLElement).matches('[data-replace]')) return;
       void refresh();
     });
@@ -1435,6 +1807,12 @@ class Builder {
     }
   }
 
+  // ---------- open / history / delete dialogs ----------
+
+  /**
+   * "Open dashboard" modal: lists saved dashboards from the store asset (store.listDashboards)
+   * and offers "New blank dashboard". Does not ask about unsaved changes before replacing the draft.
+   */
   async openDialog() {
     this.setBusy(true, 'Loading dashboards…');
     let list: Awaited<ReturnType<typeof store.listDashboards>> = [];
@@ -1471,6 +1849,11 @@ class Builder {
     );
   }
 
+  /**
+   * "Version history" modal: the last 10 saved versions (`dbb_h_<id>`, D-013). Restore saves the
+   * old content as a new version (store.restoreVersion), writes a `dashboard.restore` audit entry
+   * and reloads the draft; unsaved draft changes are dropped without asking.
+   */
   async versionsDialog() {
     const vs = await store.versions(this.ctx, this.draft.id).catch(() => []);
     const m = modal(
@@ -1504,6 +1887,12 @@ class Builder {
     );
   }
 
+  /**
+   * Deletes the saved dashboard after confirmation. store.deleteDashboard removes the dashboard
+   * attributes and every device, location and customer-wide assignment pointing at it within the
+   * user's scope; affected machines fall back to the next dashboard in line (D-013).
+   * Writes a `dashboard.delete` audit entry, then reloads whatever the selected machine now shows.
+   */
   async deleteDialog() {
     const u = this.usageInfo ?? (await store.usage(this.ctx, this.draft).catch(() => ({ devices: [], customised: [] })));
     const ok = await confirmModal(
@@ -1522,6 +1911,7 @@ class Builder {
       void audit(this.ctx, 'dashboard.delete', { id: this.draft.id, name: this.draft.name, affected });
       this.savedAnything = true;
       toast(this.root, 'Dashboard deleted.', 'ok');
+      // Mark clean so selectMachine doesn't ask "Switch machine?" about the deleted draft.
       this.baseline = JSON.stringify(this.draft);
       await this.selectMachine(this.deviceId);
     } catch (e: any) {
@@ -1535,6 +1925,7 @@ class Builder {
 // ---------- helpers ----------
 
 
+/** Short summary of a chat change set, e.g. "Added 2 widgets, changed 1". Empty string if nothing changed. */
 function summarise(c: chat.ChatResult['changed']): string {
   const p: string[] = [];
   if (c.added.length) p.push(`Added ${c.added.length} widget${c.added.length > 1 ? 's' : ''}`);
@@ -1543,6 +1934,12 @@ function summarise(c: chat.ChatResult['changed']): string {
   return p.join(', ');
 }
 
+/**
+ * Chat rate limit: at most 30 requests per user per rolling hour (D-014). Records the request
+ * when allowed. Kept in this browser's localStorage (`dbb_rate_<userId>`), so it is per browser
+ * and easy to bypass; it protects the API budget from accidents, not from a determined user.
+ * If localStorage is unavailable the limit is effectively off.
+ */
 function rateOk(userId: string): boolean {
   const key = `dbb_rate_${userId}`;
   const now = Date.now();
@@ -1562,6 +1959,7 @@ function rateOk(userId: string): boolean {
   return true;
 }
 
+/** Single text-input modal. Resolves to the trimmed value, or null if cancelled or empty. */
 async function promptModal(root: HTMLElement, title: string, label: string, value: string): Promise<string | null> {
   const m = modal(root, title, `<label class="dbb-field"><span>${esc(label)}</span><input data-in value="${esc(value)}" maxlength="120"/></label>`, [
     ['cancel', 'Cancel'],
@@ -1573,10 +1971,12 @@ async function promptModal(root: HTMLElement, title: string, label: string, valu
   return r === 'ok' ? inp.value.trim() || null : null;
 }
 
+/** Modal with Cancel plus the given choices (the last one is primary). Resolves to the chosen key or 'cancel'. */
 async function choiceModal(root: HTMLElement, title: string, text: string, choices: [string, string][]): Promise<string> {
   const m = modal(root, title, `<div>${esc(text)}</div>`, [['cancel', 'Cancel'], ...choices.map(([k, l], i) => [k, l, i === choices.length - 1 ? 'primary' : ''] as [string, string, string])]);
   return m.result;
 }
 
+// Keep these imports referenced (bindingLabel is currently unused here).
 void bindingLabel;
 void api;

@@ -1,8 +1,14 @@
 // Teardown (build instructions 4.4). Deletes only entities carrying poc=true, and profiles carrying the POC marker.
+// Two steps so a caller can show the plan and ask for confirmation (the Node entry asks the user to type
+// DELETE): planTeardown (read-only) then executeTeardown.
+// Also removes what widgets/deploy/deploy-browser.js creates (D-016): the "iMEX App (POC)" dashboard,
+// POC-marked widget bundles and widget types, and POC-marked rule chains (the chat relay). The
+// DashboardStore asset/profile are covered by the poc attribute / marker checks.
 
 import { TbClient, Log, fetchAll, EntityId } from './tb';
 import { CUSTOMER_TITLE, POC_MARKER } from './model';
 
+/** Entities to delete, by kind. Fields other than devices/assets/customers/profiles may be missing in old plans. */
 export interface TeardownPlan {
   devices: { id: string; name: string }[];
   assets: { id: string; name: string }[];
@@ -18,7 +24,13 @@ export interface TeardownPlan {
 
 const eid = (id: string, entityType: string): EntityId => ({ id, entityType });
 
-/** Lists everything teardown would delete. Checks the poc attribute on every candidate. */
+/**
+ * Lists everything teardown would delete. Checks the poc attribute on every candidate.
+ * Selection: devices, assets and users (of customer ITHENA) with server attribute poc=true; the customer
+ * ITHENA if it has poc=true; device/asset profiles, widget bundles, widget types and rule chains whose
+ * description contains POC_MARKER; the dashboard titled "iMEX App (POC)" (by title only).
+ * Read-only, but one attribute read per device/asset/user, so slow on a large tenant.
+ */
 export async function planTeardown(tb: TbClient, log: Log): Promise<TeardownPlan> {
   const plan: TeardownPlan = { devices: [], assets: [], customers: [], deviceProfiles: [], assetProfiles: [], users: [], dashboards: [], widgetBundles: [], widgetTypes: [], ruleChains: [] };
 
@@ -58,6 +70,11 @@ export async function planTeardown(tb: TbClient, log: Log): Promise<TeardownPlan
   return plan;
 }
 
+/**
+ * Deletes the planned entities: dashboards, users, widget types, bundles first; then devices, assets and
+ * customers, re-checking poc=true right before each delete; then profiles (after the devices/assets that
+ * use them) and rule chains. Only device/asset/customer deletes throw on failure; the rest are logged and skipped.
+ */
 export async function executeTeardown(tb: TbClient, plan: TeardownPlan, log: Log) {
   const quiet = async (what: string, path: string) => {
     try {

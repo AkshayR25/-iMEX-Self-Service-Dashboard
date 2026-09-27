@@ -1,6 +1,24 @@
-// Small built-in icon set (24x24, stroke = currentColor) for widget titles, buttons and the palette.
+/**
+ * Small built-in icon set (24x24 viewBox, stroke = currentColor) for widget titles, buttons,
+ * the builder palette and the stand-in app pages. Runs in the browser; returns SVG markup
+ * strings only (no DOM access).
+ *
+ * Exports:
+ * - `ICON_SVG`: icons a user can pick for a widget title (Style tab, DECISIONS D-019). Its keys
+ *   must match the `ICONS` enum in `core/schema.ts`, which validates `style.icon` on save and
+ *   in chat output. Used by `render/widgets.ts`, `builder/editors.ts` and `entries/listing.ts`.
+ * - `WIDGET_ICON`: one icon per widget type (keys = `Widget['type']`), for the builder palette.
+ * - `icon(name)`: safe lookup by name.
+ *
+ * Because they use currentColor, icons take the text colour of their container; size them with
+ * CSS on the parent (`svg { width; height }`). The markup is trusted constant data: never build
+ * icon markup from user input.
+ */
+
+/** Wraps SVG path data in the shared 24x24 stroke-icon `<svg>` element. */
 const S = (d: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
 
+/** User-selectable title icons by name. Adding one here also needs the name in `ICONS` (core/schema.ts). */
 export const ICON_SVG: Record<string, string> = {
   gauge: S('<path d="M4 15a8 8 0 1 1 16 0"/><path d="M12 15l4-5"/><circle cx="12" cy="15" r="1.2"/>'),
   bolt: S('<path d="M13 3L5 13h6l-1 8 8-10h-6z"/>'),
@@ -28,6 +46,7 @@ export const ICON_SVG: Record<string, string> = {
   list: S('<path d="M8 6h13M8 12h13M8 18h13"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/>'),
 };
 
+/** Palette icon per widget type (keys are the widget type ids from core/schema.ts). */
 export const WIDGET_ICON: Record<string, string> = {
   value: S('<rect x="3" y="6" width="18" height="12" rx="2.5"/><path d="M7 14h4M7 10h8"/>'),
   kpi: S('<rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M6 15l3-3 3 2 5-5"/><path d="M6 8h4"/>'),
@@ -50,6 +69,11 @@ export const WIDGET_ICON: Record<string, string> = {
   embed: S('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 8h18"/><path d="M10 12l-2 2 2 2M14 12l2 2-2 2"/>'),
 };
 
+/**
+ * SVG markup for a title icon.
+ * @param name Key of `ICON_SVG`, e.g. from `settings.style.icon`.
+ * @returns The SVG string, or '' when the name is empty or unknown (so callers can concatenate).
+ */
 export function icon(name?: string | null): string {
   return (name && ICON_SVG[name]) || '';
 }

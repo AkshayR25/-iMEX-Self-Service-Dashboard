@@ -1,4 +1,81 @@
-// Widget renderers shared by the builder canvas, the machine dashboard renderer and previews.
+/**
+ * Widget renderers shared by the builder canvas, the machine dashboard renderer and previews.
+ *
+ * WHERE IT RUNS
+ * In the browser, inside a ThingsBoard CE custom widget (D-010). All data comes from the
+ * ThingsBoard REST API with the logged-in user's own JWT (via core/api). No framework: plain DOM,
+ * HTML strings and SVG (charts come from ./charts).
+ *
+ * MAIN EXPORTS
+ * - renderWidget(container, widget, env)  draws one widget card and returns a WidgetHandle.
+ * - resolveBinding / bindingLabel         turn a widget's data source (Binding) into devices / a label.
+ * - keyMeta                               display name, unit, decimals, min/max for a property key.
+ * - cardVars                              CSS custom properties for a card's style settings.
+ * - defaultWidgets                        built-in layout used when no dashboard is assigned (D-013).
+ * - RenderEnv, BoundDevices, WidgetHandle types.
+ *
+ * WHO CALLS IT
+ * render/grid.ts (the 12-column grid used by entries/renderer.ts and the builder canvas) calls
+ * renderWidget once per widget and keeps the handle. builder/builder.ts uses bindingLabel,
+ * defaultWidgets and keyMeta; entries/renderer.ts uses defaultWidgets; render/templates.ts and
+ * entries/listing.ts use keyMeta.
+ *
+ * RENDER PIPELINE
+ * renderWidget builds the card chrome (title, icon, info tooltip, footer) and calls draw().
+ * draw() branches on widget.type:
+ *   1. Content widgets (text, image, embed, link) need no data source and return early.
+ *   2. Data widgets: check the key count against WIDGET_CAPS, resolve the binding to devices,
+ *      compute the time window, check property kind vs widget type (core/compat), then fetch data
+ *      over REST and hand it to a chart function (lineChart, barChart, gauge, sparkline, donut,
+ *      stateTimeline, heatmap) or write HTML directly (value, status, multi-value, table, alarms...).
+ *   3. draw() returns the colour rule that matched (or null / undefined) and renderWidget applies it
+ *      to the card via applyRuleToCard.
+ * Any thrown error (for example an api.ApiError) is caught in refresh() and shown as a placeholder
+ * inside the card, so one failing widget never breaks the page.
+ *
+ * BINDINGS -> DEVICES (resolveBinding; scope helpers in core/scope.ts)
+ * - none:      content widgets, no devices.
+ * - current:   the machine the dashboard is opened for (env.deviceId).
+ * - fixed:     specific device ids; ids not in the user's scope are counted in `hidden`.
+ * - siblings:  devices of a profile under the same parent asset as the current machine.
+ * - nearest:   closest device of a profile walking up from the current machine (e.g. site weather station).
+ * - nodeQuery: all devices of a profile below a given asset node.
+ * Scope is the user's `selectedNodes` subtree (D-011) and is enforced in the UI only (D-012).
+ *
+ * TIME RANGE (schema TIME_RANGES / normalizeRange / rangeMs, D-020)
+ * 'realtime' = latest values; time-based widgets use a rolling last hour. Historic '1h' | '2h' |
+ * '4h' | '8h' = fixed window ending now. Longer stored ranges are read as '8h' by normalizeRange.
+ * A widget's settings.timeRange overrides the dashboard's env.timeRange.
+ *
+ * LIMITS (core/schema)
+ * MAX_SERIES (8) caps devices per multi-device widget and lines per chart; the chart says how
+ * many were not drawn. MAX_WIDGETS (10) bounds defaultWidgets. MAX_KEYS / MAX_DEVICES are enforced
+ * by checkDashboard on save, not here: older dashboards over the limits still render.
+ *
+ * COLOUR RULES (render/rules.ts, D-019)
+ * effectiveRules() gives the widget's rules (legacy bands/statusMap converted). The first match
+ * wins. settings.colorTarget chooses what a card-level match colours: 'background' (tint + accent
+ * bar, default), 'accent', 'icon' or 'value'. Charts draw number rules as threshold lines, gauges
+ * as zones, tables colour cells.
+ *
+ * REFRESH MODEL
+ * The caller owns the timer: entries/renderer.ts ticks every settings.refreshSeconds (10 s) and,
+ * through Grid.refreshAll(), calls handle.refresh() on every widget (every 60 s for historic
+ * ranges, and not while the browser tab is hidden). Each refresh re-fetches everything over REST
+ * and redraws the body. This polling is the place to switch to ThingsBoard WebSocket
+ * subscriptions later (subscribe in renderWidget, unsubscribe in destroy()).
+ *
+ * ADDING A NEW WIDGET TYPE (checklist)
+ * 1. core/schema.ts: add to WIDGET_TYPES, WIDGET_LABELS, WIDGET_GROUPS (palette), WIDGET_CAPS
+ *    (key count, multiDevice, needsData), DEFAULT_SIZE; CONTENT_TYPES if it needs no data; any new
+ *    settings in WidgetSettings.
+ * 2. core/compat.ts: add the accepted property kinds to ACCEPTS.
+ * 3. This file: add a branch in draw() (and a chart function in ./charts if needed).
+ * 4. builder/builder.ts: defaults when the widget is added (title, keys, settings) and any
+ *    type-specific fields in the Settings tab.
+ * 5. render/icons.ts: a palette icon in WIDGET_ICON.
+ * 6. core/chat.ts: describe the type and its settings in systemPrompt() so the chat can use it.
+ */
 import * as api from '../core/api';
 import * as scope from '../core/scope';
 import type { UserContext, Node } from '../core/scope';
@@ -11,12 +88,16 @@ import { effectiveRules, matchRule, thresholdLines, stateLabel, valueType, asBoo
 import { sanitizeHtml, fillPlaceholders, placeholderKeys } from './rich';
 import { icon, ICON_SVG } from './icons';
 
+/** Everything a widget needs from its surroundings to draw. One env is shared by all widgets of a grid. */
 export interface RenderEnv {
+  /** Logged-in user's scope: nodes in scope, profile key catalogue, role (core/scope). */
   ctx: UserContext;
   /** Machine the dashboard is opened for (null for standalone dashboards). */
   deviceId: string | null;
+  /** Dashboard time range ('realtime' | '1h' | '2h' | '4h' | '8h'; older values are normalised). */
   timeRange: string;
   theme?: DashboardTheme | null;
+  /** Dark theme: charts use SERIES_DARK instead of SERIES. */
   dark?: boolean;
   /** Builder canvas: links and buttons don't navigate. */
   editing?: boolean;
@@ -24,13 +105,25 @@ export interface RenderEnv {
   navigate?(stateId: string, nodeId: string | null): void;
 }
 
+/** Result of resolving a widget's Binding. */
 export interface BoundDevices {
+  /** Devices in the user's scope, in binding order. */
   devices: Node[];
   /** Devices referenced by the binding but outside the user's scope. */
   hidden: number;
+  /** User-facing message when the binding can't be resolved (shown instead of data). */
   problem?: string;
 }
 
+/**
+ * Resolves a widget's data source to the devices it should show, using only the in-memory scope
+ * (no REST calls). See the file header for what each mode means.
+ * @param env Render environment; env.deviceId is the "current" machine for relative modes.
+ * @param b The widget's binding.
+ * @returns Devices in scope, a count of referenced-but-hidden ones, and an optional problem message.
+ *   Relative modes (current, siblings, nearest) return a problem when no machine is open.
+ *   A current machine or nodeQuery node outside the scope returns no devices and hidden = 1.
+ */
 export function resolveBinding(env: RenderEnv, b: Binding): BoundDevices {
   const { ctx, deviceId } = env;
   const cur = deviceId ? ctx.nodes.get(deviceId) : undefined;
@@ -59,11 +152,16 @@ export function resolveBinding(env: RenderEnv, b: Binding): BoundDevices {
   }
 }
 
+/**
+ * Display metadata for a property of a machine type, from the store's `dbb_profile_keys` catalogue (D-013).
+ * Keys missing from the catalogue still work: they get the key as name, no unit, 1 decimal, range 0-100.
+ */
 export function keyMeta(ctx: UserContext, profile: string, key: string): KeyMeta {
   const m = ctx.profileKeys[profile]?.find((k) => k.key === key);
   return m ?? { key, displayName: key, unit: '', decimals: 1, min: 0, max: 100 };
 }
 
+/** Short human description of a binding for the builder ("This machine", "Nearest Weather Station"...). Out-of-scope ids are named generically, never by name. */
 export function bindingLabel(ctx: UserContext, b: Binding): string {
   switch (b.mode) {
     case 'current':
@@ -81,15 +179,23 @@ export function bindingLabel(ctx: UserContext, b: Binding): string {
   }
 }
 
+/** Returned by renderWidget. The caller keeps it to refresh or remove the widget. */
 export interface WidgetHandle {
+  /** Re-fetches data over REST and redraws the body. Never rejects: errors are shown in the card. No-op after destroy(). */
   refresh(): Promise<void>;
+  /** Stops further refreshes and empties the container. */
   destroy(): void;
 }
 
+/** Replaces a widget body with a centred grey message. */
 const placeholder = (body: HTMLElement, msg: string) => (body.innerHTML = `<div class="dbb-ph">${esc(msg)}</div>`);
 
 // ---------- card styling ----------
 
+/**
+ * WCAG relative luminance (0 = black, 1 = white) of a #rgb / #rrggbb(aa) colour.
+ * Returns null for anything else (named colours, rgb(), gradients), so callers leave text colours alone.
+ */
 function hexLum(c?: string): number | null {
   const m = /^#([0-9a-f]{3}|[0-9a-f]{6})([0-9a-f]{2})?$/i.exec(c ?? '');
   if (!m) return null;
@@ -99,6 +205,7 @@ function hexLum(c?: string): number | null {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
+// Same values as SHADOWS / PADS in theme.ts (card-level overrides of the dashboard theme).
 const SHADOW: Record<string, string> = {
   none: 'none',
   soft: '0 1px 2px rgba(16,24,40,.05), 0 1px 3px rgba(16,24,40,.08)',
@@ -106,11 +213,18 @@ const SHADOW: Record<string, string> = {
 };
 const PAD: Record<string, string> = { compact: '6px', normal: '10px', roomy: '16px' };
 
-/** CSS custom properties for a card from its style settings. */
+/**
+ * CSS custom properties for a card from its style settings (Style tab, D-019/D-020).
+ * The card CSS in theme.ts reads these (--card-bg, --card-border, --card-title-*, --card-value-*,
+ * --card-align*, --card-justify, --card-accent...) and falls back to the dashboard theme tokens.
+ * @param st The widget's settings.style (may be undefined).
+ * @returns A `style` attribute string ("--a:b;--c:d"), or '' when there is nothing to set.
+ */
 export function cardVars(st: CardStyle | undefined): string {
   if (!st) return '';
   const v: string[] = [];
   if (st.bg) {
+    // A hex background also switches the text/grid tokens to light or dark ink for contrast.
     v.push(`--card-bg:${st.gradient ? `linear-gradient(135deg, ${st.bg}, color-mix(in srgb, ${st.bg} 72%, #000))` : st.bg}`);
     const L = hexLum(st.bg);
     if (L !== null && L < 0.3) v.push('--ink:#ffffff;--ink-2:rgba(255,255,255,.8);--ink-3:rgba(255,255,255,.62);--grid:rgba(255,255,255,.14);--line:rgba(255,255,255,.2);--hover:rgba(255,255,255,.08)');
@@ -138,7 +252,12 @@ export function cardVars(st: CardStyle | undefined): string {
 
 const INFO = ICON_SVG.info;
 
-/** Rule effect on the card: tint / accent bar / icon colour / value colour. */
+/**
+ * Applies the matched colour rule to the card according to settings.colorTarget:
+ * 'background' (default) = accent bar + 13% tint over the card background, 'accent' = bar only,
+ * 'icon' = title icon colour, 'value' = value text colour. With no rule it resets the tint and
+ * restores the style's own accent bar. Called after every refresh, so it must be idempotent.
+ */
 function applyRuleToCard(card: HTMLElement, w: Widget, rule: ColorRule | null) {
   const target = w.settings.colorTarget ?? 'background';
   card.classList.toggle('accent', !!(rule && target !== 'value' && target !== 'icon') || !!w.settings.style?.accentBar);
@@ -155,6 +274,16 @@ function applyRuleToCard(card: HTMLElement, w: Widget, rule: ColorRule | null) {
   else card.style.setProperty('--card-value-color', rule.color);
 }
 
+/**
+ * Draws one widget as a card inside `container` and starts its first data load.
+ * @param container Element to fill; its previous content is removed.
+ * @param w The widget (type, binding, keys, settings).
+ * @param env Render environment (user scope, current machine, time range, theme).
+ * @param opts.chrome false = hide the title row (used for compact previews).
+ * @returns A handle whose refresh() re-fetches and redraws; the caller schedules refreshes (see header).
+ * Side effects: may inject a Google Fonts <link> (loadFont) and issues the REST calls of draw().
+ * The first load is started immediately and not awaited.
+ */
 export function renderWidget(container: HTMLElement, w: Widget, env: RenderEnv, opts: { chrome?: boolean } = {}): WidgetHandle {
   container.innerHTML = '';
   const st = w.settings.style;
@@ -168,6 +297,7 @@ export function renderWidget(container: HTMLElement, w: Widget, env: RenderEnv, 
   const vars = cardVars(st);
   if (vars) card.setAttribute('style', vars);
   const content = CONTENT_TYPES.has(w.type);
+  // Content widgets show a title only if one was typed; a link's title is its button label instead.
   const hasTitle = content ? !!w.title && w.type !== 'link' : true;
   const showTitle = hasTitle && !st?.hideTitle && opts.chrome !== false;
   const desc = w.settings.description ? sanitizeHtml(w.settings.description) : '';
@@ -183,6 +313,7 @@ export function renderWidget(container: HTMLElement, w: Widget, env: RenderEnv, 
     card.classList.add('accent');
     card.style.setProperty('--card-accent', st.accentBar);
   }
+  // An unstyled link widget is just the button, without card background or border.
   if (w.type === 'link' && st?.bg === undefined && st?.border === undefined) card.classList.add('plain');
   container.appendChild(card);
   const body = card.querySelector('.dbb-card-b') as HTMLElement;
@@ -193,6 +324,7 @@ export function renderWidget(container: HTMLElement, w: Widget, env: RenderEnv, 
     if (!alive) return;
     try {
       const rule = await draw(body, w, env);
+      // undefined = this widget type doesn't colour the card; null = clear any previous rule colour.
       if (rule !== undefined) applyRuleToCard(card, w, rule);
     } catch (e: any) {
       placeholder(body, `Could not load data (${e?.status ?? ''} ${e?.message?.slice(0, 80) ?? e})`);
@@ -210,6 +342,11 @@ export function renderWidget(container: HTMLElement, w: Widget, env: RenderEnv, 
 
 // ---------- data helpers ----------
 
+/**
+ * Raw (not aggregated) points of one key, oldest first. Used for state segments (donut "state", timeline).
+ * REST: GET /api/plugins/telemetry/DEVICE/{id}/values/timeseries?agg=NONE&limit=5000
+ * (limit is always passed: ThingsBoard returns only 100 points without it). Values stay strings.
+ */
 async function rawSeries(deviceId: string, key: string, startTs: number, endTs: number): Promise<{ ts: number; value: string }[]> {
   const r = await api.get<Record<string, { ts: number; value: string }[]>>(
     `/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries?keys=${encodeURIComponent(key)}&startTs=${startTs}&endTs=${endTs}&agg=NONE&orderBy=ASC&limit=5000`,
@@ -217,6 +354,11 @@ async function rawSeries(deviceId: string, key: string, startTs: number, endTs: 
   return (r?.[key] ?? []).slice().sort((a, b) => a.ts - b.ts);
 }
 
+/**
+ * One aggregate (MIN / MAX / AVG / SUM) of a key over the whole window.
+ * REST: GET .../values/timeseries with interval = window length, so ThingsBoard returns a single bucket.
+ * @returns The number, or null when there is no data in the window.
+ */
 async function aggValue(deviceId: string, key: string, startTs: number, endTs: number, agg: string): Promise<number | null> {
   const r = await api.get<any>(`/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries?keys=${encodeURIComponent(key)}&startTs=${startTs}&endTs=${endTs}&agg=${agg}&interval=${endTs - startTs}&limit=10`);
   const v = r?.[key]?.[0]?.value;
@@ -225,6 +367,7 @@ async function aggValue(deviceId: string, key: string, startTs: number, endTs: n
 
 /** State segments: a value holds until the next point; gaps longer than max(3x median step, 15 min) are "no data". */
 function toSegments(pts: { ts: number; value: string }[], endTs: number) {
+  // Median sample step sets the gap tolerance; the last point holds until endTs (or now), capped by maxGap.
   const steps = pts.slice(1).map((p, i) => p.ts - pts[i].ts).sort((a, b) => a - b);
   const maxGap = Math.max(15 * 60e3, 3 * (steps[Math.floor(steps.length / 2)] || 0));
   const segs: { start: number; end: number; value: string }[] = [];
@@ -232,12 +375,18 @@ function toSegments(pts: { ts: number; value: string }[], endTs: number) {
     const next = i + 1 < pts.length ? pts[i + 1].ts : Math.min(endTs, Date.now());
     const end = Math.min(next, p.ts + maxGap);
     const last = segs[segs.length - 1];
+    // Extend the previous segment when the value repeats without a gap.
     if (last && last.value === String(p.value) && last.end >= p.ts - 1) last.end = end;
     else segs.push({ start: p.ts, end, value: String(p.value) });
   });
   return segs.filter((s) => s.end > s.start);
 }
 
+/**
+ * Colour of a state value: matching colour rule, else good/neutral for on/off, else the next
+ * palette colour. `order` is mutated (unseen values are appended) so one value keeps one colour
+ * across all rows of a timeline or all slices of a donut.
+ */
 function stateColor(raw: string, rules: ColorRule[], key: string, order: string[], palette: string[]): string {
   const r = matchRule(rules, raw, key);
   if (r) return r.color;
@@ -249,15 +398,26 @@ function stateColor(raw: string, rules: ColorRule[], key: string, order: string[
   return palette[i % palette.length];
 }
 
+/** Coloured pill with the rule's label (dark or white text by luminance), or '' when the rule has no label. */
 function ruleLabelPill(rule: ColorRule | null): string {
   return rule?.label ? `<span class="lbl" style="background:${rule.color};color:${(hexLum(rule.color) ?? 0) > 0.45 ? '#0b0b0b' : '#fff'}">${esc(rule.label)}</span>` : '';
 }
 
+/** Formats numeric values with `dec` decimals; anything else (text, booleans, empty) is escaped as is ('—' for null). Returns HTML. */
 const fmtVal = (raw: unknown, dec: number) => (Number.isFinite(Number(raw)) && raw !== '' && raw !== null && typeof raw !== 'boolean' ? fmtNum(raw, dec) : esc(String(raw ?? '—')));
 
 // ---------- drawing ----------
 
-/** Draws the widget body. Returns the colour rule to apply to the card (undefined = leave card as is). */
+/**
+ * Draws the widget body. Returns the colour rule to apply to the card (undefined = leave card as is).
+ * One branch per widget type; see the file header for the common steps and how to add a type.
+ * REST calls (all through core/api with the user's JWT):
+ * - api.latest: GET /api/plugins/telemetry/DEVICE/{id}/values/timeseries?keys=... (latest values)
+ * - api.series, aggValue, rawSeries and the bar/heatmap queries: same endpoint with startTs/endTs/agg/interval/limit
+ * - api.alarms: GET /api/v2/alarm/DEVICE/{id}?...
+ * Multi-device widgets issue one request per device (in parallel, except line/area which go in sequence).
+ * Throws on REST errors; renderWidget's refresh() turns them into a placeholder.
+ */
 async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<ColorRule | null | undefined> {
   const { ctx } = env;
   const s = w.settings;
@@ -271,6 +431,7 @@ async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<Color
     return undefined;
   }
   if (w.type === 'embed') {
+    // safeUrl also allows data:image URIs; only https pages may be framed (sandboxed, no referrer).
     const u = safeUrl(s.url);
     body.innerHTML = u && u.startsWith('https://')
       ? `<iframe class="dbb-frame" src="${esc(u)}" sandbox="allow-scripts allow-same-origin allow-forms allow-popups" referrerpolicy="no-referrer" loading="lazy" title="${esc(w.title || 'Embedded page')}"></iframe>`
@@ -279,13 +440,16 @@ async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<Color
   }
   if (w.type === 'link') return drawLink(body, w, env);
 
+  // ---- data widgets: common checks, device resolution and time window ----
   const cap = WIDGET_CAPS[w.type];
   if (w.type !== 'alarms' && w.keys.length < cap.keys[0]) return void placeholder(body, 'Choose a property in the widget settings.');
   const bound = resolveBinding(env, w.binding);
   if (bound.problem) return void placeholder(body, bound.problem);
   if (!bound.devices.length) return void placeholder(body, bound.hidden ? 'No data in your scope' : 'No machines match this data source.');
+  // Single-device types use only the first device; multi-device types stop at MAX_SERIES devices.
   const devices = cap.multiDevice ? bound.devices.slice(0, MAX_SERIES) : bound.devices.slice(0, 1);
   const moreDevices = cap.multiDevice ? Math.max(0, bound.devices.length - MAX_SERIES) : 0;
+  // Per-widget range overrides the dashboard's; 'realtime' becomes a rolling 1 h window (rangeMs).
   const range = normalizeRange(s.timeRange ?? env.timeRange);
   const endTs = Date.now();
   const startTs = endTs - rangeMs(range);
@@ -295,8 +459,10 @@ async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<Color
     if (!c.ok) return void placeholder(body, `${c.reason} Choose another property or widget type.`);
   }
   const d0 = devices[0];
-  const sub = (d: Node, ts: number) => `${w.binding.mode !== 'current' ? esc(d.label) + ' · ' : ''}${ago(ts)}`;
+  // Sub-line under a value: machine name (unless it is the current machine) and data age.
+  const sub =(d: Node, ts: number) => `${w.binding.mode !== 'current' ? esc(d.label) + ' · ' : ''}${ago(ts)}`;
 
+  // Single-value widgets: one key of one device, latest value (+ a series for the KPI trend).
   if (w.type === 'value' || w.type === 'gauge' || w.type === 'status' || w.type === 'progress' || w.type === 'kpi') {
     const key = w.keys[0];
     const meta = keyMeta(ctx, d0.profile, key);
@@ -317,6 +483,7 @@ async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<Color
     }
     if (w.type === 'gauge') {
       gauge(body, v, { min, max, unit, decimals: dec, rules, key, sub: sub(d0, lv.ts), label: rule?.label ? `${unit} · ${rule.label}` : unit, valueColor: (s.colorTarget ?? 'background') === 'value' && rule ? rule.color : undefined });
+      // The gauge already coloured its value text itself, so the card isn't coloured for 'value'.
       return (s.colorTarget ?? 'background') === 'value' ? null : rule;
     }
     if (w.type === 'progress') {
@@ -330,6 +497,7 @@ async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<Color
           return vert ? `<span class="dbb-prog-tick" style="left:0;right:0;bottom:${p}%;height:2px" title="${esc(t.label ?? fmtNum(t.value, dec))}"></span>` : `<span class="dbb-prog-tick" style="top:0;bottom:0;left:${p}%;width:2px" title="${esc(t.label ?? fmtNum(t.value, dec))}"></span>`;
         })
         .join('');
+      // The fill bar already shows the rule colour, so a 'background' target doesn't tint the card too.
       const txt = `<div class="dbb-value" style="height:auto"><div><span class="v">${fmtVal(lv.value, dec)}</span><span class="u">${esc(unit)}</span></div>${ruleLabelPill(rule)}<div class="s">${fmtNum(pct, 0)}% of ${fmtNum(max, 0)} ${esc(unit)} · ${ago(lv.ts)}</div></div>`;
       body.innerHTML = vert
         ? `<div class="dbb-prog vert"><div class="dbb-prog-track" style="width:${Math.max(28, Math.min(64, body.clientWidth / 4))}px;height:100%;border-radius:10px"><div class="dbb-prog-fill" style="width:100%;height:${pct}%;background:${col};border-radius:8px"></div>${ticks}</div>${txt}</div>`
@@ -339,6 +507,7 @@ async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<Color
     if (w.type === 'kpi') {
       const data = s.sparkline === false && s.compare === 'none' ? {} : await api.series(d0.id, [key], startTs, endTs, 'AVG', 120);
       const pts = (data as any)[key] ?? [];
+      // % change of the latest value vs the first averaged point of the window; upIsGood=false swaps the colours.
       let delta = '';
       if (s.compare !== 'none' && pts.length > 1 && Number.isFinite(v)) {
         const first = pts[0].value;
@@ -349,10 +518,12 @@ async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<Color
       }
       body.innerHTML = `<div class="dbb-kpi"><div class="dbb-value" style="height:auto"><div class="row"><span><span class="v">${fmtVal(lv.value, dec)}</span><span class="u">${esc(unit)}</span></span>${delta}</div>${ruleLabelPill(rule)}<div class="s">${sub(d0, lv.ts)} · vs ${range === 'realtime' ? '1 h' : esc(range.replace('h', ' h'))} ago</div></div>${s.sparkline !== false ? '<div class="dbb-spark"></div>' : ''}</div>`;
       const sp = body.querySelector('.dbb-spark') as HTMLElement | null;
+      // Next frame, so the sparkline host has its laid-out size.
       if (sp) requestAnimationFrame(() => sparkline(sp, pts, rule?.color ?? palette[0]));
       return rule;
     }
-    // status
+    // status: colour rules if the widget has its own; else legacy statusMap or a 1 = Running / 0 = Stopped default.
+    // A latest value older than 5 min shows "Offline" regardless.
     const offline = Date.now() - lv.ts > 5 * 60e3;
     let label: string;
     let color: string;
@@ -375,6 +546,7 @@ async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<Color
       color = STATUS.neutral;
     }
     body.innerHTML = `<div class="dbb-value"><div class="dbb-pill" style="--pill:${color}"><span class="dbb-dot"></span>${esc(label)}</div><div class="s" style="margin-top:8px">${sub(d0, lv.ts)}</div></div>`;
+    // The card is coloured only if a colorTarget was chosen explicitly; a synthetic rule carries the pill colour.
     return s.colorTarget && s.colorTarget !== 'value' ? ({ op: 'eq', value: '', color } as ColorRule) : null;
   }
 
@@ -413,6 +585,7 @@ async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<Color
     return undefined;
   }
 
+  // One line per device x key, capped at MAX_SERIES; api.series picks the bucket size (~500 points).
   if (w.type === 'line' || w.type === 'area') {
     const agg = s.agg ?? 'AVG';
     const series: Parameters<typeof lineChart>[1] = [];
@@ -433,9 +606,11 @@ async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<Color
     }
     body.style.display = 'flex';
     body.style.flexDirection = 'column';
+    // With several keys, threshold lines are drawn only if no rule is scoped to a single key (the axis is shared).
     const thr = s.showThresholds === false ? [] : thresholdLines(rules, w.keys.length === 1 ? w.keys[0] : undefined).filter((t) => w.keys.length === 1 || !rules.some((r) => r.key));
     lineChart(body, series, { startTs, endTs, showLegend: s.showLegend, area: w.type === 'area', stacked: w.type === 'area' && !!s.stacked, smooth: s.smooth, thresholds: thr });
     if (bound.hidden) body.insertAdjacentHTML('beforeend', `<div class="dbb-ph" style="height:auto">${bound.hidden} machine(s) not shown: no data in your scope</div>`);
+    // Lines cut by the MAX_SERIES cap: from drawn devices and from devices beyond the cap.
     const dropped = devices.length * w.keys.length - series.length + moreDevices * w.keys.length;
     if (dropped > 0) body.insertAdjacentHTML('beforeend', `<div class="dbb-ph" style="height:auto">Showing the first ${MAX_SERIES} lines; ${dropped} more not drawn.</div>`);
     return undefined;
@@ -444,9 +619,12 @@ async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<Color
   if (w.type === 'bar') {
     const key = w.keys[0];
     const agg = s.agg && s.agg !== 'NONE' ? s.agg : 'AVG';
+    // Grouping: stored 'day' draws per hour (D-020); default is by machine for several devices,
+    // else per 15 min up to 2 h and per hour beyond.
     const group = s.groupBy === 'day' ? 'hour' : s.groupBy ?? (devices.length > 1 ? 'device' : rangeMs(range) <= 2 * 3600e3 ? '15m' : 'hour');
     const meta = keyMeta(ctx, d0.profile, key);
     const dec = s.decimals ?? meta.decimals;
+    // Bar colour: matching rule colour, else the series colour.
     const col = (v: number | null, fallback: string) => (v != null && matchRule(rules, v, key)?.color) || fallback;
     const thr = s.showThresholds === false ? [] : thresholdLines(rules, key);
     if (group === 'device') {
@@ -475,6 +653,7 @@ async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<Color
     const key = w.keys[0];
     const meta = keyMeta(ctx, d0.profile, key);
     const mode = s.donutMode ?? (devices.length > 1 ? 'devices' : 'state');
+    // 'devices' = share of an aggregate by machine; 'state' = hours spent in each state of one machine.
     if (mode === 'devices') {
       const agg = s.agg && s.agg !== 'NONE' ? s.agg : 'AVG';
       const vals = await Promise.all(devices.map((d) => aggValue(d.id, key, startTs, endTs, agg)));
@@ -530,6 +709,7 @@ async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<Color
     const key = w.keys[0];
     const meta = keyMeta(ctx, d0.profile, key);
     const span = endTs - startTs;
+    // About 24 columns, bucket rounded up to whole 5 min (5 min for 1-2 h, 20 min for 8 h); aligned to the bucket grid.
     const bucketMs = Math.max(5 * 60e3, Math.ceil(span / 24 / (5 * 60e3)) * 5 * 60e3);
     const first = Math.floor(startTs / bucketMs) * bucketMs;
     const cols: number[] = [];
@@ -546,6 +726,7 @@ async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<Color
         return { label: devices.length > 1 ? d.label : '', cells };
       }),
     );
+    // Cells take the rule colour when heatColor = 'rules', else a position on the blue/orange ramp between min and max.
     const ramp = s.heatColor === 'orange' ? RAMP_ORANGE : RAMP_BLUE;
     const useRules = s.heatColor === 'rules' && rules.length;
     heatmap(body, rows, cols, {
@@ -560,6 +741,7 @@ async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<Color
 
   if (w.type === 'table') {
     const rows = await Promise.all(devices.map(async (d) => ({ d, v: await api.latest(d.id, w.keys) })));
+    // Column headers use the first device's profile; rows are machines, cells are latest values.
     const metas = w.keys.map((k) => keyMeta(ctx, devices[0].profile, k));
     body.innerHTML =
       `<div class="dbb-scroll"><table class="dbb-table"><thead><tr><th>Machine</th>${metas
@@ -585,6 +767,7 @@ async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<Color
   }
 
   if (w.type === 'alarms') {
+    // Alarms raised since the window start, per device, merged newest first and cut to maxRows.
     const lists = await Promise.all(devices.map((d) => api.alarms({ id: d.id, entityType: 'DEVICE' }, { status: s.alarmStatus ?? 'ANY', severities: s.severities, limit: s.maxRows ?? 20, startTs })));
     const all = lists
       .flat()
@@ -607,6 +790,12 @@ async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<Color
   return undefined;
 }
 
+/**
+ * Rich text widget. settings.html is sanitised (render/rich.ts); older widgets use settings.markdown.
+ * `{{key}}` placeholders are filled with the current machine's latest values (one api.latest call,
+ * errors ignored) plus {{machine}}, {{type}}, {{location}}, {{time}} and {{date}}.
+ * Without a current machine only time and date are filled.
+ */
 async function drawText(body: HTMLElement, w: Widget, env: RenderEnv): Promise<undefined> {
   const s = w.settings;
   let html = s.html !== undefined ? sanitizeHtml(s.html) : miniMarkdown(s.markdown ?? w.title ?? '');
@@ -636,6 +825,11 @@ async function drawText(body: HTMLElement, w: Widget, env: RenderEnv): Promise<u
   return undefined;
 }
 
+/**
+ * Link / button widget. linkKind 'url' opens an https address in a new tab (safeUrl); 'state' opens
+ * another page of the app through env.navigate (Map / Listing / Machine), for the current machine,
+ * its location or a fixed node. Inert while editing (env.editing) or when no navigate is given.
+ */
 function drawLink(body: HTMLElement, w: Widget, env: RenderEnv): undefined {
   const s = w.settings;
   const st = s.style;
@@ -661,11 +855,18 @@ function drawLink(body: HTMLElement, w: Widget, env: RenderEnv): undefined {
   return undefined;
 }
 
-/** Default layout when no dashboard is assigned: value cards for the main properties, a trend of up to two numeric ones, active alarms. Stays within MAX_WIDGETS. */
+/**
+ * Default layout when no dashboard is assigned: value cards for the main properties, a trend of up to two numeric ones, active alarms. Stays within MAX_WIDGETS.
+ * Built from the profile's catalogue in dbb_profile_keys (empty catalogue = alarms only). Pure: no REST calls.
+ * @param ctx User context (for the key catalogue).
+ * @param profile Machine type (device profile name).
+ * @returns Widgets bound to 'current', laid out 4 cards per row on the 12-column grid.
+ */
 export function defaultWidgets(ctx: UserContext, profile: string): Widget[] {
   const metas = ctx.profileKeys[profile] ?? [];
   const cur = { mode: 'current' as const };
   const ws: Widget[] = [];
+  // Skip counters like runHours: a steadily rising total makes a poor trend.
   const trend = metas.filter((m) => compatible('line', m).ok && !/hours/i.test(m.key)).slice(0, 2);
   const cards = metas.slice(0, MAX_WIDGETS - trend.length - 1);
   cards.forEach((m, i) => {

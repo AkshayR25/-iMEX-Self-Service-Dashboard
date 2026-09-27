@@ -1,6 +1,31 @@
-// Chat-to-dashboard: builds the LLM request (scoped catalog with aliases), relays it through a
-// ThingsBoard rule chain (which holds the API key), validates returned operations and applies them to a draft.
-// The LLM never places widgets on the grid; autoPlace() does. Chat never saves or applies anything.
+// core/chat.ts — chat-to-dashboard (DECISIONS D-014, D-020).
+//
+// Flow of one chat turn (`chatTurn`, called by the builder's Chat tab):
+//   1. `buildCatalog` turns the user's scope into an aliased catalogue: assets N1.., machines D1..,
+//      machine types with their property keys, names, units and kinds. Raw ThingsBoard ids never
+//      reach the model; machines outside the user's scope that a draft still references are shown
+//      as OUTSIDE_ACCESS and cannot be referenced back.
+//   2. `buildRequest` makes an Anthropic Messages API body (system prompt + last 10 turns + the
+//      draft as JSON + the request) with ONE forced tool, `dashboard_ops` (TOOL below).
+//   3. `ruleChainTransport` relays it through ThingsBoard, because the browser must not hold the API
+//      key and there is no backend: write `dbb_chat_req` on the store asset -> rule chain
+//      "DBB Chat relay (POC)" adds model/max_tokens, calls the Messages API with the key held in its
+//      "Call LLM" node -> writes `dbb_chat_resp_<userId>` = {reqId, ok, toolInput | error, usage}
+//      -> the widget polls that attribute (every 1.2 s, up to 30 s). No ThingsBoard MCP server or
+//      other service is involved; the model never calls ThingsBoard.
+//   4. `normaliseToolInput` + Zod (`LlmOutput`) validate the tool input; `applyOps` maps aliases
+//      back to ids and applies the ops to a COPY of the draft, then `checkDashboard` (limits and
+//      property kinds). On any problem the request is retried ONCE with the problems appended
+//      ("Your previous answer was invalid: ..."); a second failure throws and the draft is unchanged.
+//   5. The builder shows the reply and the changes and offers undo.
+//
+// Invariants: the model never places widgets (autoPlace does); chat never saves or applies anything
+// (setApplyTarget only proposes a target for the Save dialog); rich text from the model is sanitised.
+// The 30-requests-per-hour limit is enforced by the builder (browser-side), not here.
+//
+// SECURITY: the catalogue only contains the user's scope, but scope itself is UI-enforced (D-012),
+// and a user who can write `dbb_chat_req` directly can use the relay. The prompt treats catalogue
+// and draft text as data to limit prompt injection through entity labels.
 
 import { z } from 'zod';
 import * as api from './api';
@@ -13,14 +38,22 @@ import { firstFit } from '../render/grid';
 
 // ---------- catalog + aliases ----------
 
+/** Aliased view of the user's scope sent to the model, plus the alias maps to translate back. */
 export interface Catalog {
   devAlias: Map<string, string>; // alias -> deviceId
   nodeAlias: Map<string, string>; // alias -> assetId
   byId: Map<string, string>; // entity id -> alias
+  /** Compact JSON of {nodes, machines, machineTypes} embedded in the system prompt. */
   text: string;
+  /** Machine type -> catalogue keys (from `ctx.profileKeys`) with their property kind. */
   profiles: Record<string, { key: string; name: string; unit: string; kind?: string }[]>;
 }
 
+/**
+ * Builds the aliased catalogue from `ctx.nodes` (assets N1.., devices D1.., in map order) and
+ * `ctx.profileKeys` (only machine types that occur in scope). Aliases are stable only within one
+ * call, so each turn rebuilds both the catalogue and the draft view. Pure.
+ */
 export function buildCatalog(ctx: UserContext): Catalog {
   const devAlias = new Map<string, string>();
   const nodeAlias = new Map<string, string>();
@@ -60,7 +93,10 @@ export function buildCatalog(ctx: UserContext): Catalog {
 }
 
 // ---------- operations (what the LLM may return) ----------
+// These Zod schemas validate the tool input; the JSON schema given to the model is TOOL below
+// (looser on purpose). Keep both in sync when adding an op.
 
+/** Binding as the model writes it: catalogue aliases and machine type names instead of ids. */
 const AliasBinding = z.discriminatedUnion('mode', [
   z.object({ mode: z.literal('current') }),
   z.object({ mode: z.literal('fixed'), machines: z.array(z.string()).min(1).max(10) }),
@@ -73,6 +109,11 @@ const AliasBinding = z.discriminatedUnion('mode', [
 /** The model may set any widget setting; html/description are sanitised on apply. */
 const Settings = WidgetSettings;
 
+/**
+ * One dashboard operation. Widgets are referenced by draft aliases W1.. (index + 1 in the draft
+ * as sent). The key/machine maxima here are the legacy ones; the current limits are enforced
+ * afterwards by `checkDashboard`.
+ */
 export const Op = z.discriminatedUnion('op', [
   z.object({ op: z.literal('addWidget'), type: z.enum(WIDGET_TYPES), title: z.string().max(120), binding: AliasBinding, keys: z.array(z.string()).max(10), settings: Settings.optional() }),
   z.object({
@@ -93,6 +134,7 @@ export const Op = z.discriminatedUnion('op', [
 ]);
 export type Op = z.infer<typeof Op>;
 
+/** Validated tool input: a short reply, the ops, and optionally a clarification question (then no ops are applied). */
 export const LlmOutput = z.object({
   reply: z.string().max(2000),
   ops: z.array(Op).max(40),
@@ -100,11 +142,13 @@ export const LlmOutput = z.object({
 });
 export type LlmOutput = z.infer<typeof LlmOutput>;
 
+/** Apply target suggested by the model via setApplyTarget; the user confirms it in the Save dialog. */
 export interface ApplyProposal {
   target: 'this' | 'node' | 'customer';
   nodeId?: string;
 }
 
+/** Outcome of a successful turn: the new draft plus what changed (added/updated widget ids, removed titles). */
 export interface ChatResult {
   draft: Dashboard;
   reply: string;
@@ -132,6 +176,7 @@ export function draftForPrompt(draft: Dashboard, cat: Catalog) {
   };
 }
 
+/** Binding with ids replaced by catalogue aliases; ids not in scope become 'OUTSIDE_ACCESS'. */
 function bindingToAlias(w: Widget, cat: Catalog): any {
   const b = w.binding;
   switch (b.mode) {
@@ -147,7 +192,15 @@ function bindingToAlias(w: Widget, cat: Catalog): any {
   }
 }
 
-/** Applies ops to a copy of the draft. Throws with a list of problems if anything is invalid. */
+/**
+ * Applies validated ops to a deep copy of the draft (the input draft is never modified).
+ * Translates aliases back to ids, trims keys to the widget type's maximum (warning), stops adding
+ * at MAX_WIDGETS (warning), sanitises html/description, recomputes `kind`, auto-places new widgets,
+ * then runs the Zod schema and `checkDashboard` with property kinds.
+ * Non-admins asking for node/customer targets get a warning instead of a proposal (UI-level rule).
+ * @throws OpsError listing every problem (unknown aliases, keys, machine types, limit or kind
+ *         violations); `chatTurn` sends these back to the model for the retry.
+ */
 export function applyOps(ctx: UserContext, draft: Dashboard, out: LlmOutput, cat: Catalog): ChatResult {
   const errs: string[] = [];
   const warnings: string[] = [];
@@ -187,6 +240,7 @@ export function applyOps(ctx: UserContext, draft: Dashboard, out: LlmOutput, cat
     }
   };
 
+  // machine types whose catalogue a widget's keys must come from
   const profilesOf = (w: Widget): string[] => {
     const env = { ctx, deviceId: null, timeRange: d.timeRange };
     const b = w.binding;
@@ -278,7 +332,8 @@ export function applyOps(ctx: UserContext, draft: Dashboard, out: LlmOutput, cat
 
   d.kind = dashboardKind(d.widgets);
   if (d.kind === 'device' && !d.profile) {
-    // infer from the machine the builder is open for, if any
+    // chatTurn already pre-fills the profile when the builder is open for a machine; otherwise
+    // the model must call setMachineType (this error is sent back to it on the retry)
     errs.push('The dashboard uses "this machine" bindings but has no machine type; call setMachineType.');
   }
   autoPlace(d, new Set(changed.added));
@@ -289,6 +344,7 @@ export function applyOps(ctx: UserContext, draft: Dashboard, out: LlmOutput, cat
   return { draft: parsed.success ? parsed.data : d, reply: out.reply, clarification: out.clarification ?? null, applyProposal, changed, warnings };
 }
 
+/** Sanitises model-written rich text (`html`, `description`); `html` replaces legacy `markdown`. Mutates and returns `s`. */
 function cleanSettings(s: Widget['settings']): Widget['settings'] {
   if (s.html !== undefined) s.html = sanitizeHtml(s.html);
   if (s.description !== undefined) s.description = sanitizeHtml(s.description);
@@ -296,15 +352,21 @@ function cleanSettings(s: Widget['settings']): Widget['settings'] {
   return s;
 }
 
+/** Validation failure of model output; `problems` are fed back to the model on retry. */
 export class OpsError extends Error {
   constructor(public problems: string[]) {
     super(problems.join('\n'));
   }
 }
 
-/** Places newly added widgets: small cards in the top rows, charts full width below, tables/alarms last. */
+/**
+ * Places newly added widgets (ids in `added`) around the existing ones, mutating `d.widgets`:
+ * text first, small cards in the first free slot from the top, line/area/timeline full width at the
+ * bottom, other charts and tables/alarms below existing content. Existing widgets never move.
+ */
 export function autoPlace(d: Dashboard, added: Set<string>) {
   const fixed = d.widgets.filter((w) => !added.has(w.id));
+  // -1 text, 0 small cards, 1 charts, 2 tables/alarms/embed
   const rank = (t: string) => (['value', 'kpi', 'gauge', 'progress', 'status', 'summary', 'link', 'image'].includes(t) ? 0 : t === 'text' ? -1 : ['line', 'area', 'bar', 'timeline', 'heatmap', 'donut', 'multivalue'].includes(t) ? 1 : 2);
   const news = d.widgets.filter((w) => added.has(w.id)).sort((a, b) => rank(a.type) - rank(b.type));
   const placed = [...fixed];
@@ -336,6 +398,12 @@ export function autoPlace(d: Dashboard, added: Set<string>) {
 
 // ---------- prompt ----------
 
+/**
+ * System prompt: rules, widget types and settings, property-kind rules, limits and time ranges
+ * (values interpolated from core/schema.ts), the catalogue JSON and the machine the builder is open
+ * for. Keep the kind rules in sync with core/compat.ts. Whether the user is an admin is stated so
+ * the model can explain the restriction; enforcement happens in applyOps/store (UI-only, D-012).
+ */
 export function systemPrompt(ctx: UserContext, cat: Catalog, currentMachineAlias: string | null): string {
   return [
     'You build dashboards for an industrial IoT app by returning operations through the dashboard_ops tool.',
@@ -351,6 +419,7 @@ export function systemPrompt(ctx: UserContext, cat: Catalog, currentMachineAlias
     '- Property kinds (CATALOG "kind"): number, boolean (on/off), string (text states), coded (number with named states). kpi, gauge, progress, summary, line, area, bar, heatmap and donut "devices" need number or coded; status, timeline and donut "state" need boolean, string or coded; value, multivalue and table take any kind. Never put a boolean on a gauge or chart.',
     `- Limits: at most ${MAX_KEYS} properties per widget, at most ${MAX_DEVICES} machines in a "fixed" binding.`,
     '- Time range (setTimeRange or settings.timeRange): "realtime" = latest values, updated every 10 s, charts show a rolling last hour; or historic "1h" | "2h" | "4h" | "8h". Nothing longer than 8 hours exists; if asked for more, use "8h" and say so.',
+    // continuation of the widget-type list above (placed after the limits lines)
     '  table (keys as columns, machines as rows), alarms (severities, alarmStatus, maxRows),',
     '  text (settings.html: simple HTML with <h1>-<h3>, <p>, <b>, <i>, <u>, <ul>/<li>, <span style="color:#hex;font-size:18px;font-family:Inter">; live values as {{propertyKey}}, {{machine}}, {{location}}, {{time}}), image (settings.url https://), link (button: title = label; settings.linkKind "state"|"url", linkState "default"(map)|"listing"|"machine", linkDevice "current"|"location"|"none", url, buttonStyle filled|outline|card, buttonColor), embed (settings.url https://). Content widgets use binding {"mode":"none"} and no keys.',
     '- Value-based colours: settings.colorRules = [{op, value, value2?, color:"#hex", label?, key?}] — op gt|gte|lt|lte|between|eq|neq for numbers, isTrue|isFalse for on/off values (e.g. runStatus 1/0), eq|neq|contains for text. First match wins; put the most severe first. Use status colours: good #0ca30c, warning #fab219, serious #ec835a, critical #d03b3b, neutral #8a8983. settings.colorTarget "background"|"accent"|"value"|"icon" chooses what a card colours; charts draw number rules as threshold lines; tables colour cells (use rule.key per column).',
@@ -370,6 +439,10 @@ export function systemPrompt(ctx: UserContext, cat: Catalog, currentMachineAlias
   ].join('\n');
 }
 
+/**
+ * The single tool the model must call (tool_choice forces it). A loose JSON schema: one flat op
+ * object with all possible fields; `normaliseToolInput` + `LlmOutput` do the strict validation.
+ */
 export const TOOL = {
   name: 'dashboard_ops',
   description: 'Return the reply to the user and the list of dashboard operations to apply to the draft.',
@@ -418,11 +491,18 @@ export const TOOL = {
   },
 };
 
+/** One earlier chat message (plain text) kept by the builder for context. */
 export interface Turn {
   role: 'user' | 'assistant';
   content: string;
 }
 
+/**
+ * Messages API request body (without model/max_tokens, which the rule chain adds).
+ * Sends the last 10 turns, then the aliased draft and the user's message; `correction` appends the
+ * validation problems of the previous attempt for the retry.
+ * @param currentDeviceId machine the builder is open for (sent as its alias), or null.
+ */
 export function buildRequest(ctx: UserContext, cat: Catalog, draft: Dashboard, history: Turn[], message: string, currentDeviceId: string | null, correction?: string) {
   const alias = currentDeviceId ? cat.byId.get(currentDeviceId) ?? null : null;
   const msgs: any[] = history.slice(-10).map((t) => ({ role: t.role, content: t.content }));
@@ -437,7 +517,12 @@ export function buildRequest(ctx: UserContext, cat: Catalog, draft: Dashboard, h
   };
 }
 
-/** Normalises the loose tool input into the strict LlmOutput shape (drops unknown fields per op). */
+/**
+ * Normalises the loose tool input into the strict LlmOutput shape: keeps only the fields each op
+ * type uses, defaults an addWidget binding ('none' for content widgets, else 'current'), keys and
+ * title. Unknown op types pass through and fail validation.
+ * @throws ZodError when the result does not match LlmOutput.
+ */
 export function normaliseToolInput(input: any): LlmOutput {
   const ops = Array.isArray(input?.ops) ? input.ops : [];
   const pick = (o: any, keys: string[]) => Object.fromEntries(keys.filter((k) => o[k] !== undefined).map((k) => [k, o[k]]));
@@ -469,13 +554,19 @@ export function normaliseToolInput(input: any): LlmOutput {
 
 // ---------- transport via ThingsBoard rule chain ----------
 
+/** Sends a request body and returns the tool input; swappable for tests (fake transport). */
 export interface Transport {
   send(body: unknown): Promise<{ toolInput: any; usage?: any }>;
 }
 
 /**
- * Writes the request to the store asset's `dbb_chat_req` attribute. The "DBB Chat" rule chain calls the LLM
- * with the key it holds and writes `dbb_chat_resp_<userId>`. Polls up to timeoutMs.
+ * Writes `{reqId, userId, body}` to the store asset's SERVER attribute `dbb_chat_req`. The rule chain
+ * "DBB Chat relay (POC)" (default chain of the DashboardStore profile, D-014, D-016) calls the LLM
+ * with the key it holds and writes `dbb_chat_resp_<userId>` = {reqId, ok, toolInput | error, usage}.
+ * Polls that attribute every 1.2 s until the reqId matches or `timeoutMs` passes.
+ * Concurrent requests from different users share `dbb_chat_req` but get separate response keys;
+ * an older response with another reqId is ignored. The timeout message always says 30 seconds.
+ * @throws when the store is missing, the relay reports an error (e.g. missing API key), or on timeout.
  */
 export function ruleChainTransport(ctx: UserContext, timeoutMs = 30000): Transport {
   return {
@@ -499,7 +590,13 @@ export function ruleChainTransport(ctx: UserContext, timeoutMs = 30000): Transpo
   };
 }
 
-/** Full turn: request -> validate -> one corrective retry -> result. Draft untouched on failure. */
+/**
+ * Full turn: request -> validate -> one corrective retry -> result. Draft untouched on failure.
+ * If the draft has no machine type but the builder is open for a machine, that machine's profile is
+ * used as the draft's type. A clarification answer returns the draft unchanged.
+ * @returns the ChatResult plus the attempt count (1 or 2) and the token usage reported by the relay.
+ * @throws transport errors as they come; "I couldn't build that" after two invalid answers.
+ */
 export async function chatTurn(
   ctx: UserContext,
   transport: Transport,
@@ -526,6 +623,7 @@ export async function chatTurn(
   throw new Error("I couldn't build that; try rephrasing.");
 }
 
+/** Up to 4 example requests for an empty chat, based on the current machine and the first 'Site' asset in scope. */
 export function suggestedPrompts(ctx: UserContext, deviceId: string | null): string[] {
   const out: string[] = [];
   const cur = deviceId ? ctx.nodes.get(deviceId) : null;

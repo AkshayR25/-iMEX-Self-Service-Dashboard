@@ -1,8 +1,13 @@
 // Realistic-looking telemetry: slow drift (bounded random walk) + noise.
-// Shared by the backfill and the live simulator.
+// Shared by the backfill and the live simulator. Pure computation (no I/O), covered by unit tests.
+// Keys per profile match model.ts DEVICE_PROFILES. An "excursion" (set by the simulator) pushes the
+// alarm key above its default threshold (Compressor dischargeTemp 98-101, Dryer dewPoint 6-7,
+// Weather Station temperature 43-44.5) to trigger the profile alarm.
 
+/** Telemetry values for one timestamp, key -> number. */
 export type Values = Record<string, number>;
 
+/** Bounded random walk: value `v` kept within [lo, hi]; `step` is the noise amplitude per 5 min. */
 interface Walk {
   v: number;
   lo: number;
@@ -10,6 +15,7 @@ interface Walk {
   step: number;
 }
 
+/** Mutable per-device generator state; `next` advances it. */
 export interface GenState {
   profile: string;
   utcOffsetH: number;
@@ -33,6 +39,7 @@ function walk(lo: number, hi: number, step: number): Walk {
   return { v: rnd(lo, hi), lo, hi, step };
 }
 
+/** Advances a walk by `dtMin` minutes (noise scales with sqrt of time) and returns the new value. */
 function stepWalk(w: Walk, dtMin: number): number {
   const s = w.step * Math.sqrt(Math.max(dtMin, 0.1) / 5);
   w.v += noise(s);
@@ -42,6 +49,13 @@ function stepWalk(w: Walk, dtMin: number): number {
   return w.v;
 }
 
+/**
+ * Fresh generator state for a device.
+ * @param profile 'Compressor' | 'Dryer' | 'Weather Station' (other profiles produce weather-station keys
+ *   with no walks initialised and will fail in `next`).
+ * @param utcOffsetH Device local UTC offset, for the weather station's day/night cycle.
+ * @param startTs Timestamp the first `next` call measures its time step from.
+ */
 export function initState(profile: string, utcOffsetH: number, startTs: number): GenState {
   const walks: Record<string, Walk> = {};
   if (profile === 'Compressor') {

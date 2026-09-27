@@ -1,12 +1,46 @@
-// Visual tokens. Categorical order and status colours from the validated reference palette
-// (dataviz skill references/palette.md, light mode — ThingsBoard runs a light UI).
+/**
+ * Visual tokens. Categorical order and status colours come from a validated reference palette
+ * (light mode, because ThingsBoard runs a light UI; SERIES_DARK is the dark-surface column).
+ *
+ * WHERE IT RUNS / WHO CALLS IT
+ * In the browser, inside the ThingsBoard widgets. Used by every part of the UI: render/* for
+ * colours and formatting, entries/* and builder/* for the shared CSS (ensureCss(CSS)) and
+ * applyTheme, the builder's editors for SWATCHES and PRESETS.
+ *
+ * KEY CONCEPTS
+ * - Design tokens are CSS custom properties on the dashboard root (.dbb-root):
+ *   --surface (card), --surface-2, --plane (page background), --line (borders), --grid (chart grid,
+ *   empty tracks), --ink / --ink-2 / --ink-3 (text, strong to faint), --accent, --hover, --danger,
+ *   --radius, --shadow, --pad, --font, --title-align. CSS below gives light defaults.
+ * - Per-card overrides use --card-* variables (set by cardVars in widgets.ts) that fall back to the
+ *   tokens, e.g. var(--card-bg, var(--surface)).
+ * - Dashboard themes (D-019): PRESETS (light, ocean, sand, slate, dark) plus optional overrides in
+ *   Dashboard.theme (accent, font, bg, bgImage, cardBg, radius, shadow, density, titleAlign).
+ *   applyTheme() writes them as inline CSS variables on a container; charts and cards pick them up
+ *   without any redraw logic of their own.
+ * - Because each ThingsBoard widget type embeds its own copy of the library, ensureCss() is
+ *   idempotent per style id so the shared CSS is injected into <head> only once per page.
+ *
+ * SECURITY
+ * safeUrl() is the single gate for user or chat supplied addresses that end up in src/href/url():
+ * https only, or an inline base64 data:image. Every string placed into HTML goes through esc();
+ * miniMarkdown escapes before adding tags. Rich HTML is sanitised separately in render/rich.ts.
+ *
+ * EXPORTS
+ * Colours: SERIES, SERIES_DARK, STATUS, SEVERITY_COLOR, RAMP_BLUE, RAMP_ORANGE, SWATCHES, PRESETS.
+ * Theme: applyTheme, isDark, loadFont, fontStack, CSS, ensureCss.
+ * Helpers: safeUrl, esc, fmtNum, fmtTime, ago, el, bandColor, miniMarkdown.
+ */
 
 import type { DashboardTheme } from '../core/schema';
 
+/** Categorical series colours (light surfaces), in assignment order. Charts cycle through them. */
 export const SERIES = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#4a3aa7', '#e34948'];
 /** Same eight hues stepped for dark surfaces (reference palette, dark column). */
 export const SERIES_DARK = ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#008300', '#9085e9', '#e66767'];
+/** Status colours: good (running), warning, serious, critical, neutral (stopped / offline / no match). */
 export const STATUS = { good: '#0ca30c', warning: '#fab219', serious: '#ec835a', critical: '#d03b3b', neutral: '#8a8983' };
+/** ThingsBoard alarm severity -> status colour (alarms widget). */
 export const SEVERITY_COLOR: Record<string, string> = {
   CRITICAL: STATUS.critical,
   MAJOR: STATUS.serious,
@@ -21,7 +55,9 @@ export const RAMP_ORANGE = ['#fde2d4', '#f9c1a4', '#f39b73', '#eb6834', '#c9501f
 /** Rule colour presets offered in the rule editor. */
 export const SWATCHES = ['#0ca30c', '#fab219', '#ec835a', '#d03b3b', '#2a78d6', '#1baf7a', '#4a3aa7', '#e87ba4', '#8a8983', '#0b0b0b', '#ffffff'];
 
+/** Colour tokens of a theme preset; mapped to CSS variables by applyTheme (plane -> --plane and --surface-2, ink2 -> --ink-2...). */
 interface Tokens {
+  /** Dark preset: adds .dbb-dark and makes charts use SERIES_DARK. */
   dark: boolean;
   surface: string;
   plane: string;
@@ -33,6 +69,7 @@ interface Tokens {
   accent: string;
   hover: string;
 }
+/** Dashboard theme presets by id (schema THEME_PRESETS). `label` is shown in the builder's Dashboard tab. */
 export const PRESETS: Record<string, Tokens & { label: string }> = {
   light: { label: 'Light', dark: false, surface: '#ffffff', plane: '#f4f5f7', line: '#e6e5e0', grid: '#efeeea', ink: '#0b0b0b', ink2: '#52514e', ink3: '#898781', accent: '#2a78d6', hover: '#f3f8fe' },
   ocean: { label: 'Ocean', dark: false, surface: '#ffffff', plane: '#eaf1fa', line: '#d6e3f3', grid: '#e8eef6', ink: '#0d1b2e', ink2: '#3d4f66', ink3: '#7a8aa0', accent: '#256abf', hover: '#eef4fc' },
@@ -48,6 +85,7 @@ const SHADOWS: Record<string, string> = {
 };
 const PADS: Record<string, string> = { compact: '6px', normal: '10px', roomy: '16px' };
 
+// Font name -> Google Fonts css2 `family` parameter. Only these are loaded (schema FONTS minus Roboto).
 const GOOGLE_FONTS: Record<string, string> = {
   Inter: 'Inter:wght@400;500;600;700',
   Poppins: 'Poppins:wght@400;500;600;700',
@@ -56,7 +94,11 @@ const GOOGLE_FONTS: Record<string, string> = {
   'JetBrains Mono': 'JetBrains+Mono:wght@400;600',
 };
 
-/** Loads a Google font once (Roboto ships with ThingsBoard). */
+/**
+ * Loads a Google font once (Roboto ships with ThingsBoard).
+ * Side effect: appends <link rel="stylesheet" href="https://fonts.googleapis.com/css2?..."> to <head>,
+ * keyed by an element id so repeated calls do nothing. Unknown names and non-browser runs are ignored.
+ */
 export function loadFont(name?: string | null) {
   if (!name || !GOOGLE_FONTS[name] || typeof document === 'undefined') return;
   const id = `dbb-font-${name.replace(/\W/g, '')}`;
@@ -68,12 +110,21 @@ export function loadFont(name?: string | null) {
   document.head.appendChild(l);
 }
 
+/** CSS font-family value for a font name with a generic fallback (monospace / serif / sans-serif). Empty = ThingsBoard's Roboto stack. Quotes in the name are stripped. */
 export function fontStack(name?: string | null): string {
   if (!name) return 'Roboto,"Helvetica Neue",Arial,sans-serif';
   const generic = /mono/i.test(name) ? 'monospace' : /serif/i.test(name) && !/sans/i.test(name) ? 'serif' : 'sans-serif';
   return `"${name.replace(/"/g, '')}",${generic}`;
 }
 
+/**
+ * Validates an address before it is used in src, href or CSS url(). Security-relevant: all image,
+ * embed, link and background-image addresses (typed by users or produced by chat) pass through here.
+ * Allowed: https:// with no whitespace, quotes, parentheses or angle brackets (so it can't break out
+ * of an attribute or url("...")), or a base64 data:image (png, jpeg, gif, webp, svg+xml) for uploads (D-019).
+ * Everything else (http, javascript:, other data: types) returns null.
+ * The result still has to be escaped with esc() when put into HTML.
+ */
 export function safeUrl(u?: string | null): string | null {
   if (!u) return null;
   const v = u.trim();
@@ -82,7 +133,14 @@ export function safeUrl(u?: string | null): string | null {
   return null;
 }
 
-/** Applies a dashboard theme to a container as CSS variables. Returns whether it is dark. */
+/**
+ * Applies a dashboard theme to a container as CSS variables. Returns whether it is dark.
+ * @param el Dashboard root (machine page root or builder canvas). Gets inline CSS variables, the
+ *   .dbb-dark class and a background (colour, or a fixed cover image from bgImage via safeUrl).
+ * @param t Dashboard.theme; missing or unknown preset falls back to light, missing fields to preset values.
+ * Side effect: loads the theme font (loadFont). Safe to call again with another theme: every
+ * variable and background property is overwritten.
+ */
 export function applyTheme(el: HTMLElement, t?: DashboardTheme | null): { dark: boolean } {
   const p = PRESETS[t?.preset ?? 'light'] ?? PRESETS.light;
   const v: Record<string, string> = {
@@ -113,10 +171,16 @@ export function applyTheme(el: HTMLElement, t?: DashboardTheme | null): { dark: 
   return { dark: p.dark };
 }
 
+/** Whether a theme's preset is dark, without touching the DOM. */
 export function isDark(t?: DashboardTheme | null): boolean {
   return !!PRESETS[t?.preset ?? 'light']?.dark;
 }
 
+/**
+ * Core stylesheet: token defaults on .dbb-root, the card (.dbb-card*) and every widget body class
+ * used by widgets.ts and charts.ts, plus shared buttons and banners. Injected with
+ * ensureCss('dbb-css-core', CSS) by each entry point.
+ */
 export const CSS = `
 .dbb-root{--surface:#ffffff;--surface-2:#f4f5f7;--plane:#f4f5f7;--line:#e6e5e0;--grid:#efeeea;--ink:#0b0b0b;--ink-2:#52514e;--ink-3:#898781;--accent:#2a78d6;--danger:#d03b3b;--hover:#f3f8fe;
   --radius:12px;--shadow:0 1px 2px rgba(16,24,40,.05),0 1px 3px rgba(16,24,40,.08);--pad:10px;--font:Roboto,"Helvetica Neue",Arial,sans-serif;--title-align:left;
@@ -225,6 +289,7 @@ export const CSS = `
 .dbb-card-b>*{animation:dbbfade .25s ease-out}
 `;
 
+/** Adds a <style id=...> to <head> unless one with that id exists. Changing the CSS needs a page reload to apply. */
 export function ensureCss(id: string, css: string) {
   if (document.getElementById(id)) return;
   const s = document.createElement('style');
@@ -233,22 +298,26 @@ export function ensureCss(id: string, css: string) {
   document.head.appendChild(s);
 }
 
+/** HTML-escapes any value (& < > " ') for text and quoted attributes. null/undefined become ''. */
 export function esc(s: unknown): string {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 }
 
+/** Locale number with exactly `decimals` decimals. Non-numbers are returned as String(v) ('—' for null) and are NOT escaped. */
 export function fmtNum(v: unknown, decimals = 1): string {
   const n = Number(v);
   if (!Number.isFinite(n)) return v == null ? '—' : String(v);
   return n.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 }
 
+/** Axis label for a timestamp: time of day for spans up to 36 h, else date (+ hour up to 8 days). */
 export function fmtTime(ts: number, spanMs: number): string {
   const d = new Date(ts);
   if (spanMs <= 36 * 3600e3) return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + (spanMs <= 8 * 86400e3 ? ` ${d.toLocaleTimeString(undefined, { hour: '2-digit' })}` : '');
 }
 
+/** Relative age of a timestamp: "12s ago", "5 min ago", "3 h ago", "2 d ago". */
 export function ago(ts: number): string {
   const s = Math.round((Date.now() - ts) / 1000);
   if (s < 60) return `${s}s ago`;
@@ -257,6 +326,11 @@ export function ago(ts: number): string {
   return `${Math.round(s / 86400)} d ago`;
 }
 
+/**
+ * Creates an element. attrs: 'class' and 'style' are set directly, on* functions become handlers,
+ * other values become attributes (undefined / null / false are skipped).
+ * `html` is assigned as innerHTML unescaped: escape any user text first.
+ */
 export function el<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<string, any> = {}, html?: string): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
@@ -269,14 +343,14 @@ export function el<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<
   return e;
 }
 
-/** Colour from bands: first band whose upTo >= value (null = infinity). */
+/** Colour from bands: first band whose upTo >= value (null = infinity). Legacy format; new widgets use colour rules (render/rules.ts). Returns null without bands or for non-finite values. */
 export function bandColor(v: number, bands?: { upTo: number | null; color: string }[]): string | null {
   if (!bands?.length || !Number.isFinite(v)) return null;
   for (const b of bands) if (b.upTo === null || v <= b.upTo) return b.color;
   return bands[bands.length - 1].color;
 }
 
-/** Tiny safe markdown: headings, bold, italics, bullets, paragraphs. Escapes HTML first. */
+/** Tiny safe markdown: headings, bold, italics, bullets, paragraphs. Escapes HTML first. Used for text widgets saved before rich text (settings.markdown). */
 export function miniMarkdown(src: string): string {
   const lines = esc(src).split(/\r?\n/);
   const out: string[] = [];

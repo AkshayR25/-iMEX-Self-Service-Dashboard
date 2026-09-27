@@ -1,5 +1,9 @@
 // Phase 1 setup (build instructions 4.1). Idempotent: every entity is looked up by name first.
 // Only reuses entities that carry the POC marker; refuses to touch anything else.
+// Creates or updates: asset profiles, device profiles (alarm rules re-applied every run, D-003), customer
+// ITHENA, assets and devices (assigned to the customer, poc=true, default thresholds only where missing,
+// D-007), and `Contains` relations. Throws NotPocError on a same-named non-POC entity (D-005, D-006).
+// The result (IDs only, D-008) is saved by the caller as scripts/output/setup-result.json.
 
 import { TbClient, EntityId, Log, fetchAll } from './tb';
 import {
@@ -16,6 +20,7 @@ import {
   defaultThresholds,
 } from './model';
 
+/** IDs and metadata of everything setup ensured; read later by backfill and the simulator. */
 export interface SetupResult {
   tbUrl: string;
   tbVersion: string | null;
@@ -31,10 +36,12 @@ export interface SetupResult {
   summary: { created: string[]; reused: string[] };
 }
 
+/** A same-named entity exists without the POC marker; setup refuses to adopt it. */
 class NotPocError extends Error {}
 
 const eid = (id: string, entityType: string): EntityId => ({ id, entityType });
 
+// Numeric predicate whose threshold is the device's server attribute, with the spec default as fallback.
 function predicate(a: AlarmSpec, op: string) {
   return {
     type: 'NUMERIC',
@@ -76,6 +83,7 @@ export function buildAlarm(a: AlarmSpec) {
   };
 }
 
+// Body for POST /api/deviceProfile (new profile).
 function deviceProfileBody(name: string, alarms: AlarmSpec[]) {
   return {
     name,
@@ -92,11 +100,19 @@ function deviceProfileBody(name: string, alarms: AlarmSpec[]) {
   };
 }
 
+// Exact-name match (textSearch is a prefix/contains search).
 async function findProfileByName(tb: TbClient, kind: 'assetProfiles' | 'deviceProfiles', name: string) {
   const all = await fetchAll<any>(tb, `/api/${kind}?textSearch=${encodeURIComponent(name)}`);
   return all.find((p) => p.name === name) ?? null;
 }
 
+/**
+ * Runs Phase-1 setup. Idempotent; safe to re-run. About 25 s on the demo server (one call per attribute write).
+ * REST: /api/assetProfile, /api/deviceProfile, /api/customer, /api/asset, /api/device,
+ * /api/customer/{id}/asset|device/{id} (assign), .../attributes/SERVER_SCOPE, /api/relation (upsert).
+ * @returns SetupResult (no credentials).
+ * @throws NotPocError when a non-POC entity with a POC name exists; TbHttpError on REST failures.
+ */
 export async function runSetup(tb: TbClient, log: Log): Promise<SetupResult> {
   const created: string[] = [];
   const reused: string[] = [];
@@ -221,6 +237,8 @@ export async function runSetup(tb: TbClient, log: Log): Promise<SetupResult> {
   log(`relations ensured: ${relations.length} x ${RELATION_TYPE}`);
 
   // 7. Users: intentionally not created in ThingsBoard (DECISIONS.md D-002).
+  // D-002 is superseded by D-010 (app users are ThingsBoard customer users), but this script still
+  // creates none; the sample customer users are not made here.
   log(`app users (${APP_USERS.length}) will be seeded into the service DB in Phase 2; no ThingsBoard users created`);
 
   return {

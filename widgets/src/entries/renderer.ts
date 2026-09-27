@@ -3,6 +3,29 @@
 // controls: for admins, edit / customise / reset / thresholds / dashboard switcher are published to the
 // navbar's edit menu (user decision 27 Sep 2026). Everyone else only views.
 // Also renders a standalone dashboard when the state carries `dbbDashboardId`.
+//
+// ThingsBoard widget type: tenant.imex_dbb_renderer ("iMEX Machine dashboard", 24x12), placed in the
+// app's `machine` state. Lifecycle, via the controller glue in widgets/build.mjs: init(self.ctx) on onInit,
+// onStateChanged(self.ctx) (reloads for the new machine), destroy(self.ctx) on onDestroy.
+//
+// Settings (widgets/widget-types.mjs):
+//   refreshSeconds  base refresh tick in seconds (default 10)
+//   chatEnabled     enable the Chat tab when "Edit this dashboard" opens the builder
+//   customerId      customer to show when a tenant admin opens the app (D-018)
+//   dashboardId     (not in the settings form) standalone dashboard to show when the state has none
+//
+// Which machine: the entity of the current dashboard state (stateEntity), set by the listing via
+// stateController.openState('machine', {entityId, ...}). Which dashboard: store.resolveForDevice
+// (D-013 order), or the one picked in the "Show dashboard" switcher (st.override, reset when the
+// machine changes).
+//
+// Edit actions (admins only, UI-only check, D-012) are not drawn here: they are published with
+// publishActions() for the navbar's edit menu (D-020, see common.ts). Reloads on CHANGED_EVENT.
+//
+// Refresh: a setInterval timer re-polls every widget over REST (grid.refreshAll): each tick in realtime
+// (10 s by default), every 60 s for historic ranges (D-020); skipped while the tab is hidden. This
+// polling is the place to move to ThingsBoard WebSocket subscriptions (ctx.subscriptionApi or
+// /api/ws telemetry) if server load or latency becomes a problem.
 import * as api from '../core/api';
 import * as scope from '../core/scope';
 import * as store from '../core/store';
@@ -34,8 +57,18 @@ const R_CSS = `
 .dbb-rbody{flex:1;overflow:auto;min-height:0;padding:4px 6px}
 `;
 
+/** Counter for unique ids of renderer instances in this library copy (used as the publishActions owner). */
 let seq = 0;
 
+/**
+ * Widget onInit: builds the header + grid skeleton in `tbCtx.$container`, loads the machine's dashboard
+ * and starts the refresh timer.
+ *
+ * Side effects: injects CSS once per page; stores its state on `tbCtx.__dbb`, cleanup on
+ * `tbCtx.__dbbCleanup`, reload hook on `tbCtx.__dbbReload`; listens to CHANGED_EVENT; publishes/clears
+ * the edit menu actions. REST reads: user context, store attributes (resolve), latest telemetry and
+ * timeseries keys of the device.
+ */
 export function init(tbCtx: any) {
   ensureCss('dbb-css-core', CSS);
   ensureCss('dbb-css-grid', GRID_CSS);
@@ -60,6 +93,8 @@ export function init(tbCtx: any) {
   const head = root.querySelector('.dbb-rhead') as HTMLElement;
   const gridHost = root.querySelector('.dbb-rgrid') as HTMLElement;
 
+  // (Re)loads from the dashboard state: a DEVICE entity -> showDevice; else a `dbbDashboardId` state
+  // param or settings.dashboardId -> showStandalone; else a placeholder. `force` reloads the user context.
   const load = async (force = false) => {
     try {
       const ctx = await userContext(tbCtx, force);
@@ -82,11 +117,13 @@ export function init(tbCtx: any) {
   };
 
   const body = root.querySelector('.dbb-rbody') as HTMLElement;
+  // Used by link widgets to open another app page; passes the node (if in scope) as the state entity.
   const navigate = (stateId: string, nodeId: string | null) => {
     const n = nodeId && st.ctx ? st.ctx.nodes.get(nodeId) : null;
     const params = n ? { entityId: { id: n.id, entityType: n.entityType }, entityName: n.label, entityLabel: n.label } : {};
     tbCtx.stateController?.openState?.(stateId, params, false);
   };
+  // Applies the dashboard theme and creates the read-only grid once, then only updates its environment.
   const ensureGrid = (ctx: UserContext, deviceId: string | null, range: string, theme?: Dashboard['theme']) => {
     const { dark } = applyTheme(root, theme);
     void body;
@@ -96,6 +133,15 @@ export function init(tbCtx: any) {
     return st.grid;
   };
 
+  /**
+   * Shows the machine page for `deviceId`: header (path, name, profile, status, time range) and the
+   * resolved dashboard, or the built-in default layout when nothing is assigned. Devices outside the
+   * user's scope get a warning only (scope is UI-enforced, D-012).
+   * Status: Offline when no telemetry for 5 min, else Running/Stopped from `runStatus` (missing = Running).
+   * For admins, publishes: edit, customise (shared dashboard from a location/customer assignment),
+   * reset (device has a `customised` copy), thresholds, the switcher when several dashboards apply,
+   * and "clear personal view" (D-017: personal views are still resolved but no longer created).
+   */
   async function showDevice(ctx: UserContext, deviceId: string) {
     st.deviceId = deviceId;
     const node = ctx.nodes.get(deviceId);
@@ -165,6 +211,7 @@ export function init(tbCtx: any) {
         }
       },
     });
+    // Saves a copy of the shared dashboard and assigns it to this device (`dbb_assign` mode `customised`); audited.
     async function customise() {
       if (!(await confirmModal(root, 'Customise for this machine?', `${node!.label} gets its own copy of “${dash!.name}”. It will stop receiving updates made to the shared dashboard.`, 'Customise'))) return;
       try {
@@ -176,6 +223,7 @@ export function init(tbCtx: any) {
         toast(root, e.message, 'err');
       }
     }
+    // Removes the device's `dbb_assign` and its customised copy, so it falls back to the shared dashboard; audited.
     async function reset() {
       if (!(await confirmModal(root, 'Reset to the shared dashboard?', `The customised dashboard for ${node!.label} will be deleted and it will show the shared dashboard again.`, 'Reset', true))) return;
       try {
@@ -189,6 +237,7 @@ export function init(tbCtx: any) {
     }
   }
 
+  /** Shows a stored dashboard not bound to a machine (state param `dbbDashboardId`); admins get "Edit". */
   async function showStandalone(ctx: UserContext, dashboardId: string) {
     st.deviceId = null;
     const d = await store.getDashboard(ctx, dashboardId);
@@ -208,6 +257,11 @@ export function init(tbCtx: any) {
     );
   }
 
+  /**
+   * "Alarm thresholds" dialog: edits the device's `thr_*` SERVER_SCOPE attributes, which the device
+   * profile alarm rules read as dynamic thresholds (D-003). Empty inputs are left unchanged.
+   * Writes via api.saveAttrs and adds a `thresholds.update` audit entry with before/after values.
+   */
   async function thresholds(ctx: UserContext, deviceId: string, label: string) {
     const attrs = await api.getAttrs({ id: deviceId, entityType: 'DEVICE' }).catch(() => ({}) as Record<string, any>);
     const keys = Object.keys(attrs).filter((k) => k.startsWith('thr_'));
@@ -238,6 +292,8 @@ export function init(tbCtx: any) {
   const onChanged = () => void load(true);
   window.addEventListener(CHANGED_EVENT, onChanged);
   // Realtime: refresh every 10 s (settings.refreshSeconds). Historic windows: every 60 s, to keep load down.
+  // The timer always ticks at refreshSeconds; historic ranges only act on every Nth tick (N = 60 / refreshSeconds).
+  // REST polling: candidate for replacement by ThingsBoard WebSocket subscriptions.
   st.timer = setInterval(() => {
     if (document.hidden) return;
     st.ticks = (st.ticks ?? 0) + 1;
@@ -254,6 +310,10 @@ export function init(tbCtx: any) {
   void load();
 }
 
+/**
+ * Timestamp of the device's most recent telemetry (max `ts` over the latest values of up to 20 keys),
+ * or null when it has none or the calls fail. Two REST calls: timeseries keys, then latest values.
+ */
 async function lastTelemetry(deviceId: string): Promise<number | null> {
   const keys = await api.timeseriesKeys(deviceId).catch(() => []);
   if (!keys.length) return null;
@@ -262,10 +322,12 @@ async function lastTelemetry(deviceId: string): Promise<number | null> {
   return ts.length ? Math.max(...ts) : null;
 }
 
+/** Widget onStateChanged: reloads for the new state entity (keeps the user context cache). */
 export function onStateChanged(tbCtx: any) {
   (tbCtx as any).__dbbReload?.();
 }
 
+/** Widget onDestroy: stops the timer, removes listeners, clears this widget's edit actions, destroys the grid. */
 export function destroy(tbCtx: any) {
   (tbCtx as any).__dbbCleanup?.();
 }

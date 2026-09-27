@@ -1,4 +1,7 @@
 // Sample data model (build instructions, section 3). All values are fictional.
+// Single source of truth for setup (what to create), backfill/simulator (which devices and keys) and
+// teardown (customer title, marker). Hierarchy: ITHENA-ROOT -> SITE-RICHMOND (RIC-COMP-01, RIC-DRY-01),
+// SITE-PUNE (PUN-COMP-01, PUN-WS-01), linked by `Contains` relations.
 
 export const POC_MARKER = '[poc=true]'; // profiles cannot hold attributes; they carry this in description
 export const RELATION_TYPE = 'Contains';
@@ -6,6 +9,7 @@ export const CUSTOMER_TITLE = 'ITHENA';
 
 export const ASSET_PROFILES = ['Organization', 'Site', 'Plant', 'Line'] as const;
 
+/** Catalogue entry for one telemetry key (shape also used by `dbb_profile_keys` in the widgets). */
 export interface KeyMeta {
   key: string;
   displayName: string;
@@ -15,6 +19,7 @@ export interface KeyMeta {
   max: number;
 }
 
+/** One device-profile alarm: `key` compared with the device's `thresholdAttr` server attribute (D-003). */
 export interface AlarmSpec {
   id: string;
   alarmType: string;
@@ -148,6 +153,8 @@ export function defaultThresholds(profileName: string): Record<string, number> {
 /**
  * App users. Per DECISIONS.md D-002 these are NOT ThingsBoard users; they are seeded into the
  * config service's own database in Phase 2.
+ * D-002 has since been superseded by D-010 (no service; app users are ThingsBoard customer users with
+ * `selectedNodes` / `Role` attributes). The list is still copied into setup-result.json.
  */
 export const APP_USERS = [
   { email: 'admin@ithena-poc.example', role: 'Customer Admin', scope: 'ITHENA-ROOT' },

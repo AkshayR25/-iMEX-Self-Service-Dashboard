@@ -2,6 +2,8 @@
 
 Customer users build their own machine dashboards **inside ThingsBoard CE**, by drag and drop or by chatting with Claude. There is no external service: the builder, the renderer and the chat relay are ThingsBoard widgets and a rule chain. See `DECISIONS.md` for why and for every deviation from the original build instructions.
 
+**Setting this up on our own ThingsBoard? Start with [`docs/DEVELOPER_GUIDE.md`](docs/DEVELOPER_GUIDE.md).**
+
 ## Status
 
 | Part | State |

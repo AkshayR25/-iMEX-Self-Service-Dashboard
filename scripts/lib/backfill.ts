@@ -8,9 +8,13 @@ import { DEVICES } from './model';
 import { initState, next } from './generator';
 
 export interface BackfillOptions {
+  /** History length (default 7). */
   days?: number;
+  /** Sample step in minutes (default 5). */
   intervalMin?: number;
+  /** Points per POST (default 200). */
   batchSize?: number;
+  /** Pause after each POST (default 1000 ms). */
   batchDelayMs?: number;
   /** Leave the most recent minutes empty so live data owns "latest". */
   endOffsetMin?: number;
@@ -18,6 +22,16 @@ export interface BackfillOptions {
   only?: string[];
 }
 
+/**
+ * Writes generated history for every POC device (model.ts DEVICES, optionally filtered by `only`).
+ * The window ends `endOffsetMin` (default 10) minutes before now, aligned to the step. Compressor
+ * stops are included, excursions never (excursionUntil stays 0), so values stay below the thresholds.
+ * Timestamps are step-aligned, so a re-run overwrites overlapping points with new random values.
+ * REST: POST /api/plugins/telemetry/DEVICE/{id}/timeseries/ANY (bypasses the rule engine, D-004).
+ *
+ * @param deviceIds Device name -> id (from setup-result.json). Throws if a device is missing.
+ * @returns Points written per device name.
+ */
 export async function runBackfill(
   tb: TbClient,
   deviceIds: Record<string, string>,

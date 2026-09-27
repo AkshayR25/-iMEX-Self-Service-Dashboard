@@ -1,5 +1,12 @@
 // ThingsBoard widget-type definitions (names, sizes, settings forms). Used by build.mjs to write one
 // importable widget-type JSON per widget into widgets/dist/widget-types/. Keep in sync with deploy/deploy-browser.js.
+//
+// The deploy script has its own copy of these three objects (it is pasted into a browser console and
+// can't import this module), so change both when adding or renaming a setting. Settings are read by
+// the entry points as `tbCtx.settings.<name>` (see widgets/src/entries/*.ts for what each one does).
+// Keys: launcher = tenant.imex_dbb_launcher, renderer = tenant.imex_dbb_renderer, listing = tenant.imex_dbb_listing.
+
+/** Per widget type: JSON-schema `schema` and ThingsBoard `form` (field order) for the widget settings dialog. */
 export const settingsSchemas = {
   launcher: {
     schema: {
@@ -45,5 +52,7 @@ export const settingsSchemas = {
     form: ['mode', 'machineState', 'dashboardState', 'title', 'buttonLabel', 'listingState', 'siteProfile', 'customerId'],
   },
 };
+/** Widget type display names (also the default widget title). */
 export const names = { launcher: 'iMEX Navbar / edit menu', renderer: 'iMEX Machine dashboard', listing: 'iMEX Listing / Map page (stand-in)' };
+/** Default size [sizeX, sizeY] in ThingsBoard grid cells when the widget is added to a dashboard. */
 export const sizes = { launcher: [6, 1], renderer: [24, 12], listing: [24, 12] };

@@ -1,5 +1,8 @@
 // Phase 1 live simulator (build instructions 4.2). Posts through the device transport API
-// (/api/v1/{accessToken}/telemetry) so data flows through the rule engine and profile alarm rules.
+// (/api/v1/{accessToken}/telemetry) so data flows through the rule engine and profile alarm rules (D-004).
+// Runs in Node (`npm run simulator`) or in a browser tab via the POC bundle (D-001; stops when the tab reloads).
+// Every tick sends one sample per device; every ~10 min one random device gets a ~1 min excursion
+// above its alarm threshold so alarms raise and clear.
 
 import { TbClient, Log } from './tb';
 import { DEVICES } from './model';
@@ -11,6 +14,7 @@ export interface SimulatorOptions {
   excursionLengthMs?: number; // default ~1 min
 }
 
+/** A device being simulated: its transport access token and generator state. */
 export interface SimDevice {
   name: string;
   profile: string;
@@ -18,6 +22,7 @@ export interface SimDevice {
   state: GenState;
 }
 
+/** Live telemetry loop. Call init(), then start(); stop() ends it. `stats` counts sent/failed/excursions. */
 export class Simulator {
   private timer: ReturnType<typeof setInterval> | null = null;
   private nextExcursion = 0;
@@ -27,7 +32,11 @@ export class Simulator {
 
   constructor(private tb: TbClient, private log: Log, private opts: SimulatorOptions = {}) {}
 
-  /** Reads access tokens (GET /api/device/{id}/credentials) for the POC devices. */
+  /**
+   * Reads access tokens (GET /api/device/{id}/credentials) for the POC devices.
+   * Skips devices missing from `deviceIds` or not using ACCESS_TOKEN credentials. Continues each
+   * compressor's runHours from its latest stored value (GET .../values/timeseries?keys=runHours).
+   */
   async init(deviceIds: Record<string, string>) {
     this.devices.length = 0;
     for (const d of DEVICES) {
@@ -48,6 +57,7 @@ export class Simulator {
     this.log(`simulator ready for ${this.devices.length} devices`);
   }
 
+  /** Starts ticking every `periodMs` (default 10 s), with an immediate first tick. No-op if running. */
   start() {
     if (this.timer) return;
     const period = this.opts.periodMs ?? 10000;
@@ -68,6 +78,8 @@ export class Simulator {
     return this.timer !== null;
   }
 
+  // One round: maybe start an excursion, then post one sample per device (sequentially). Failures are
+  // counted and logged, never thrown.
   private async tick() {
     if (this.busy) return; // previous tick still retrying
     this.busy = true;

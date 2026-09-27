@@ -1,8 +1,13 @@
 // Minimal ThingsBoard CE REST client. Environment-agnostic: runs in Node 20+ and in a browser page.
 // Paths verified against demo.thingsboard.io /v3/api-docs (TB CE 4.3.0.3DEMO) on 2026-09-25.
+// Used by all Phase-1 scripts (setup, backfill, simulator, teardown). Features: serialised, throttled
+// requests; retry with exponential backoff on network errors, 429 and 5xx; one token refresh on 401.
+// Auth is pluggable: passwordAuth (Node, .env credentials) or externalTokenAuth (browser page JWT, D-001).
+// Separate from widgets/src/core/api.ts, which is the widgets' client.
 
 export type Log = (msg: string) => void;
 
+/** Supplies the JWT sent as `X-Authorization: Bearer <token>`. */
 export interface TokenProvider {
   getToken(): Promise<string>;
   /** Called once after a 401; should obtain a fresh token. */
@@ -14,6 +19,7 @@ export interface EntityId {
   entityType: string;
 }
 
+/** Non-2xx response; the message holds method, path, status and the first 300 chars of the body. */
 export class TbHttpError extends Error {
   constructor(public status: number, public method: string, public path: string, public body: string) {
     super(`TB ${method} ${path} -> ${status}: ${body.slice(0, 300)}`);
@@ -23,11 +29,14 @@ export class TbHttpError extends Error {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export interface TbClientOptions {
+  /** Minimum gap between the end of one request and the start of the next (default 150 ms). */
   minDelayMs?: number;
+  /** Retries for network errors, 429 and 5xx (default 5). */
   maxRetries?: number;
   log?: Log;
 }
 
+/** ThingsBoard REST client. All requests go through one queue, so calls never run in parallel. */
 export class TbClient {
   private last = 0;
   private queue: Promise<unknown> = Promise.resolve();
@@ -57,6 +66,10 @@ export class TbClient {
     return run;
   }
 
+  /**
+   * Sends one request with retries: network errors and 429/5xx back off exponentially (max 30 s);
+   * a 401 triggers one auth.refresh() and a retry. Returns the final Response (possibly non-2xx).
+   */
   private async send(method: string, path: string, body: unknown, withAuth: boolean): Promise<Response> {
     let attempt = 0;
     let refreshed = false;
@@ -90,6 +103,10 @@ export class TbClient {
     }
   }
 
+  /**
+   * Authenticated JSON request. Returns the parsed body (null for an empty body, or for 404 when
+   * `allow404`). Throws TbHttpError for other non-2xx responses.
+   */
   async request<T = any>(method: string, path: string, body?: unknown, opts: { allow404?: boolean } = {}): Promise<T | null> {
     const res = await this.send(method, path, body, true);
     if (res.status === 404 && opts.allow404) return null;
@@ -98,7 +115,9 @@ export class TbClient {
     return (text ? JSON.parse(text) : null) as T;
   }
 
+  /** GET; throws on 404. */
   get<T = any>(path: string) { return this.request<T>('GET', path) as Promise<T>; }
+  /** GET that returns null on 404 (TB's name lookups return 404 when nothing matches). */
   find<T = any>(path: string) { return this.request<T>('GET', path, undefined, { allow404: true }); }
   post<T = any>(path: string, body?: unknown) { return this.request<T>('POST', path, body) as Promise<T>; }
   del(path: string) { return this.request('DELETE', path); }
@@ -110,6 +129,7 @@ export class TbClient {
   }
 
   // ---- attribute helpers ----
+  /** SERVER_SCOPE attributes of an entity as {key: value}; all keys when `keys` is empty. */
   async getServerAttributes(entity: EntityId, keys?: string[]): Promise<Record<string, unknown>> {
     const q = keys?.length ? `?keys=${encodeURIComponent(keys.join(','))}` : '';
     const rows = await this.get<{ key: string; value: unknown }[]>(
@@ -118,10 +138,12 @@ export class TbClient {
     return Object.fromEntries(rows.map((r) => [r.key, r.value]));
   }
 
+  /** Writes/merges SERVER_SCOPE attributes (POST .../attributes/SERVER_SCOPE). One call per invocation. */
   saveServerAttributes(entity: EntityId, attrs: Record<string, unknown>) {
     return this.post(`/api/plugins/telemetry/${entity.entityType}/${entity.id}/attributes/SERVER_SCOPE`, attrs);
   }
 
+  /** True if the entity has server attribute `poc` = true (boolean or "true"); the POC marker (D-006). */
   async isPoc(entity: EntityId): Promise<boolean> {
     const a = await this.getServerAttributes(entity, ['poc']);
     return a.poc === true || a.poc === 'true';
@@ -135,6 +157,7 @@ export function passwordAuth(baseUrl: string, username: string, password: string
   let refreshToken = '';
   let expiresAt = 0;
 
+  // JWT expiry in ms; if the token can't be decoded, assume 10 minutes. Uses Buffer, so Node only.
   const decodeExp = (jwt: string) => {
     try {
       const payload = JSON.parse(Buffer.from(jwt.split('.')[1], 'base64url').toString('utf8'));
@@ -160,6 +183,7 @@ export function passwordAuth(baseUrl: string, username: string, password: string
     store(await res.json());
   };
 
+  // Prefer the refresh token; fall back to a full login.
   const refresh = async () => {
     if (refreshToken) {
       const res = await fetch(`${base}/api/auth/token`, {
@@ -173,6 +197,7 @@ export function passwordAuth(baseUrl: string, username: string, password: string
   };
 
   return {
+    // Logs in lazily and refreshes 60 s before expiry.
     async getToken() {
       if (!token) await login();
       else if (Date.now() > expiresAt - 60_000) await refresh();

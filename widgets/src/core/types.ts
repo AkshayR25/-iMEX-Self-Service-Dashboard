@@ -1,3 +1,12 @@
+// core/types.ts — shared plain types with no runtime code.
+
+/**
+ * Catalogue entry for one telemetry key of a machine type (device profile).
+ * Comes from the store asset attribute `dbb_profile_keys` (`{ [profile]: KeyMeta[] }`, written by
+ * DBB_DEPLOY from `profileKeys`; see core/scope.ts). Used by the builder for names, units and
+ * limits, by core/compat.ts for property-kind checks, and sent (without min/max/decimals) to the
+ * chat model as the catalogue. Keys not in the catalogue still work, only without nice names/units.
+ */
 export interface KeyMeta {
   key: string;
   displayName: string;

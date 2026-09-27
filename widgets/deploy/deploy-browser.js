@@ -2,6 +2,46 @@
 // after window.__dbbLib (library code) and window.__dbbGlue (per-widget glue) are set.
 // Idempotent: finds everything by name / fqn and updates it in place. Only touches POC-marked items.
 // Usage: await DBB_DEPLOY({ customerTitle: 'ITHENA', storeName: 'DBB-STORE-ITHENA', userEmails: [...] })
+//
+// Where it runs: pasted into the browser console of a ThingsBoard page logged in as TENANT ADMIN. It calls
+// the REST API with that page's JWT (localStorage.jwt_token); no credentials are typed or stored (D-001, D-016).
+//
+// Inputs:
+//   window.__dbbLib   contents of widgets/dist/imex-dbb.js   (from `npm run build:widgets`)
+//   window.__dbbGlue  parsed widgets/dist/glue.json          ({launcher, renderer, listing} glue strings)
+//   window.IMEX_DBB_VERSION  optional, only used in the widget-type description
+//   opts (all optional; defaults below):
+//     customerTitle  existing ThingsBoard customer to deploy for (must exist; not created here)
+//     storeName      name of that customer's DashboardStore asset (one per customer, D-012/D-013)
+//     appTitle       title of the stand-in app dashboard;  appName  text in its navbar
+//     bundleTitle    widget bundle title
+//     llmModel       model id written into the chat relay's "Build LLM request" node
+//     profileKeys    {profile: [{key, displayName, unit, decimals, min, max}]} catalogue, written to the
+//                    store as `dbb_profile_keys` (OVERWRITES the stored catalogue on every run)
+//     userEmails     customer users whose home dashboard becomes the stand-in app (empty in production)
+//
+// Steps (each is create-or-update, so the whole call is idempotent and safe to re-run per customer):
+//   1. Customer: looked up by title (throws if missing).
+//   2. Rule chain "DBB Chat relay (POC)" (D-014): created if missing, then its metadata is rewritten:
+//      Is chat request -> Build LLM request -> Call LLM (REST node, api.anthropic.com) -> Parse LLM reply /
+//      Error reply -> Save reply attribute (`dbb_chat_resp_<userId>`, SERVER_SCOPE). The existing "Call LLM"
+//      headers are kept, so the pasted API key (`x-api-key`) survives re-deploys.
+//   3. Asset profile "DashboardStore" (must carry the POC marker if it exists) with the chat relay as its
+//      default rule chain; store asset `storeName` created if missing, assigned to the customer, and
+//      SERVER_SCOPE attributes `poc=true` + `dbb_profile_keys` written.
+//   4. Widget bundle `bundleTitle` and the widget types tenant.imex_dbb_{launcher,renderer,listing}
+//      (controller script = library + glue; settings forms duplicated from widgets/widget-types.mjs),
+//      then the bundle's widget type list is set to those three.
+//   5. Stand-in dashboard `appTitle` with states default (Map page), listing and machine (D-018), each
+//      navbar + one body widget; overwritten in place if it exists, then assigned to the customer.
+//   6. Home/default dashboard (fullscreen, toolbar hidden) of the customer users listed in userEmails.
+//
+// POC marker: new rule chain, profile, bundle, widget types and dashboard carry "[poc=true]" in their
+// description (D-005) and the store asset gets the `poc=true` attribute, so teardown (scripts/lib/teardown.ts)
+// can find them. Only the DashboardStore profile is checked for the marker before reuse; the rule chain,
+// bundle, widget types and dashboard are matched by name/fqn and updated without that check.
+//
+// Returns {log, dashboardId, storeId, ruleChainId, bundleId}. Throws on the first failing REST call.
 window.DBB_DEPLOY = async function (opts) {
   const o = Object.assign(
     {
@@ -16,10 +56,11 @@ window.DBB_DEPLOY = async function (opts) {
     },
     opts || {},
   );
-  const MARK = '[poc=true]';
+  const MARK = '[poc=true]'; // same marker as scripts/lib/model.ts POC_MARKER
   const log = [];
   const say = (m) => (log.push(m), console.log('[DBB deploy] ' + m));
   const h = () => ({ 'X-Authorization': 'Bearer ' + localStorage.getItem('jwt_token'), 'Content-Type': 'application/json' });
+  // Minimal REST helper: JSON in/out; returns null for 404 when allow404, throws on other non-2xx.
   const api = async (method, path, body, allow404) => {
     const r = await fetch(path, { method, headers: h(), body: body === undefined ? undefined : JSON.stringify(body) });
     const t = await r.text();
@@ -27,6 +68,7 @@ window.DBB_DEPLOY = async function (opts) {
     if (!r.ok) throw new Error(`${method} ${path} -> ${r.status}: ${t.slice(0, 300)}`);
     return t ? JSON.parse(t) : null;
   };
+  // Reads every page of a ThingsBoard PageData endpoint.
   const all = async (path) => {
     const out = [];
     for (let p = 0; ; p++) {
@@ -46,8 +88,11 @@ window.DBB_DEPLOY = async function (opts) {
   let rc = (await all(`/api/ruleChains?textSearch=${encodeURIComponent(rcName)}`)).find((x) => x.name === rcName);
   if (!rc) rc = await api('POST', '/api/ruleChain', { name: rcName, type: 'CORE', debugMode: false, configuration: { description: `${MARK} Relays Dashboard Builder chat requests to the LLM. Paste the API key into the "Call LLM" node.` } });
   const existingMeta = await api('GET', `/api/ruleChain/${rc.id.id}/metadata`);
+  // Keep the headers (with the pasted API key) of an existing "Call LLM" node.
   const oldRest = (existingMeta.nodes || []).find((n) => n.name === 'Call LLM');
   const keepHeaders = oldRest && oldRest.configuration && oldRest.configuration.headers;
+  // TBEL scripts. The builder writes `dbb_chat_req` = {reqId, userId, body: {system, messages, tools, tool_choice}}
+  // on the store asset; replies go to `dbb_chat_resp_<userId>` = {reqId, ok, toolInput | error}.
   const filterScript = "return msgType == 'ATTRIBUTES_UPDATED' && msg.dbb_chat_req != null && msg.dbb_chat_req.body != null;";
   const buildScript = [
     'var req = msg.dbb_chat_req;',
@@ -81,6 +126,7 @@ window.DBB_DEPLOY = async function (opts) {
     'var md = {reqId: "" + metadata.reqId, userId: "" + metadata.userId};',
     'return {msg: out, metadata: md, msgType: "POST_ATTRIBUTES_REQUEST"};',
   ].join('\n');
+  // Node order matters: connections below refer to nodes by index (0 = first node).
   const tbel = (s) => ({ scriptLang: 'TBEL', tbelScript: s, jsScript: 'return msg;' });
   const nodes = [
     { type: 'org.thingsboard.rule.engine.filter.TbJsFilterNode', name: 'Is chat request', configuration: { scriptLang: 'TBEL', tbelScript: filterScript, jsScript: 'return false;' }, additionalInfo: { layoutX: 300, layoutY: 150 } },
@@ -120,6 +166,7 @@ window.DBB_DEPLOY = async function (opts) {
       additionalInfo: { layoutX: 1300, layoutY: 150 },
     },
   ];
+  // Replaces all nodes and connections of the chain (passing the current version for optimistic locking).
   await api('POST', '/api/ruleChain/metadata', {
     ruleChainId: rc.id,
     version: existingMeta.version,
@@ -143,6 +190,7 @@ window.DBB_DEPLOY = async function (opts) {
   let ap = (await all(`/api/assetProfiles?textSearch=${apName}`)).find((x) => x.name === apName);
   if (ap && !String(ap.description || '').includes(MARK)) throw new Error('Asset profile DashboardStore exists without the POC marker');
   if (!ap) ap = await api('POST', '/api/assetProfile', { name: apName, description: `${MARK} Dashboard Builder store (one asset per customer)` });
+  // Re-read the full profile before saving, so the POST doesn't drop fields the list view omits.
   ap = await api('GET', `/api/assetProfile/${ap.id.id}`);
   ap.defaultRuleChainId = rc.id;
   await api('POST', '/api/assetProfile', ap);
@@ -153,6 +201,7 @@ window.DBB_DEPLOY = async function (opts) {
     store = await api('POST', '/api/asset', { name: o.storeName, label: 'Dashboard store', assetProfileId: ap.id });
     say('store asset created');
   }
+  // Customers can't write customer attributes, so the store is an asset assigned to the customer (D-012).
   if (!store.customerId || store.customerId.id !== cid) await api('POST', `/api/customer/${cid}/asset/${store.id.id}`);
   await api('POST', `/api/plugins/telemetry/ASSET/${store.id.id}/attributes/SERVER_SCOPE`, { poc: true, dbb_profile_keys: o.profileKeys });
   say('store asset assigned to ' + o.customerTitle + ', profile keys written');
@@ -161,6 +210,7 @@ window.DBB_DEPLOY = async function (opts) {
   const bundles = await all('/api/widgetsBundles?tenantOnly=true');
   let bundle = bundles.find((b) => b.title === o.bundleTitle);
   if (!bundle) bundle = await api('POST', '/api/widgetsBundle', { title: o.bundleTitle, alias: 'imex_dbb', description: `${MARK} iMEX Dashboard Builder POC widgets` });
+  // Copy of widgets/widget-types.mjs (this file is pasted into a console and can't import it). Keep in sync.
   const settingsSchemas = {
     launcher: {
       schema: {
@@ -211,6 +261,7 @@ window.DBB_DEPLOY = async function (opts) {
   const fqns = [];
   for (const k of ['launcher', 'renderer', 'listing']) {
     const fqn = `imex_dbb_${k}`;
+    // Lookup needs the `tenant.` prefix; the response omits `description`, which is set below anyway.
     let wt = await api('GET', `/api/widgetType?fqn=tenant.${fqn}`, undefined, true);
     const descriptor = {
       type: 'static',
@@ -224,14 +275,17 @@ window.DBB_DEPLOY = async function (opts) {
       dataKeySettingsSchema: '{}',
       defaultConfig: JSON.stringify({ datasources: [], showTitle: false, backgroundColor: 'rgba(0,0,0,0)', color: 'rgba(0,0,0,0.87)', padding: '0px', settings: {}, title: names[k], dropShadow: false, enableFullscreen: false }),
     };
+    // Merging into the existing type keeps its id/version, so POST updates it in place.
     const body = Object.assign(wt || {}, { fqn, name: names[k], descriptor, description: `${MARK} built ${window.IMEX_DBB_VERSION || ''}`, deprecated: false, scada: false });
     wt = await api('POST', '/api/widgetType', body);
     fqns.push(wt.fqn);
     say(`widget type ${fqn} saved (${Math.round(descriptor.controllerScript.length / 1024)} KB)`);
   }
+  // Sets (replaces) the bundle's widget type list.
   await api('POST', `/api/widgetsBundle/${bundle.id.id}/widgetTypeFqns`, fqns);
 
   // --- stand-in app dashboard
+  // Unused (fixed ids below are used instead; `void wid` silences the linter).
   const wid = (n) => `dbb-${n}-0000-0000-000000000000`.slice(0, 36);
   const W = {
     nav: { key: 'nav', fqn: 'tenant.imex_dbb_launcher', settings: { navbar: true, appName: o.appName, label: 'Edit dashboards', adminOnly: true, homeState: 'default', homeLabel: 'Map page', listingState: 'listing', listingLabel: 'Listing page', machineState: 'machine', machineLabel: 'Machine page', customerId: cid }, bg: '#0a2458' },
@@ -239,6 +293,7 @@ window.DBB_DEPLOY = async function (opts) {
     list: { key: 'list', fqn: 'tenant.imex_dbb_listing', settings: { machineState: 'machine', dashboardState: '', customerId: cid }, bg: '#f6f6f4' },
     mach: { key: 'mach', fqn: 'tenant.imex_dbb_renderer', settings: { refreshSeconds: 10, customerId: cid }, bg: '#f6f6f4' },
   };
+  // Fixed widget ids so re-deploys overwrite the same widgets in the dashboard configuration.
   const ids = { nav: 'a1b2c3d4-0001-4000-8000-000000000001', list: 'a1b2c3d4-0002-4000-8000-000000000002', mach: 'a1b2c3d4-0003-4000-8000-000000000003', map: 'a1b2c3d4-0005-4000-8000-000000000005' };
   void wid;
   const widgets = {};
@@ -254,6 +309,7 @@ window.DBB_DEPLOY = async function (opts) {
       col: 0,
     };
   const grid = { layoutType: 'default', backgroundColor: '#f6f6f4', columns: 24, margin: 0, outerMargin: false, backgroundSizeMode: '100%', autoFillHeight: true, mobileAutoFillHeight: true, mobileRowHeight: 70 };
+  // Every state: the navbar (row 0) above one full-width body widget.
   const layout = (body) => ({ main: { widgets: { [ids.nav]: { sizeX: 24, sizeY: 1, row: 0, col: 0 }, [ids[body]]: { sizeX: 24, sizeY: 14, row: 1, col: 0 } }, gridSettings: grid } });
   const configuration = {
     description: `${MARK} Stand-in for the production app, 3 states: Map page (sites) → Listing page (hierarchy + cards) → Machine page. Navbar shows the current state and an admin-only Dashboard Builder button`,
@@ -268,6 +324,7 @@ window.DBB_DEPLOY = async function (opts) {
     timewindow: { realtime: { realtimeType: 1, timewindowMs: 86400000, interval: 60000 }, aggregation: { type: 'NONE', limit: 200 } },
     settings: { stateControllerId: 'entity', showTitle: false, showDashboardsSelect: false, showEntitiesSelect: false, showDashboardTimewindow: false, showDashboardExport: false, showDashboardLogo: false, toolbarAlwaysOpen: false, hideToolbar: true, showFilters: false, showUpdateDashboardImage: false },
   };
+  // Existing dashboard: replace only its configuration (title, assignments etc. kept).
   let dash = (await all(`/api/tenant/dashboards?textSearch=${encodeURIComponent(o.appTitle)}`)).find((d) => d.title === o.appTitle);
   if (dash) {
     const full = await api('GET', `/api/dashboard/${dash.id.id}`);
@@ -277,6 +334,7 @@ window.DBB_DEPLOY = async function (opts) {
   say(`dashboard "${o.appTitle}" saved and assigned`);
 
   // --- home dashboard for the POC users
+  // Only users of this customer whose email is listed; others are left alone.
   const users = await all(`/api/customer/${cid}/users`);
   for (const u of users.filter((x) => o.userEmails.includes(x.email))) {
     const full = await api('GET', `/api/user/${u.id.id}`);
@@ -286,4 +344,5 @@ window.DBB_DEPLOY = async function (opts) {
   say(`home dashboard set for ${o.userEmails.length} users`);
   return { log, dashboardId: dash.id.id, storeId: store.id.id, ruleChainId: rc.id.id, bundleId: bundle.id.id };
 };
+// Last expression, so the console prints a confirmation when the script is pasted.
 'deploy script loaded';

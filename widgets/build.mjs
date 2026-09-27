@@ -1,4 +1,20 @@
 // Bundles all widget entry points into one IIFE (global IMEX_DBB) and writes per-widget controller glue.
+//
+// Run from the repo root (`npm run build:widgets`; paths are relative to the cwd). Node, not the browser.
+//
+// Outputs (all in widgets/dist/):
+//   imex-dbb.js              the minified library (entry: widgets/src/entries/all.ts), version stamped in
+//   glue.json                {launcher, renderer, listing}: the ThingsBoard controller-script glue per widget
+//                            type. Used with imex-dbb.js by widgets/deploy/deploy-browser.js
+//                            (window.__dbbLib / window.__dbbGlue).
+//   imex-dbb.js.gz.b64       gzip (level 9) + base64 of the library: a compact transport copy (e.g. to
+//                            move it into a browser page); nothing in the repo reads it; git-ignored
+//   widget-types/imex_dbb_<k>.json  importable ThingsBoard widget types (Widgets library > Widgets > + >
+//                            Import widget): library + glue + settings form from widget-types.mjs (D-020)
+//
+// Versioning: each build gets an ISO timestamp. It replaces the `__VERSION__` placeholder
+// (IMEX_DBB.version) and goes into the widget-type description ("... [poc=true] built <version>").
+// The [poc=true] marker lets teardown find the widget types (D-005).
 import { build } from 'esbuild';
 import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
@@ -17,11 +33,15 @@ await build({
   define: {},
   outfile: 'widgets/dist/imex-dbb.js',
 });
+// Stamp the build version into the bundle (all.ts exports `version = '__VERSION__'`).
 let lib = readFileSync('widgets/dist/imex-dbb.js', 'utf8').replace('__VERSION__', version);
 writeFileSync('widgets/dist/imex-dbb.js', lib);
 
 // Controller glue per widget type. The library is embedded in each widget type's controllerScript
 // (ThingsBoard evaluates it per widget instance; the IIFE is cheap to re-evaluate).
+// Lifecycle mapping: onInit -> <k>.init(self.ctx), onStateChanged -> <k>.onStateChanged(self.ctx),
+// onDestroy -> <k>.destroy(self.ctx). onDataUpdated/onResize are no-ops: the widgets use no ThingsBoard
+// datasources (typeParameters: datasourcesOptional, maxDatasources 0) and fetch over REST themselves.
 const glue = (name, extra = '') => `
 self.onInit = function () { IMEX_DBB.${name}.init(self.ctx); };
 self.onDataUpdated = function () {};
@@ -42,6 +62,7 @@ console.log(`lib ${(lib.length / 1024).toFixed(1)} KB, gzip+b64 ${(gz.toString('
 // One importable widget type per widget (ThingsBoard: Widgets library > Widgets > + > Import widget).
 mkdirSync('widgets/dist/widget-types', { recursive: true });
 for (const k of Object.keys(out)) {
+  // Same descriptor shape as deploy-browser.js writes via POST /api/widgetType; keep the two in sync.
   const type = {
     fqn: `imex_dbb_${k}`,
     name: names[k],

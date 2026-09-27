@@ -1,5 +1,23 @@
 // Stand-in for the production listing page: scoped hierarchy tree + cards. Clicking a machine opens the
 // 'machine' dashboard state, where the renderer widget shows its resolved dashboard.
+//
+// ThingsBoard widget type: tenant.imex_dbb_listing ("iMEX Listing / Map page (stand-in)", 24x12). One
+// widget type, two modes (settings.mode): 'map' = Map page (dashboard state `default`), anything else =
+// Listing page (state `listing`) (D-018). Lifecycle, via the controller glue in widgets/build.mjs:
+// init(self.ctx) on onInit, onStateChanged(self.ctx) (listing mode reloads), destroy(self.ctx) on onDestroy.
+//
+// Settings (widgets/widget-types.mjs):
+//   mode            'map' or 'listing' (default)
+//   machineState    state opened for a machine (default 'machine'), with the device as state entity
+//   dashboardState  state for standalone dashboards (default 'dashboard'); '' hides the Dashboards section
+//   title, buttonLabel, listingState, siteProfile  map mode: page title, button text, listing state id,
+//                   asset profile of site nodes (default 'Site')
+//   customerId      customer to show when a tenant admin opens the app (D-018)
+//
+// Navigation is always tbCtx.stateController.openState(stateId, {entityId, entityName, entityLabel}, false).
+// The tree and cards only show nodes in the user's scope (`selectedNodes` + Contains descendants, D-011);
+// that is a UI filter, not a permission (D-012). Card data is polled over REST (latest telemetry, active
+// alarms) every 10 s in listing mode; map mode loads once. Reloads on CHANGED_EVENT (listing mode).
 import * as api from '../core/api';
 import * as scope from '../core/scope';
 import * as store from '../core/store';
@@ -72,7 +90,11 @@ const M_CSS = `
 .dbb-map .dbb-go-list{padding:10px 20px;font-size:14px;font-weight:600;border-radius:12px}
 `;
 
-/** Sites shown on the map page: assets of profile `siteProfile` (default 'Site'); otherwise the level below a single root. */
+/**
+ * Sites shown on the map page: assets of profile `siteProfile` (default 'Site', case-insensitive), sorted
+ * by label. Fallbacks when there are none: the asset children of a single root asset, else the root assets.
+ * Pure function (no REST).
+ */
 export function mapNodes(ctx: Pick<UserContext, 'nodes' | 'rootIds'>, siteProfile = 'Site'): Node[] {
   const sites = [...ctx.nodes.values()].filter((n) => n.entityType === 'ASSET' && n.profile.toLowerCase() === siteProfile.toLowerCase());
   if (sites.length) return sites.sort((a, b) => a.label.localeCompare(b.label));
@@ -81,7 +103,11 @@ export function mapNodes(ctx: Pick<UserContext, 'nodes' | 'rootIds'>, siteProfil
   return roots.filter((n) => n.entityType === 'ASSET');
 }
 
-/** Map page (settings.mode = 'map'): title, one card per site (click opens the listing for that site), and a button to the listing. */
+/**
+ * Map page (settings.mode = 'map'): title, one card per site (click opens the listing for that site), and a button to the listing.
+ * Per site card: machine count, running count, active alarm count. Costs several REST calls per device
+ * (latest runStatus, active alarms, timeseries keys + latest values); loaded once, no refresh timer.
+ */
 function initMap(tbCtx: any, host: HTMLElement) {
   ensureCss('dbb-css-list', L_CSS);
   ensureCss('dbb-css-map', M_CSS);
@@ -141,6 +167,14 @@ function initMap(tbCtx: any, host: HTMLElement) {
   })();
 }
 
+/**
+ * Widget onInit. Map mode delegates to initMap. Listing mode renders a searchable hierarchy tree on the
+ * left and cards for the children of the selected node (assets: machine/alarm/running summary; devices:
+ * up to 4 catalogue values, status and alarms), plus standalone dashboards when enabled.
+ *
+ * Side effects: injects CSS once; 10 s refresh timer (skipped while the tab is hidden); CHANGED_EVENT
+ * listener; `tbCtx.__dbbReload` / `tbCtx.__dbbCleanup` hooks. REST reads only.
+ */
 export function init(tbCtx: any) {
   ensureCss('dbb-css-core', CSS);
   const host: HTMLElement = tbCtx.$container[0];
@@ -159,6 +193,7 @@ export function init(tbCtx: any) {
     tbCtx.stateController.openState(tbCtx.settings?.machineState || 'machine', { entityId: { id: n.id, entityType: 'DEVICE' }, entityName: n.label, entityLabel: n.label }, false);
   const openDash = (id: string, name: string) => tbCtx.stateController.openState(tbCtx.settings?.dashboardState || 'dashboard', { dbbDashboardId: id, entityName: name }, false);
 
+  // Rebuilds the tree, filtered by the search box: a node stays if its label or any device below it matches.
   const drawTree = () => {
     const f = search.value.trim().toLowerCase();
     const rows: string[] = [];
@@ -190,6 +225,8 @@ export function init(tbCtx: any) {
     );
   };
 
+  // Machine card. Shows up to 4 catalogue keys (dbb_profile_keys) excluding status/hours keys.
+  // Offline = no fresh value among the shown keys + runStatus for 5 min.
   const deviceCard = async (d: Node): Promise<string> => {
     const metas = (ctx.profileKeys[d.profile] ?? []).filter((k) => !/status|hours/i.test(k.key)).slice(0, 4);
     const [lv, al] = await Promise.all([
@@ -208,6 +245,7 @@ export function init(tbCtx: any) {
       <div class="dbb-mc-f">${al.length ? `<span class="dbb-dot" style="background:${STATUS.critical}"></span><b style="color:${STATUS.critical}">${al.length} active alarm${al.length > 1 ? 's' : ''}</b>` : `<span class="dbb-dot" style="background:${STATUS.good}"></span>No active alarms`}${ts ? `<span style="margin-left:auto;color:var(--ink-3)">${agoTxt(ts)}</span>` : ''}</div></div>`;
   };
 
+  // Location card: counts over every device below the node (REST calls per device, as on the map page).
   const nodeCard = async (n: Node): Promise<string> => {
     const devs = scope.devicesUnder(ctx, n.id);
     const stats = await Promise.all(
@@ -230,6 +268,7 @@ export function init(tbCtx: any) {
       <div class="dbb-mc-f"><span>${pct}% running</span></div><div class="dbb-bar" style="--st:${STATUS.good}"><i style="width:${pct}%"></i></div></div>`;
   };
 
+  // Cards for the children of the selected node (or the roots when nothing is selected).
   const drawCards = async () => {
     const n = selected ? ctx.nodes.get(selected) : null;
     const children = n ? n.children.map((c) => ctx.nodes.get(c)!).filter(Boolean) : ctx.rootIds.map((r) => ctx.nodes.get(r)!).filter(Boolean);
@@ -260,6 +299,8 @@ export function init(tbCtx: any) {
     cardsEl.querySelectorAll<HTMLElement>('[data-dash]').forEach((c) => (c.onclick = () => openDash(c.dataset.dash!, c.dataset.name!)));
   };
 
+  // Selects the ASSET from the state entity (e.g. a site clicked on the map page) only when it changed,
+  // so a manual selection survives refreshes; defaults to the single root.
   const load = async (force = false) => {
     try {
       ctx = await userContext(tbCtx, force);
@@ -286,11 +327,13 @@ export function init(tbCtx: any) {
   void keyMeta;
 }
 
+/** Relative time label ("12s ago", "3 min ago", "2 h ago", "1 d ago"). */
 function agoTxt(ts: number): string {
   const s = Math.round((Date.now() - ts) / 1000);
   return s < 60 ? `${s}s ago` : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} d ago`;
 }
 
+/** Latest telemetry timestamp over up to 20 keys of the device; 0 when none or on error. */
 async function lastTs(deviceId: string): Promise<number> {
   const keys = await api.timeseriesKeys(deviceId).catch(() => [] as string[]);
   if (!keys.length) return 0;
@@ -298,10 +341,12 @@ async function lastTs(deviceId: string): Promise<number> {
   return Math.max(0, ...Object.values(l).map((v) => v?.ts ?? 0));
 }
 
+/** Widget onStateChanged: reloads the listing (no-op in map mode, which sets no reload hook). */
 export function onStateChanged(tbCtx: any) {
   (tbCtx as any).__dbbReload?.();
 }
 
+/** Widget onDestroy: stops the refresh timer and removes the CHANGED_EVENT listener (listing mode). */
 export function destroy(tbCtx: any) {
   (tbCtx as any).__dbbCleanup?.();
 }

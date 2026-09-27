@@ -1,3 +1,28 @@
+/**
+ * Stylesheet for the full-screen Dashboard Builder and the shared UI pieces it uses (modals,
+ * toasts, banners, form fields, rule / style / theme / rich-text editors, template gallery,
+ * palette, chat panel).
+ *
+ * How it is loaded: `BUILDER_CSS` is a plain string. It is injected into `document.head` ONCE
+ * per page via `ensureCss('dbb-css-builder', BUILDER_CSS)` (`render/theme.ts`), which skips the
+ * insert if a `<style id="dbb-css-builder">` already exists. Both `builder/builder.ts` (when the
+ * builder opens) and `entries/renderer.ts` (for the machine page's edit-menu dialogs) call it.
+ * Each ThingsBoard widget type embeds its own copy of the library, so whichever loads first wins;
+ * after changing this CSS, reload the page (not just the widget) to see the new version.
+ *
+ * Class-naming convention:
+ * - Every block class is prefixed `dbb-` ("dashboard builder") so nothing collides with
+ *   ThingsBoard / Angular Material styles, e.g. `.dbb-overlay`, `.dbb-field`, `.dbb-rule`.
+ * - Parts of a block use a short suffix: `.dbb-modal-h` / `-b` / `-f` (header / body / footer),
+ *   `.dbb-rte-bar`, `.dbb-rte-ed`.
+ * - State and size modifiers are short unprefixed classes that only appear combined with a
+ *   `dbb-` class: `.on`, `.sel`, `.sm`, `.half`, `.grow`, `.warn`, `.err`, `.primary`, `.danger`.
+ * - Colours come from CSS variables (`--accent`, `--line`, `--ink`, `--ink-2`, `--ink-3`,
+ *   `--surface`, `--plane`, `--danger`...) defined on `.dbb-root` in `render/theme.ts` and
+ *   overridden per dashboard theme by `applyTheme`. Prefer the variables over hard-coded colours.
+ * Grid-specific rules live next to the grid code (`GRID_CSS` in `render/grid.ts`); base card and
+ * page styles are `CSS` in `render/theme.ts`.
+ */
 export const BUILDER_CSS = `
 .dbb-overlay{position:fixed;inset:0;z-index:10000;background:#f4f5f7;display:flex;flex-direction:column}
 .dbb-top{display:flex;align-items:flex-end;gap:10px;padding:10px 14px;background:#fff;border-bottom:1px solid var(--line);flex-wrap:wrap;box-shadow:0 1px 3px rgba(16,24,40,.05);position:relative;z-index:3}

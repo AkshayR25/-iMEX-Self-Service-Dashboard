@@ -1,13 +1,41 @@
-// User context: who is logged in, their role, and the hierarchy they may see.
-// Scope comes from the user's server attribute `selectedNodes` (same shape as the production app):
-//   [{"ID":"UCA Systems_WM_...","categoryId":"...","name":"Miscellaneous","entityId":"<uuid>"}]
-// entityId may also be {id, entityType}. Role comes from the `Role` attribute ("Admin" => admin).
+// core/scope.ts — the user context: who is logged in, their role, the hierarchy they may see, the
+// customer's DashboardStore asset and the property catalogue (DECISIONS D-011, D-018).
 //
-// NOTE: in ThingsBoard CE this scope is enforced by the UI only (see DECISIONS.md D-011).
+// Main exports:
+//   loadUserContext()   builds a UserContext (all network I/O of this module happens here)
+//   parseSelectedNodes  tolerant parser for the `selectedNodes` user attribute
+//   inScope / devicesUnder / allDevices / ancestors / pathLabel / siblings / nearest / nodesContaining
+//                       pure queries over the loaded tree (no network)
+// Called by: entries/common.ts `userContext()` (which caches ONE context per page for 5 minutes,
+// or until forced), then passed to everything in core/store.ts, core/chat.ts, the builder and the
+// renderer. This module itself does not cache.
+//
+// How the context is built:
+//   1. GET /api/auth/user, then the user's SERVER_SCOPE attributes.
+//   2. Scope = attribute `selectedNodes` (same shape as the production app):
+//        [{"ID":"UCA Systems_WM_...","categoryId":"...","name":"Miscellaneous","entityId":"<uuid>"}]
+//      `entityId` may also be {id, entityType}; entries without an id are matched by name/label
+//      among the customer's assets.
+//   3. Role = attribute `Role` (or `role`). 'Admin', 'Customer Admin', 'Administrator' or the
+//      attribute `dbbAdmin = true` make the user an admin (may apply to many machines; D-011, D-017).
+//   4. Tenant-admin mode (D-018): a TENANT_ADMIN has no customer and no selectedNodes. The widget
+//      setting `customerId` picks the customer; its top-level assets (no parent asset, excluding the
+//      store) become the scope roots, and the user is an admin.
+//   5. Tree = the roots plus everything below them via `Contains` relations (assets and devices),
+//      loaded breadth-first; then names/labels/profiles via bulk lookups.
+//   6. `rootsAreTop` = every root has no parent asset, i.e. the user sees the whole organisation
+//      (required for customer-wide assignments).
+//   7. Store = first asset of type `DashboardStore` assigned to the customer; its attribute
+//      `dbb_profile_keys` ({ [profile]: KeyMeta[] }) is the property catalogue for the builder and chat.
+//   Problems are collected in `warnings` (shown by the UI) instead of throwing, where possible.
+//
+// SECURITY: in ThingsBoard CE this scope and the admin flag are enforced by the UI only (D-011,
+// D-012). A customer user can read every device of their customer through the REST API.
 
 import * as api from './api';
 import type { KeyMeta } from './types';
 
+/** One entity of the user's visible hierarchy (asset = location/site/line, device = machine). */
 export interface Node {
   id: string;
   entityType: 'ASSET' | 'DEVICE';
@@ -18,31 +46,51 @@ export interface Node {
   children: string[];
 }
 
+/**
+ * Everything the widgets need to know about the current user. Built by `loadUserContext()`,
+ * treated as read-only afterwards (reload to pick up attribute or hierarchy changes).
+ */
 export interface UserContext {
+  /** ThingsBoard user id (key for `dbb_personal` and `dbb_chat_resp_<userId>`). */
   userId: string;
+  /** Customer id; for a tenant admin, the widget setting `customerId` ('' when unset). */
   customerId: string;
   email: string;
   displayName: string;
+  /** Raw `Role` attribute (tenant admins without one get 'Admin', others 'Viewer'). */
   role: string;
+  /** Admin rights in the builder (UI-only, D-012). */
   isAdmin: boolean;
+  /** Scope roots (resolved `selectedNodes`). */
   rootIds: string[];
   /** True when every scope root is a top of the real hierarchy (no parent asset): the user sees the whole organisation. */
   rootsAreTop: boolean;
+  /** Every node in scope by id: the roots and all their `Contains` descendants. */
   nodes: Map<string, Node>;
+  /** The customer's DashboardStore asset; null = saving and chat are unavailable. */
   store: api.EntityRef | null;
+  /** Property catalogue per machine type, from the store attribute `dbb_profile_keys`. */
   profileKeys: Record<string, KeyMeta[]>;
+  /** Setup problems to show the user (missing store, empty scope, unresolved nodes...). */
   warnings: string[];
 }
 
+/** `Role` values (lower-cased) that grant admin rights (D-011). */
 export const ADMIN_ROLES = new Set(['admin', 'customer admin', 'administrator']);
 
+/** One parsed `selectedNodes` entry; `entityId` is null until resolved by name. */
 export interface SelectedNode {
   entityId: string | null;
   entityType: string;
   name: string;
 }
 
-/** Tolerant parser for the production `selectedNodes` attribute. */
+/**
+ * Tolerant parser for the production `selectedNodes` attribute.
+ * Accepts a JSON string or value, an array or a single object. Id from `entityId` / `entityID` /
+ * `id` (string or `{id, entityType}`); type defaults to ASSET; name from `name`, else `ID`.
+ * Non-object entries are skipped. Never throws.
+ */
 export function parseSelectedNodes(raw: unknown): SelectedNode[] {
   const v = api.parseMaybeJson(raw);
   const arr = Array.isArray(v) ? v : v ? [v] : [];
@@ -63,15 +111,27 @@ export function parseSelectedNodes(raw: unknown): SelectedNode[] {
   return out;
 }
 
+/** Options for `loadUserContext`. */
 export interface LoadOptions {
   /** Customer to show when a TENANT ADMIN opens the app (widget setting `customerId`). */
   tenantCustomerId?: string | null;
 }
 
+/**
+ * Builds the UserContext for the logged-in user (see the file header for the steps).
+ * Reads: /api/auth/user; user SERVER attributes (`Role`, `selectedNodes`, `dbbAdmin`, names);
+ * the customer's assets (only for tenant-admin mode or name resolution); `Contains` relations and
+ * the entities below the roots; the DashboardStore asset and its `dbb_profile_keys`. Writes nothing.
+ * Cost: one relations call per asset in scope, so large trees take a few seconds on a slow server;
+ * callers cache the result (entries/common.ts).
+ * @throws when /api/auth/user, the customer asset list (name resolution) or the bulk
+ *         asset/device lookup fails; other problems become `warnings` or are skipped.
+ */
 export async function loadUserContext(opts: LoadOptions = {}): Promise<UserContext> {
   const me = await api.get<any>('/api/auth/user');
   const userRef = { id: me.id.id, entityType: 'USER' };
   const attrs = await api.getAttrs(userRef).catch(() => ({}) as Record<string, any>);
+  // no Role attribute: tenant admins default to Admin, everyone else to Viewer
   const role = String(attrs.Role ?? attrs.role ?? (me.authority === 'TENANT_ADMIN' ? 'Admin' : 'Viewer'));
   const warnings: string[] = [];
   const ctx: UserContext = {
@@ -97,6 +157,7 @@ export async function loadUserContext(opts: LoadOptions = {}): Promise<UserConte
     if (!ctx.customerId) warnings.push('Opened as tenant admin: set the widget setting "customerId" to choose which customer to show.');
     else if (!selected.length) {
       const assets = await api.get<any>(`/api/customer/${ctx.customerId}/assets?pageSize=1000&page=0`).catch(() => ({ data: [] }));
+      // top-level = no parent ASSET via Contains (at most 1000 customer assets are considered)
       const candidates = (assets.data as any[]).filter((a) => a.type !== 'DashboardStore');
       const tops = await Promise.all(
         candidates.map(async (a) => ((await api.parentsOf({ id: a.id.id, entityType: 'ASSET' }).catch(() => [])).some((p) => p.from.entityType === 'ASSET') ? null : a)),
@@ -134,6 +195,12 @@ export async function loadUserContext(opts: LoadOptions = {}): Promise<UserConte
   return ctx;
 }
 
+/**
+ * Loads the hierarchy below `roots` into `ctx.nodes` / `ctx.rootIds`.
+ * Breadth-first over `Contains` relations (one level per round, calls in parallel); `seen` guards
+ * against cycles and nodes reachable twice (first parent wins). Devices are leaves. Relations to
+ * other entity types are ignored, and children that could not be loaded are dropped at the end.
+ */
 async function buildTree(ctx: UserContext, roots: { entityId: string; entityType: string }[]) {
   const queue: { id: string; entityType: string; parentId: string | null }[] = roots.map((r) => ({
     id: r.entityId,
@@ -195,11 +262,14 @@ async function buildTree(ctx: UserContext, roots: { entityId: string; entityType
 }
 
 // ---------- tree queries (pure) ----------
+// All work on the already-loaded `ctx.nodes` only, i.e. within the user's scope.
 
+/** True when the entity is in the user's scope (UI-level check only, D-012). */
 export function inScope(ctx: Pick<UserContext, 'nodes'>, id: string) {
   return ctx.nodes.has(id);
 }
 
+/** Devices at or below `nodeId` (a device id returns itself), optionally only of `profile`. */
 export function devicesUnder(ctx: Pick<UserContext, 'nodes'>, nodeId: string, profile?: string): Node[] {
   const out: Node[] = [];
   const walk = (id: string) => {
@@ -215,10 +285,12 @@ export function devicesUnder(ctx: Pick<UserContext, 'nodes'>, nodeId: string, pr
   return out;
 }
 
+/** Every device in scope, optionally only of `profile`. */
 export function allDevices(ctx: Pick<UserContext, 'nodes'>, profile?: string): Node[] {
   return [...ctx.nodes.values()].filter((n) => n.entityType === 'DEVICE' && (!profile || n.profile === profile));
 }
 
+/** Parents of a node within scope, nearest first (stops at the scope root; cycle-safe). */
 export function ancestors(ctx: Pick<UserContext, 'nodes'>, id: string): Node[] {
   const out: Node[] = [];
   let cur = ctx.nodes.get(id)?.parentId ?? null;
@@ -233,12 +305,14 @@ export function ancestors(ctx: Pick<UserContext, 'nodes'>, id: string): Node[] {
   return out;
 }
 
+/** Breadcrumb label "Root › Site › Machine" within scope; '' for unknown ids. */
 export function pathLabel(ctx: Pick<UserContext, 'nodes'>, id: string): string {
   const n = ctx.nodes.get(id);
   if (!n) return '';
   return [...ancestors(ctx, id).reverse().map((a) => a.label), n.label].join(' › ');
 }
 
+/** Devices of `profile` with the same parent as `deviceId` (includes the device itself when it matches); [] for a root. */
 export function siblings(ctx: Pick<UserContext, 'nodes'>, deviceId: string, profile: string): Node[] {
   const p = ctx.nodes.get(deviceId)?.parentId;
   if (!p) return [];
@@ -247,7 +321,10 @@ export function siblings(ctx: Pick<UserContext, 'nodes'>, deviceId: string, prof
     .filter((n) => n && n.entityType === 'DEVICE' && n.profile === profile);
 }
 
-/** Closest device of `profile` walking up from the device (checking each ancestor's subtree, nearest first). */
+/**
+ * Closest other device of `profile` walking up from the device (checking each ancestor's subtree,
+ * nearest first), e.g. the site weather station. Excludes the device itself; null when none in scope.
+ */
 export function nearest(ctx: Pick<UserContext, 'nodes'>, deviceId: string, profile: string): Node | null {
   for (const a of ancestors(ctx, deviceId)) {
     const hits = devicesUnder(ctx, a.id, profile).filter((d) => d.id !== deviceId);

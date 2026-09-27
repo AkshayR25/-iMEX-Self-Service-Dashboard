@@ -2,6 +2,29 @@
 // the Dashboard Builder and, on the machine page, edit / customise / reset / thresholds / switch
 // dashboard (published by the renderer widget, see common.ts). The page itself shows no edit controls
 // (user decision 27 Sep 2026). Also exposes window.IMEX_DBB.open() for an existing custom header widget.
+//
+// ThingsBoard widget type: tenant.imex_dbb_launcher ("iMEX Navbar / edit menu", 6x1). Lifecycle, via the
+// controller glue generated in widgets/build.mjs: init(self.ctx) on onInit, onStateChanged(self.ctx),
+// destroy(self.ctx) on onDestroy.
+//
+// Settings (widgets/widget-types.mjs):
+//   label            tooltip / aria-label of the edit icon
+//   adminOnly        show the icon to admins only (default true; D-017). `false` shows it to everyone.
+//   hideForRoles     comma-separated roles that never see the icon
+//   navbar           true = full stand-in navbar (app name, Map/Listing links, state chip, breadcrumb,
+//                    user avatar); false = only the icon (to drop into an existing header)
+//   appName, homeState/homeLabel, listingState/listingLabel, machineState/machineLabel, stateTitles
+//                    navbar texts and the dashboard state ids its links open
+//   lightStyle       light icon button for light headers (icon-only mode)
+//   chatEnabled, chatEnabledRoles  enable the builder's Chat tab, optionally only for some roles
+//   customerId       customer to show when a tenant admin opens the app (D-018)
+//
+// Edit menu (D-020): the items come from the renderer widget via window.__imexDbbActions / ACTIONS_EVENT
+// (see common.ts), because the renderer runs in another copy of the library. The launcher only adds
+// "Dashboard Builder". The menu is appended to <body> so the navbar cell does not clip it.
+//
+// Admin checks here (icon visibility, open()) are UI-only; a customer user can still write attributes
+// through the REST API (D-012).
 import { openBuilder } from '../builder/builder';
 import { CSS, ensureCss, esc } from '../render/theme';
 import { userContext, stateEntity, notifyChanged, currentState, currentActions, ACTIONS_EVENT, EditAction } from './common';
@@ -64,6 +87,7 @@ const BTN_CSS = `
 .dbb-launch button.dbb-edit-ic[aria-expanded="true"]{background:#fff;color:#123a7a}
 `;
 
+/** Splits a comma-separated role list into trimmed, lower-cased names (empty string -> []). */
 function roleList(s: string | undefined): string[] {
   return (s ?? '')
     .split(',')
@@ -71,6 +95,18 @@ function roleList(s: string | undefined): string[] {
     .filter(Boolean);
 }
 
+/**
+ * Opens the full-screen Dashboard Builder. Also reachable as `window.IMEX_DBB.open(opts)` once init ran.
+ *
+ * Reloads the user context (force) so role changes apply immediately. The machine preselected in the
+ * builder is `opts.deviceId`, else the current state's entity if it is a DEVICE.
+ * When the builder closes with changes, fires CHANGED_EVENT so renderer and listing reload.
+ *
+ * @param tbCtx ThingsBoard widget context of the launcher (its settings drive adminOnly/chat).
+ * @param opts.deviceId Machine to open; `opts.dashboardId` a stored dashboard to open directly.
+ * @throws Error('Only admins can build dashboards.') when adminOnly is on and the user isn't an admin
+ *   (UI-only check, D-012), or when the user context can't be loaded.
+ */
 export async function open(tbCtx: any, opts: { deviceId?: string | null; dashboardId?: string | null } = {}) {
   const ctx = await userContext(tbCtx, true);
   const settings = tbCtx?.settings ?? {};
@@ -88,6 +124,14 @@ export async function open(tbCtx: any, opts: { deviceId?: string | null; dashboa
   });
 }
 
+/**
+ * Widget onInit: renders the navbar or the bare edit icon into `tbCtx.$container`, wires the edit menu
+ * and registers `window.IMEX_DBB.open`.
+ *
+ * Side effects: injects CSS once per page; in navbar mode starts a 500 ms interval that watches the
+ * dashboard state (stored on `tbCtx.__dbbWatch`); listens to ACTIONS_EVENT; overwrites
+ * `window.IMEX_DBB` (the last launcher initialised wins). Cleanup is in destroy().
+ */
 export function init(tbCtx: any) {
   ensureCss('dbb-css-core', CSS);
   ensureCss('dbb-css-launch', BTN_CSS);
@@ -105,6 +149,7 @@ export function init(tbCtx: any) {
       (b) =>
         (b.onclick = () => {
           try {
+            // Switch state within this ThingsBoard dashboard (3rd arg: openRightLayout = false).
             tbCtx.stateController.openState(b.dataset.go!, {}, false);
           } catch {
             /* ignore */
@@ -125,6 +170,7 @@ export function init(tbCtx: any) {
       stateEl.textContent = stateTitles[id] ?? id;
       host.querySelectorAll<HTMLElement>('[data-go]').forEach((b) => b.classList.toggle('on', b.dataset.go === id));
     };
+    // Repaints the state chip plus the user block and breadcrumb (breadcrumb only for entities in scope).
     const paint = () => {
       paintState();
       void userContext(tbCtx)
@@ -169,6 +215,7 @@ export function init(tbCtx: any) {
       else btn.remove();
     })
     .catch(() => btn.remove());
+  // Errors (e.g. non-admin) are shown as a temporary toast at the top of the page.
   const openBuilderFromMenu = async () => {
     btn.disabled = true;
     try {
@@ -187,6 +234,7 @@ export function init(tbCtx: any) {
     document.removeEventListener('mousedown', onDoc, true);
     document.removeEventListener('keydown', onKey, true);
   };
+  // Close on outside click; Escape closes, arrow keys move focus between items.
   const onDoc = (e: MouseEvent) => {
     if (menu && !menu.contains(e.target as Node) && !btn.contains(e.target as Node)) closeMenu();
   };
@@ -204,6 +252,8 @@ export function init(tbCtx: any) {
   };
   const item = (a: Pick<EditAction, 'id' | 'label' | 'hint' | 'danger' | 'checked'> & { icon?: string }) =>
     `<button role="menuitem" data-m="${esc(a.id)}" class="${a.danger ? 'danger' : ''}">${svg(MENU_ICONS[a.icon ?? 'edit'] ?? MENU_ICONS.edit)}<span class="t"><span>${esc(a.label)}</span>${a.hint ? `<small title="${esc(a.hint)}">${esc(a.hint)}</small>` : ''}</span>${a.checked ? `<span class="ck">${svg(MENU_ICONS.check)}</span>` : ''}</button>`;
+  // Builds the menu from the renderer's published actions (if any) plus the fixed "Dashboard Builder"
+  // item, positions it under the icon (clamped to the viewport) and focuses the first item.
   const openMenu = () => {
     const acts = currentActions();
     const main = acts?.items.filter((x) => x.group !== 'switch') ?? [];
@@ -250,6 +300,7 @@ export function init(tbCtx: any) {
   (window as any).IMEX_DBB = { open: (o?: any) => open(tbCtx, o) };
 }
 
+/** Shows `msg` as a red toast at the top of the page for 6 s (appended to <body>). */
 function alertInline(host: HTMLElement, msg: string) {
   const d = document.createElement('div');
   d.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);background:#8e2222;color:#fff;padding:8px 14px;border-radius:8px;z-index:10001;font:13px Roboto,Arial';
@@ -259,10 +310,12 @@ function alertInline(host: HTMLElement, msg: string) {
   void host;
 }
 
+/** Widget onStateChanged: repaints the navbar (no-op in icon-only mode). The 500 ms watch covers missed calls. */
 export function onStateChanged(tbCtx: any) {
   (tbCtx as any).__dbbPaint?.();
 }
 
+/** Widget onDestroy: stops the state watch, closes the menu and removes the ACTIONS_EVENT listener. */
 export function destroy(tbCtx?: any) {
   clearInterval(tbCtx?.__dbbWatch);
   tbCtx?.__dbbMenuCleanup?.();
