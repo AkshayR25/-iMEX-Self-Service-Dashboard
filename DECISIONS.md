@@ -137,6 +137,19 @@ If a non-admin edits a dashboard that is linked to more than one machine, or tha
 - The navbar shows the current state's name. The navbar widget isn't notified of state changes, so it reads the `state` URL parameter every 500 ms.
 - Tenant-admin mode: when a tenant admin opens the dashboard, the widgets use the `customerId` setting and treat the customer's top-level assets as roots, with `isAdmin = true`. This lets the owner view and edit without a customer login. It is UI-only, like D-012.
 
+### D-019 Richer UI, rules, rich text, themes and templates, 27 Sep 2026 (user request)
+- **Widgets (19 types):** value, KPI (sparkline + % change), gauge (rule zones), progress/tank, status pill, multi-value, summary (min/avg/max/now), line, area (stackable, smooth), bar (per hour/day or by machine), donut (time-in-state or share by machine), state timeline, heatmap (hour x day), table (rule-coloured cells), alarms, and the content widgets text, image, link/button and embed. Content widgets need no data source. Max 40 per dashboard.
+- **Value-based colours ("colour rules"):** per widget, first match wins, optionally scoped to one key. The editor switches on the property type: numbers get >, >=, <, <=, between, =, != with a value box; on/off properties get an "is on / is off" dropdown; text gets equals/contains. Presets: traffic light, running/stopped. Rules can colour the card background + accent bar, the accent only, the value or the icon; they draw gauge zones and chart threshold lines, and colour table cells and status pills. Legacy bands/statusMap are converted automatically.
+- **Rich text:** WYSIWYG editor (bold, italic, underline, strike, headings, lists, quote, link, font, size, colour, highlight, alignment) plus `{{key}}` placeholders filled with live values. Output is sanitised with a whitelist (tags, style properties, http(s)/mailto links only) both in the editor and when saved, including chat-generated settings.
+- **Per-widget style:** icon (24), title font/size/weight/colour/alignment or hidden, card background or gradient, border, accent bar, radius, shadow, padding, value font/size/colour, description tooltip (ⓘ) and footer. "Copy style to all" and Reset.
+- **Dashboard themes:** presets light, dark, slate, ocean, sand; accent, font (6 Google Fonts), background colour or https image, card colour, radius, shadow, density, title alignment. Stored in `Dashboard.theme` (optional, so old saves still load).
+- **Templates gallery:** Machine overview, Energy, Alarms & health, Compare machines, Executive (dark). Templates pick keys from the machine's actual properties.
+- **Builder:** grouped searchable palette, duplicate/delete on the selected card, Settings / Style / Colours / Chat tabs, Dashboard tab (theme) when nothing is selected.
+- **Pages restyled:** gradient navbar with state chip and avatar, hero + stat tiles on the Map page, cards with status stripe on the Listing page.
+- Link widgets can open another app page (Map/Listing/Machine) or a website; they're inert while editing.
+- Image upload is capped at 150 KB and stored inline; large images should use an https address.
+- Line/area charts break the line only when the gap is more than max(3x the median sample step, 15 min).
+
 ## ThingsBoard quirks found
 
 - `GET /api/plugins/telemetry/.../values/timeseries` returns **at most 100 points** when `limit` is omitted and `agg` is NONE. The service must always pass `limit` (checked: 2,016 stored, 100 returned without a limit).

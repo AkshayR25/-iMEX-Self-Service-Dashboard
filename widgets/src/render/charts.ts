@@ -194,10 +194,10 @@ export function lineChart(host: HTMLElement, series: Series[], opts: LineOpts) {
     const pts = s.points;
     const steps = pts.slice(1).map((p, k) => p.ts - pts[k].ts).sort((a, b) => a - b);
     const med = steps[Math.floor(steps.length / 2)] || 0;
-    // split on gaps > 3x median step so offline periods are visible
+    // split on gaps > max(3x median step, 15 min) so offline periods are visible
     const runs: { ts: number; value: number }[][] = [];
     pts.forEach((p, k) => {
-      const gap = k > 0 && med > 0 && !base && p.ts - pts[k - 1].ts > med * 3;
+      const gap = k > 0 && med > 0 && !base && p.ts - pts[k - 1].ts > Math.max(med * 3, 15 * 60e3);
       if (!runs.length || gap) runs.push([]);
       runs[runs.length - 1].push(p);
     });
