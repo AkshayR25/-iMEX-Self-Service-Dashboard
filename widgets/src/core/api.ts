@@ -23,6 +23,11 @@
 //   alarms                        alarm list of an entity (/api/v2/alarm); 15 s cache while live
 //   childrenOf / parentsOf        relations (default type `Contains`, the hierarchy relation)
 //   devicesByIds / assetsByIds    bulk entity lookup (chunks of 100 ids)
+//   relationsTree                 every Contains relation below / above an entity in ONE call (D-022)
+//   entityData                    names, labels, profiles, SERVER attributes and latest telemetry of many
+//                                 entities in ONE call (Entity Data Query, D-022)
+//   latestMany                    latest values of many devices: live cache, else one entityData call (D-022)
+//   activeAlarmCounts             active alarm count per device in ONE call (Alarm Data Query, D-022)
 //   timeseriesKeys                telemetry keys a device has ever reported
 //
 // ThingsBoard endpoints used:
@@ -34,6 +39,9 @@
 //   GET  /api/v2/alarm/{type}/{id}
 //   GET  /api/relations/info?fromId=|toId=&relationTypeGroup=COMMON
 //   GET  /api/devices?deviceIds=, /api/assets?assetIds=
+//   POST /api/relations                                                 (EntityRelationsQuery, whole subtree)
+//   POST /api/entitiesQuery/find                                        (Entity Data Query)
+//   POST /api/alarmsQuery/find                                          (Alarm Data Query)
 //   GET  /api/auth/user (refresh hook; also used by core/scope.ts)
 //
 // ThingsBoard quirks to keep in mind when changing this file (see DECISIONS "ThingsBoard quirks"):
@@ -191,7 +199,8 @@ export async function latest(deviceId: string, keys: string[]): Promise<Latest> 
   const L = liveHub();
   if (L) {
     L.want(deviceId, keys);
-    const c = L.get(deviceId, keys);
+    // cold page: give the socket a moment (it is usually ready in a few hundred ms) instead of a REST call
+    const c = L.get(deviceId, keys) ?? ((await L.waitReady(deviceId, keys, LIVE_WAIT_MS)) ? L.get(deviceId, keys) : null);
     if (c) return c as Latest;
   }
   const r = await get<Record<string, { ts: number; value: string }[]>>(
@@ -204,6 +213,12 @@ export async function latest(deviceId: string, keys: string[]): Promise<Latest> 
   }
   return out;
 }
+
+/**
+ * How long `latest()` / `latestMany()` wait for a WebSocket subscription that is still being set up before
+ * falling back to REST (D-022). Short enough that a slow socket costs little; long enough for the usual case.
+ */
+export const LIVE_WAIT_MS = 1500;
 
 /** ThingsBoard aggregation function for `series()`. */
 export type Agg = 'NONE' | 'AVG' | 'MIN' | 'MAX' | 'SUM';
@@ -408,4 +423,137 @@ export async function assetsByIds(ids: string[]): Promise<any[]> {
 /** Every telemetry key the device has stored (used to warn about missing properties before an apply). */
 export async function timeseriesKeys(deviceId: string): Promise<string[]> {
   return (await get<string[]>(`/api/plugins/telemetry/DEVICE/${deviceId}/keys/timeseries`)) ?? [];
+}
+
+// ---------- bulk queries (D-022) ----------
+// One call each instead of one call per entity. They are what keeps the first page load at a fixed number
+// of calls however big the customer's hierarchy is.
+
+/** Plain relation row from POST /api/relations (no names). */
+export interface Rel {
+  from: EntityRef;
+  to: EntityRef;
+  type: string;
+}
+
+/**
+ * Every `relationType` relation below (`direction` FROM) or above (TO) `root`, over up to `maxLevel` levels,
+ * in ONE call (POST /api/relations, EntityRelationsQuery). For FROM, `entityTypes` filters the child side;
+ * for TO, the parent side. ThingsBoard drops relations to entities the user may not read.
+ */
+export function relationsTree(root: EntityRef, direction: 'FROM' | 'TO', entityTypes: string[], maxLevel = 12, relationType = 'Contains'): Promise<Rel[]> {
+  return post<Rel[]>('/api/relations', {
+    parameters: { rootId: root.id, rootType: root.entityType, direction, relationTypeGroup: 'COMMON', maxLevel, fetchLastLevelOnly: false },
+    filters: [{ relationType, entityTypes }],
+  }).then((r) => r ?? []);
+}
+
+/** One entity from `entityData()`: entity fields (name, label, type...), SERVER attributes and latest telemetry. */
+export interface EntityRow {
+  id: string;
+  entityType: string;
+  fields: Record<string, string>;
+  /** SERVER_SCOPE attributes; a key the entity doesn't have is absent. JSON values are parsed. */
+  attrs: Record<string, any>;
+  /** Latest telemetry; a key without a value is absent (same shape as `latest()`). */
+  ts: Latest;
+}
+
+/**
+ * Entity fields, SERVER attributes and latest telemetry of many entities of one type in ONE call per 500 ids
+ * (POST /api/entitiesQuery/find, entityList filter). Unknown or unreadable ids are left out by ThingsBoard.
+ * Customer users get only their customer's entities, the same as the single-entity endpoints.
+ */
+export async function entityData(
+  entityType: 'ASSET' | 'DEVICE',
+  ids: string[],
+  opts: { fields?: string[]; attrs?: string[]; ts?: string[] } = {},
+): Promise<EntityRow[]> {
+  const out: EntityRow[] = [];
+  const fields = opts.fields ?? ['name', 'label', 'type'];
+  for (let i = 0; i < ids.length; i += 500) {
+    const chunk = ids.slice(i, i + 500);
+    const r = await post<any>('/api/entitiesQuery/find', {
+      entityFilter: { type: 'entityList', entityType, entityList: chunk },
+      pageLink: { page: 0, pageSize: chunk.length },
+      entityFields: fields.map((key) => ({ type: 'ENTITY_FIELD', key })),
+      latestValues: [...(opts.attrs ?? []).map((key) => ({ type: 'SERVER_ATTRIBUTE', key })), ...(opts.ts ?? []).map((key) => ({ type: 'TIME_SERIES', key }))],
+    });
+    for (const d of r?.data ?? []) {
+      const l = d.latest ?? {};
+      const row: EntityRow = { id: d.entityId.id, entityType: d.entityId.entityType, fields: {}, attrs: {}, ts: {} };
+      for (const [k, v] of Object.entries<any>(l.ENTITY_FIELD ?? {})) row.fields[k] = v?.value ?? '';
+      // missing values come back as {ts: 0, value: ""}
+      for (const [k, v] of Object.entries<any>(l.SERVER_ATTRIBUTE ?? {})) if (v && v.ts > 0) row.attrs[k] = parseMaybeJson(v.value);
+      for (const [k, v] of Object.entries<any>(l.TIME_SERIES ?? {}))
+        if (v && v.ts > 0 && v.value !== null && v.value !== undefined && String(v.value) !== '') row.ts[k] = { ts: v.ts, value: toNum(v.value) };
+      out.push(row);
+    }
+  }
+  return out;
+}
+
+/**
+ * Latest values of many devices (keys per device). Devices already live on the WebSocket are served from the
+ * live cache; the rest come from ONE entityData call for the union of their keys. Every device is also
+ * subscribed, so later redraws are served live. Errors give empty results for the affected devices.
+ */
+export async function latestMany(req: { deviceId: string; keys: string[] }[]): Promise<Map<string, Latest>> {
+  const out = new Map<string, Latest>();
+  const L = liveHub();
+  let todo = req.filter((r) => r.keys.length);
+  if (L) {
+    for (const r of todo) L.want(r.deviceId, r.keys);
+    const take = () =>
+      (todo = todo.filter((r) => {
+        const c = L.get(r.deviceId, r.keys);
+        if (c) out.set(r.deviceId, c as Latest);
+        return !c;
+      }));
+    take();
+    // a cold page subscribes everything at once; give the socket the same short grace as latest()
+    if (todo.length && (await L.waitReady(todo[0].deviceId, todo[0].keys, LIVE_WAIT_MS))) take();
+  }
+  if (todo.length) {
+    const keys = [...new Set(todo.flatMap((r) => r.keys))];
+    const rows = await entityData('DEVICE', [...new Set(todo.map((r) => r.deviceId))], { fields: [], ts: keys }).catch(() => [] as EntityRow[]);
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    for (const r of todo) {
+      const ts = byId.get(r.deviceId)?.ts ?? {};
+      out.set(r.deviceId, Object.fromEntries(r.keys.filter((k) => ts[k]).map((k) => [k, ts[k]])));
+    }
+  }
+  for (const r of req) if (!out.has(r.deviceId)) out.set(r.deviceId, {});
+  return out;
+}
+
+/**
+ * Number of ACTIVE alarms per device (devices without alarms are absent) in ONE call
+ * (POST /api/alarmsQuery/find, entityList filter; counts the first 1000 alarms). Re-read at most every 15 s
+ * while the socket is live, like `alarms()`.
+ */
+export async function activeAlarmCounts(deviceIds: string[]): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (!deviceIds.length) return out;
+  const ids = [...new Set(deviceIds)].sort();
+  const key = `ac|${ids.join(',')}`;
+  const L = liveHub();
+  const hit = getCache.get(key);
+  let data: any;
+  if (L?.isLive() && hit && Date.now() - hit.fetchedAt < 15e3) data = hit.data;
+  else {
+    data = await post<any>('/api/alarmsQuery/find', {
+      entityFilter: { type: 'entityList', entityType: 'DEVICE', entityList: ids },
+      pageLink: { page: 0, pageSize: 1000, statusList: ['ACTIVE'], sortOrder: { key: { type: 'ALARM_FIELD', key: 'createdTime' }, direction: 'DESC' } },
+      alarmFields: [{ type: 'ALARM_FIELD', key: 'type' }],
+      entityFields: [],
+      latestValues: [],
+    });
+    if (L) cachePut(getCache, key, { fetchedAt: Date.now(), data });
+  }
+  for (const a of data?.data ?? []) {
+    const id = a.originator?.id ?? a.entityId?.id;
+    if (id) out.set(id, (out.get(id) ?? 0) + 1);
+  }
+  return out;
 }

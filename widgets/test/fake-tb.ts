@@ -13,6 +13,8 @@ export class FakeTB {
   relations: { from: string; to: string }[] = [];
   telemetry = new Map<string, Record<string, { ts: number; value: any }[]>>();
   calls: string[] = [];
+  /** Active alarms for /api/alarmsQuery/find. */
+  alarms: { originator: string; type: string }[] = [];
   me = { id: { id: 'u1' }, customerId: { id: 'c1' }, email: 'admin@x', authority: 'CUSTOMER_USER', firstName: 'Asha', lastName: 'Admin' };
   failNext: { match: RegExp; status: number } | null = null;
 
@@ -115,6 +117,55 @@ export class FakeTB {
       return resp(200, { data, hasNext: false });
     }
     if (/^\/api\/v2\/alarm\//.test(p)) return resp(200, { data: [], hasNext: false });
+    if (p === '/api/relations' && method === 'POST') {
+      // EntityRelationsQuery: all levels (up to maxLevel) in one direction
+      const { rootId, direction, maxLevel } = body.parameters;
+      const types: string[] = body.filters?.[0]?.entityTypes ?? [];
+      const out: any[] = [];
+      let frontier = [rootId];
+      const seen = new Set([rootId]);
+      for (let lvl = 0; lvl < (maxLevel || 50) && frontier.length; lvl++) {
+        const next: string[] = [];
+        for (const id of frontier)
+          for (const r of this.relations.filter((x) => (direction === 'FROM' ? x.from === id : x.to === id))) {
+            const other = direction === 'FROM' ? r.to : r.from;
+            const e = this.entities.get(other);
+            if (!e || (types.length && !types.includes(e.entityType))) continue;
+            out.push({ from: { id: r.from, entityType: this.entities.get(r.from)!.entityType }, to: { id: r.to, entityType: this.entities.get(r.to)!.entityType }, type: 'Contains', typeGroup: 'COMMON' });
+            if (!seen.has(other)) {
+              seen.add(other);
+              next.push(other);
+            }
+          }
+        frontier = next;
+      }
+      return resp(200, out);
+    }
+    if (p === '/api/entitiesQuery/find' && method === 'POST') {
+      const f = body.entityFilter;
+      const rows = (f.entityList as string[])
+        .map((id) => this.entities.get(id))
+        .filter((e) => e && e.entityType === f.entityType)
+        .map((e) => {
+          const latest: any = { ENTITY_FIELD: {}, SERVER_ATTRIBUTE: {}, TIME_SERIES: {} };
+          for (const x of body.entityFields ?? []) latest.ENTITY_FIELD[x.key] = { ts: 1, value: String(x.key === 'type' ? e!.type ?? '' : (e as any)[x.key] ?? '') };
+          const at = this.getAttrs(e!.entityType, e!.id);
+          const t = this.telemetry.get(e!.id) ?? {};
+          for (const x of body.latestValues ?? []) {
+            if (x.type === 'SERVER_ATTRIBUTE') latest.SERVER_ATTRIBUTE[x.key] = x.key in at ? { ts: 1, value: typeof at[x.key] === 'string' ? at[x.key] : JSON.stringify(at[x.key]) } : { ts: 0, value: '' };
+            if (x.type === 'TIME_SERIES') {
+              const pts = [...(t[x.key] ?? [])].sort((a, b) => b.ts - a.ts);
+              latest.TIME_SERIES[x.key] = pts[0] ? { ts: pts[0].ts, value: String(pts[0].value) } : { ts: 0, value: '' };
+            }
+          }
+          return { entityId: { id: e!.id, entityType: e!.entityType }, latest };
+        });
+      return resp(200, { data: rows, totalElements: rows.length, hasNext: false });
+    }
+    if (p === '/api/alarmsQuery/find' && method === 'POST') {
+      const ids: string[] = body.entityFilter.entityList;
+      return resp(200, { data: this.alarms.filter((a) => ids.includes(a.originator)).map((a) => ({ originator: { id: a.originator, entityType: 'DEVICE' }, type: a.type })), totalElements: 0, hasNext: false });
+    }
     return resp(404, { message: `fake: no route ${method} ${p}` });
   };
 }

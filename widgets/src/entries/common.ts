@@ -17,14 +17,26 @@ import { bindWidgetContext } from '../core/api';
 import { loadUserContext, UserContext } from '../core/scope';
 import { liveHub } from '../core/live';
 
-let ctxPromise: Promise<UserContext> | null = null;
-let ctxAt = 0;
+/** Build of this library copy (build.mjs stamps it; same value as IMEX_DBB.version). */
+export const LIB_VERSION = '__VERSION__';
+
+/** Page-wide cache slot on `window` (D-022): shared by the launcher, renderer and listing widget types. */
+interface CtxSlot {
+  v: string;
+  key: string;
+  at: number;
+  promise: Promise<UserContext>;
+}
 
 /**
- * Returns the logged-in user's context (scope nodes, role, isAdmin, profile catalogue; see core/scope.ts).
+ * Returns the logged-in user's context (scope nodes, role, isAdmin, profile catalogue, assignment
+ * snapshot; see core/scope.ts).
  *
- * Cached for 5 minutes per library copy (i.e. per widget type on the page); pass `force` to reload,
- * e.g. after CHANGED_EVENT. A failed load clears the cache so the next call retries.
+ * Cached for 5 minutes for the whole PAGE in `window.__imexDbbCtx` (D-022): each widget type runs its own
+ * copy of the library, and before D-022 each copy loaded the context itself (the navbar and the machine
+ * dashboard both did, doubling the calls). The slot is only shared between copies of the same build and
+ * for the same user/customer setting. `force` reloads it for every widget, e.g. after CHANGED_EVENT; a failed
+ * load clears it so the next call retries.
  * Also binds the widget context to the REST client so it can refresh the ThingsBoard JWT.
  *
  * @param tbCtx ThingsBoard widget context (`self.ctx`). `settings.customerId` is used when a tenant
@@ -34,14 +46,47 @@ let ctxAt = 0;
  */
 export function userContext(tbCtx: any, force = false): Promise<UserContext> {
   bindWidgetContext(tbCtx);
-  if (!ctxPromise || force || Date.now() - ctxAt > 5 * 60e3) {
-    ctxAt = Date.now();
-    ctxPromise = loadUserContext({ tenantCustomerId: tbCtx?.settings?.customerId || null }).catch((e) => {
-      ctxPromise = null;
+  const w = window as any;
+  const cust = tbCtx?.settings?.customerId || null;
+  // keyed by the logged-in user (from the JWT) so another login in the same tab never gets this context
+  const key = `${jwtUserId()}|${cust ?? ''}`;
+  const slot: CtxSlot | undefined = w.__imexDbbCtx;
+  if (slot && slot.v === LIB_VERSION && !force && Date.now() - slot.at < 5 * 60e3 && slot.key === key) return slot.promise;
+  const next: CtxSlot = {
+    v: LIB_VERSION,
+    key,
+    at: Date.now(),
+    promise: loadUserContext({ tenantCustomerId: cust }).then((c) => {
+      // shown by the builder's banner strip and the listing
+      if (isOutdated(c)) c.warnings.unshift('This page runs an older version of the iMEX widgets than the one deployed. Reload the page (Ctrl+F5) before building or chatting.');
+      return c;
+    }).catch((e) => {
+      if (w.__imexDbbCtx === next) w.__imexDbbCtx = undefined;
       throw e;
-    });
+    }),
+  };
+  w.__imexDbbCtx = next;
+  return next.promise;
+}
+
+/** User id claim of the current ThingsBoard JWT ('' when there is none or it can't be read). */
+function jwtUserId(): string {
+  try {
+    const t = localStorage.getItem('jwt_token') ?? '';
+    const p = JSON.parse(atob(t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+    return String(p.userId ?? p.sub ?? '');
+  } catch {
+    return '';
   }
-  return ctxPromise;
+}
+
+/**
+ * True when a newer widget library has been deployed than the one running on this page (the store
+ * attribute `dbb_lib_version` written by DBB_DEPLOY differs from LIB_VERSION). ThingsBoard keeps widget code
+ * loaded until the page is reloaded, so an open tab can run old code after a deploy (D-022).
+ */
+export function isOutdated(ctx: UserContext): boolean {
+  return !!ctx.deployedVersion && !LIB_VERSION.startsWith('__') && ctx.deployedVersion !== LIB_VERSION;
 }
 
 /**

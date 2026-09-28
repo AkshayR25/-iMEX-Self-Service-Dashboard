@@ -46,6 +46,22 @@ function setup() {
 }
 
 describe('live telemetry over WebSocket', () => {
+  it('waitReady resolves when the subscription answers, false on timeout (D-022)', async () => {
+    const { live, sockets, timers, tick } = setup();
+    live.want('dev1', ['power']);
+    const p = live.waitReady('dev1', ['power'], 1500);
+    sockets[0].open();
+    const cmdId = sockets[0].sent[0].cmds[0].cmdId;
+    sockets[0].reply({ subscriptionId: cmdId, errorCode: 0, data: { power: [[10, '5']] } });
+    tick(50);
+    timers.shift()!();
+    expect(await p).toBe(true);
+    const q = live.waitReady('dev1', ['other'], 100);
+    tick(200);
+    while (timers.length) timers.shift()!();
+    expect(await q).toBe(false);
+  });
+
   it('subscribes with auth + TIMESERIES cmd, serves latest values from the cache, ignores nulls', async () => {
     const { live, sockets } = setup();
     live.want('dev1', ['power', 'status']);

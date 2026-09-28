@@ -12,6 +12,7 @@ Customer users build their own machine dashboards **inside ThingsBoard CE**, by 
 | Dashboard Builder widgets, renderer, stand-in app (Map → Machines → machine) | deployed and tested live as admin and viewer |
 | Chat relay rule chain (Claude / OpenAI / Gemini, picked from the key) | deployed; scripts tested on ThingsBoard's TBEL engine for all three providers; **needs your API key on DBB-LLM-CONFIG** |
 | Live values over the ThingsBoard WebSocket (REST fallback) | see D-021 |
+| First page load in a fixed number of calls (machine page 49 → 17, Map 44 → 14, Listing 46 → 15 on the demo) | see D-022 |
 
 ## How it works
 
@@ -62,7 +63,7 @@ Older dashboards that break a limit still open; they can't be saved until trimme
    });
    ```
    Repeat per customer (it creates a store asset for each). `profileKeys` is the catalogue shown in the builder and given to the LLM; keys not listed are still usable, just without nice names and units.
-3. **API key:** Assets → **DBB-LLM-CONFIG** (tenant-owned; created by the deploy script; never assign it to a customer) → Attributes → Server attributes → set `dbb_llm_api_key` to a Claude (`sk-ant-…`), OpenAI (`sk-…`) or Gemini (`AIza…`) key. The relay picks the provider from the key; swap providers by replacing it. Optional model per provider: `dbb_llm_model_anthropic` / `_openai` / `_gemini`. Re-deploys keep all of these.
+3. **API key:** Assets → **DBB-LLM-CONFIG** (tenant-owned; created by the deploy script; never assign it to a customer) → Attributes → Server attributes → set `dbb_llm_api_key` to a Claude (`sk-ant-…`), OpenAI (`sk-…`) or Gemini (`AIza…` or the newer `AQ.…`) key. The relay picks the provider from the key; swap providers by replacing it. Optional model per provider: `dbb_llm_model_anthropic` / `_openai` / `_gemini`. Re-deploys keep all of these.
 4. **Put the button in your real app.** Two options:
    - Add the widget **iMEX Navbar / edit menu** (bundle "iMEX Self-Service (POC)") to your app's header state. Its edit icon shows only for `Role` = Admin (setting `adminOnly`); with `navbar` off it renders only the icon, or
    - keep your own header button and call `window.IMEX_DBB.open({ deviceId })` from its action. That function is registered by the launcher widget, so the launcher widget must also be on the page (a small cell is enough).
@@ -82,7 +83,7 @@ npm run setup:tb          # idempotent
 npm run backfill          # 7 days at 5-min intervals
 npm run simulator         # live telemetry every 10 s
 npm run teardown          # lists every POC entity (incl. widgets, dashboard, rule chain), deletes after you type DELETE
-npm test                  # 56 unit tests (store, scope, chat ops, providers, live WebSocket, rules, limits, compatibility, generator)
+npm test                  # 62 unit tests (store, scope, first-load call counts, chat ops, providers, live WebSocket, rules, limits, compatibility, generator)
 npm run typecheck
 ```
 

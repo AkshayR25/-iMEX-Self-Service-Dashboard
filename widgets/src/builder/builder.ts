@@ -1500,7 +1500,7 @@ class Builder {
         ${this.preChat ? `<button class="dbb-btn sm" data-a="discard">Discard chat changes</button>` : ''}
         ${this.undo.length && this.preChat ? `<button class="dbb-btn sm" data-a="cundo">Undo last</button>` : ''}
       </div>
-      <form class="dbb-chat-form"><textarea class="dbb-chat-in" rows="3" maxlength="1000" placeholder="e.g. Show discharge pressure and temperature for the last 24 hours, with alarms"></textarea>
+      <form class="dbb-chat-form"><textarea class="dbb-chat-in" rows="3" maxlength="1000" placeholder="e.g. Show discharge pressure and temperature for the last 8 hours, with alarms"></textarea>
       <button class="dbb-btn primary" type="submit" ${this.busy ? 'disabled' : ''}>Send</button></form>
     </div>`;
     const log = panel.querySelector('.dbb-chat-log') as HTMLElement;

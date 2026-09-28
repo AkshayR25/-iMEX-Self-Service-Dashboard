@@ -34,7 +34,7 @@ await build({
   outfile: 'widgets/dist/imex-dbb.js',
 });
 // Stamp the build version into the bundle (all.ts exports `version = '__VERSION__'`).
-let lib = readFileSync('widgets/dist/imex-dbb.js', 'utf8').replace('__VERSION__', version);
+let lib = readFileSync('widgets/dist/imex-dbb.js', 'utf8').replaceAll('__VERSION__', version);
 writeFileSync('widgets/dist/imex-dbb.js', lib);
 
 // Controller glue per widget type. The library is embedded in each widget type's controllerScript
@@ -54,6 +54,8 @@ const out = {
   renderer: glue('renderer', 'self.onStateChanged = function () { IMEX_DBB.renderer.onStateChanged(self.ctx); };\n'),
   listing: glue('listing', 'self.onStateChanged = function () { IMEX_DBB.listing.onStateChanged(self.ctx); };\n'),
 };
+// Build id for DBB_DEPLOY: goes into the widget-type description and the store attribute dbb_lib_version (D-022).
+out.version = version;
 writeFileSync('widgets/dist/glue.json', JSON.stringify(out, null, 2));
 const gz = gzipSync(Buffer.from(lib, 'utf8'), { level: 9 });
 writeFileSync('widgets/dist/imex-dbb.js.gz.b64', gz.toString('base64'));
@@ -61,7 +63,7 @@ console.log(`lib ${(lib.length / 1024).toFixed(1)} KB, gzip+b64 ${(gz.toString('
 
 // One importable widget type per widget (ThingsBoard: Widgets library > Widgets > + > Import widget).
 mkdirSync('widgets/dist/widget-types', { recursive: true });
-for (const k of Object.keys(out)) {
+for (const k of ['launcher', 'renderer', 'listing']) {
   // Same descriptor shape as deploy-browser.js writes via POST /api/widgetType; keep the two in sync.
   const type = {
     fqn: `imex_dbb_${k}`,
@@ -84,4 +86,4 @@ for (const k of Object.keys(out)) {
   };
   writeFileSync(`widgets/dist/widget-types/imex_dbb_${k}.json`, JSON.stringify(type, null, 2));
 }
-console.log('widget types: ' + Object.keys(out).map((k) => `widgets/dist/widget-types/imex_dbb_${k}.json`).join(', '));
+console.log('widget types: ' + ['launcher', 'renderer', 'listing'].map((k) => `widgets/dist/widget-types/imex_dbb_${k}.json`).join(', '));

@@ -163,12 +163,6 @@ export function init(tbCtx: any) {
       }
     }
     st.shownId = dash?.id ?? null;
-    const latest = await api.latest(deviceId, ['runStatus']).catch(() => ({}) as api.Latest);
-    const lastTs = await lastTelemetry(deviceId);
-    const offline = !lastTs || Date.now() - lastTs > 5 * 60e3;
-    const rs = latest.runStatus?.value;
-    const running = !offline && (rs === undefined || Number(rs) === 1);
-    const status = offline ? ['Offline', STATUS.neutral] : running ? ['Running', STATUS.good] : ['Stopped', STATUS.warning];
     const admin = ctx.isAdmin;
     const canCustomise = admin && (level === 'node' || level === 'customer');
     const canReset = admin && level === 'device' && res.deviceAssignment?.mode === 'customised';
@@ -178,11 +172,22 @@ export function init(tbCtx: any) {
       <div>
         <div class="dbb-crumb">${esc(scope.ancestors(ctx, deviceId).reverse().map((a) => a.label).join(' › '))}</div>
         <div class="dbb-rtitle">${esc(node.label)} <span class="dbb-muted" style="font-size:13px">${esc(node.profile)}</span>
-          <span class="dbb-status-pill" style="--pill:${status[1]}"><span class="dbb-dot"></span>${status[0]}${lastTs ? ` · ${ago(lastTs)}` : ''}</span></div>
+          <span class="dbb-status-pill" style="--pill:${STATUS.neutral}"><span class="dbb-dot"></span>…</span></div>
       </div>
       <span class="dbb-range-chip ${range === 'realtime' ? 'live' : ''}" title="${range === 'realtime' ? 'Values update every 10 seconds; charts show the last hour' : 'Charts and summaries cover this window, ending now'}">${esc(rangeLabel(range))}</span>`;
     const grid = ensureGrid(ctx, deviceId, range, dash?.theme);
     grid.render(dash ? dash.widgets : defaultWidgets(ctx, node.profile));
+    // Status pill after the grid has started loading (D-022): the header no longer holds up the widgets.
+    void lastTelemetry(ctx, deviceId, node.profile).then(({ lastTs, runStatus }) => {
+      if (st.deviceId !== deviceId) return;
+      const offline = !lastTs || Date.now() - lastTs > 5 * 60e3;
+      const running = !offline && (runStatus === undefined || Number(runStatus) === 1);
+      const status = offline ? ['Offline', STATUS.neutral] : running ? ['Running', STATUS.good] : ['Stopped', STATUS.warning];
+      const pill = head.querySelector('.dbb-status-pill') as HTMLElement | null;
+      if (!pill) return;
+      pill.style.setProperty('--pill', status[1]);
+      pill.innerHTML = `<span class="dbb-dot"></span>${status[0]}${lastTs ? ` · ${ago(lastTs)}` : ''}`;
+    });
 
     // Editing lives in the navbar's edit menu, not on the page.
     if (!admin) return publishActions(id, null);
@@ -307,15 +312,18 @@ export function init(tbCtx: any) {
 }
 
 /**
- * Timestamp of the device's most recent telemetry (max `ts` over the latest values of up to 20 keys),
- * or null when it has none or the calls fail. Two REST calls: timeseries keys, then latest values.
+ * Most recent telemetry time (max `ts` over the latest values) and `runStatus` of a device.
+ * Uses the machine type's catalogue keys (dbb_profile_keys, up to 20) plus runStatus, read through the
+ * WebSocket live cache (D-022: normally no REST call; the widgets subscribe the same keys). Machine types
+ * without a catalogue fall back to listing the device's keys (2 REST calls).
  */
-async function lastTelemetry(deviceId: string): Promise<number | null> {
-  const keys = await api.timeseriesKeys(deviceId).catch(() => []);
-  if (!keys.length) return null;
-  const l = await api.latest(deviceId, keys.slice(0, 20)).catch(() => ({}) as api.Latest);
+async function lastTelemetry(ctx: UserContext, deviceId: string, profile: string): Promise<{ lastTs: number | null; runStatus: any }> {
+  let keys = (ctx.profileKeys[profile] ?? []).map((k) => k.key).slice(0, 20);
+  if (!keys.length) keys = (await api.timeseriesKeys(deviceId).catch(() => [] as string[])).slice(0, 20);
+  if (!keys.includes('runStatus')) keys.push('runStatus');
+  const l = await api.latest(deviceId, keys).catch(() => ({}) as api.Latest);
   const ts = Object.values(l).map((v) => v?.ts ?? 0);
-  return ts.length ? Math.max(...ts) : null;
+  return { lastTs: ts.length ? Math.max(...ts) || null : null, runStatus: l.runStatus?.value };
 }
 
 /** Widget onStateChanged: reloads for the new state entity (keeps the user context cache). */

@@ -21,12 +21,18 @@
 //   4. Tenant-admin mode (D-018): a TENANT_ADMIN has no customer and no selectedNodes. The widget
 //      setting `customerId` picks the customer; its top-level assets (no parent asset, excluding the
 //      store) become the scope roots, and the user is an admin.
-//   5. Tree = the roots plus everything below them via `Contains` relations (assets and devices),
-//      loaded breadth-first; then names/labels/profiles via bulk lookups.
-//   6. `rootsAreTop` = every root has no parent asset, i.e. the user sees the whole organisation
-//      (required for customer-wide assignments).
-//   7. Store = first asset of type `DashboardStore` assigned to the customer; its attribute
-//      `dbb_profile_keys` ({ [profile]: KeyMeta[] }) is the property catalogue for the builder and chat.
+//   5. Tree = the roots plus everything below them via `Contains` relations (assets and devices): ONE
+//      relations query per root for the structure, then ONE Entity Data Query per entity type for names,
+//      labels, profiles and the `dbb_assign` attributes (D-022). The number of calls does not grow with the tree.
+//   6. Ancestors above each root (ONE relations query per root, direction TO) are kept in `aboveRoot`;
+//      `rootsAreTop` = no root has one, i.e. the user sees the whole organisation (required for
+//      customer-wide assignments). Their `dbb_assign` is loaded too, because a location assignment above
+//      the user's scope still applies (store.resolveForDevice).
+//   7. Store = first asset of type `DashboardStore` assigned to the customer; one read of its attributes
+//      `dbb_profile_keys` ({ [profile]: KeyMeta[] }, the property catalogue for the builder and chat),
+//      `dbb_assign_customer`, `dbb_assign_rev` and `dbb_lib_version`.
+//   Calls for a customer user with one scope root: 8, in 4 rounds (auth user; user attributes + store lookup;
+//   2 relations queries + store attributes; 2 entity queries). Before D-022 it was about 10 + 1 per asset.
 //   Problems are collected in `warnings` (shown by the UI) instead of throwing, where possible.
 //
 // SECURITY: in ThingsBoard CE this scope and the admin flag are enforced by the UI only (D-011,
@@ -73,6 +79,32 @@ export interface UserContext {
   profileKeys: Record<string, KeyMeta[]>;
   /** Setup problems to show the user (missing store, empty scope, unresolved nodes...). */
   warnings: string[];
+  /**
+   * Assignment snapshot used by store.resolveForDevice (D-022), so opening a machine page needs no
+   * hierarchy walk. Refreshed when the store's `dbb_assign_rev` changes or `stale` is set (every write in
+   * core/store.ts does both).
+   */
+  assign?: AssignSnapshot;
+  /** Build of the widget library deployed last (store attribute `dbb_lib_version`, written by DBB_DEPLOY); '' when unknown. */
+  deployedVersion?: string;
+}
+
+/** See `UserContext.assign`. */
+export interface AssignSnapshot {
+  /** `dbb_assign` per device/asset id (nodes in scope and the ancestors above the roots); absent = none. */
+  byId: Map<string, any>;
+  /** Ancestor assets above each scope root, nearest first: id, name, label (also for resolveForDevice labels). */
+  aboveRoot: Map<string, { id: string; name: string; label: string }[]>;
+  /** The user's `dbb_personal` ({ deviceId: dashboardId }). */
+  personal: Record<string, string>;
+  /** Store attribute `dbb_assign_customer`. */
+  customer: Record<string, any>;
+  /** Store attribute `dbb_assign_rev` when the snapshot was taken ('' = never written). */
+  rev: string;
+  /** When the snapshot was taken (ms). */
+  at: number;
+  /** Set by writes in core/store.ts: the next resolve reloads the snapshot. */
+  stale: boolean;
 }
 
 /** `Role` values (lower-cased) that grant admin rights (D-011). */
@@ -130,6 +162,16 @@ export interface LoadOptions {
 export async function loadUserContext(opts: LoadOptions = {}): Promise<UserContext> {
   const me = await api.get<any>('/api/auth/user');
   const userRef = { id: me.id.id, entityType: 'USER' };
+  // The store (lookup + one attribute read) loads in parallel with the user attributes and the tree.
+  const custId: string = me.authority === 'TENANT_ADMIN' ? opts.tenantCustomerId ?? '' : me.customerId?.id ?? '';
+  const storeP = (async () => {
+    if (!custId) return null;
+    const r = await api.get<any>(`/api/customer/${custId}/assets?pageSize=5&page=0&type=DashboardStore`).catch(() => null);
+    const a = r?.data?.[0];
+    if (!a) return null;
+    const ref = { id: a.id.id, entityType: 'ASSET' };
+    return { ref, attrs: await api.getAttrs(ref, [...STORE_CTX_KEYS]).catch(() => ({}) as Record<string, any>) };
+  })();
   const attrs = await api.getAttrs(userRef).catch(() => ({}) as Record<string, any>);
   // no Role attribute: tenant admins default to Admin, everyone else to Viewer
   const role = String(attrs.Role ?? attrs.role ?? (me.authority === 'TENANT_ADMIN' ? 'Admin' : 'Viewer'));
@@ -178,87 +220,137 @@ export async function loadUserContext(opts: LoadOptions = {}): Promise<UserConte
     }
   }
 
-  await buildTree(ctx, selected.filter((s) => s.entityId) as (SelectedNode & { entityId: string })[]);
-  const parents = await Promise.all(ctx.rootIds.map((r) => api.parentsOf({ id: r, entityType: ctx.nodes.get(r)?.entityType ?? 'ASSET' }).catch(() => [])));
-  ctx.rootsAreTop = ctx.rootIds.length > 0 && parents.every((ps) => !ps.some((p) => p.from.entityType === 'ASSET'));
-
-  // dashboard store asset (customer-scoped)
-  if (ctx.customerId) {
-    const r = await api.get<any>(`/api/customer/${ctx.customerId}/assets?pageSize=5&page=0&type=DashboardStore`).catch(() => null);
-    const a = r?.data?.[0];
-    if (a) {
-      ctx.store = { id: a.id.id, entityType: 'ASSET' };
-      const s = await api.getAttrs(ctx.store, ['dbb_profile_keys']).catch(() => ({}) as any);
-      ctx.profileKeys = s.dbb_profile_keys ?? {};
-    } else warnings.push('Dashboard store asset (type DashboardStore) is missing; saving is disabled.');
+  const [, st] = await Promise.all([buildTree(ctx, selected.filter((s) => s.entityId) as (SelectedNode & { entityId: string })[], attrs), storeP]);
+  if (st) ctx.store = st.ref;
+  else if (ctx.customerId) warnings.push('Dashboard store asset (type DashboardStore) is missing; saving is disabled.');
+  const sa = st?.attrs ?? {};
+  ctx.profileKeys = sa.dbb_profile_keys ?? {};
+  ctx.deployedVersion = String(sa.dbb_lib_version ?? '');
+  if (ctx.assign) {
+    ctx.assign.customer = sa.dbb_assign_customer ?? {};
+    ctx.assign.rev = String(sa.dbb_assign_rev ?? '');
   }
   return ctx;
 }
 
+/** Store attributes read with the user context (one call). */
+export const STORE_CTX_KEYS = ['dbb_profile_keys', 'dbb_assign_customer', 'dbb_assign_rev', 'dbb_lib_version'] as const;
+
 /**
- * Loads the hierarchy below `roots` into `ctx.nodes` / `ctx.rootIds`.
- * Breadth-first over `Contains` relations (one level per round, calls in parallel); `seen` guards
- * against cycles and nodes reachable twice (first parent wins). Devices are leaves. Relations to
- * other entity types are ignored, and children that could not be loaded are dropped at the end.
+ * (Re)loads `dbb_assign` of the given devices/assets in one Entity Data Query per entity type.
+ * @returns id -> dbb_assign (ids without one are absent) plus the entity rows (names, labels, profiles).
  */
-async function buildTree(ctx: UserContext, roots: { entityId: string; entityType: string }[]) {
-  const queue: { id: string; entityType: string; parentId: string | null }[] = roots.map((r) => ({
-    id: r.entityId,
-    entityType: r.entityType === 'DEVICE' ? 'DEVICE' : 'ASSET',
-    parentId: null,
-  }));
+export async function loadAssignments(assetIds: string[], deviceIds: string[]) {
+  const [assets, devices] = await Promise.all([
+    assetIds.length ? api.entityData('ASSET', assetIds, { attrs: ['dbb_assign'] }) : Promise.resolve([] as api.EntityRow[]),
+    deviceIds.length ? api.entityData('DEVICE', deviceIds, { attrs: ['dbb_assign'] }) : Promise.resolve([] as api.EntityRow[]),
+  ]);
+  const byId = new Map<string, any>();
+  for (const r of [...assets, ...devices]) if (r.attrs.dbb_assign != null && r.attrs.dbb_assign !== '') byId.set(r.id, r.attrs.dbb_assign);
+  return { byId, assets, devices };
+}
+
+/**
+ * Loads the hierarchy below `roots` into `ctx.nodes` / `ctx.rootIds`, the ancestors above the roots and the
+ * assignment snapshot `ctx.assign` (D-022).
+ * Structure: one POST /api/relations per root in each direction (all levels at once). The tree is then
+ * walked breadth-first from the roots; `seen` guards against cycles and nodes reachable twice (first
+ * parent wins). Devices are leaves; relations to other entity types are ignored.
+ * Entities: one Entity Data Query for all assets and one for all devices (names, labels, profiles,
+ * `dbb_assign`). Children that could not be loaded are dropped at the end.
+ * @param userAttrs the user's SERVER attributes (for `dbb_personal`).
+ */
+async function buildTree(ctx: UserContext, roots: { entityId: string; entityType: string }[], userAttrs: Record<string, any>) {
+  const refs = roots.map((r) => ({ id: r.entityId, entityType: r.entityType === 'DEVICE' ? 'DEVICE' : 'ASSET' }));
+  ctx.rootIds = refs.map((r) => r.id);
+  const [down, up] = await Promise.all([
+    Promise.all(refs.map((r) => (r.entityType === 'ASSET' ? api.relationsTree(r, 'FROM', ['ASSET', 'DEVICE']).catch(() => [] as api.Rel[]) : Promise.resolve([] as api.Rel[])))),
+    Promise.all(refs.map((r) => api.relationsTree(r, 'TO', ['ASSET']).catch(() => [] as api.Rel[]))),
+  ]);
+
+  // children per asset, in the order ThingsBoard returned them
+  const kids = new Map<string, api.EntityRef[]>();
+  for (const rel of down.flat()) {
+    if (rel.type !== 'Contains' || rel.from.entityType !== 'ASSET' || (rel.to.entityType !== 'ASSET' && rel.to.entityType !== 'DEVICE')) continue;
+    const l = kids.get(rel.from.id) ?? [];
+    if (!l.some((x) => x.id === rel.to.id)) l.push(rel.to);
+    kids.set(rel.from.id, l);
+  }
   const assetIds = new Set<string>();
   const deviceIds = new Set<string>();
   const parent = new Map<string, string | null>();
   const children = new Map<string, string[]>();
   const seen = new Set<string>();
-  ctx.rootIds = roots.map((r) => r.entityId);
-
-  while (queue.length) {
-    const batch = queue.splice(0, queue.length);
-    await Promise.all(
-      batch.map(async (n) => {
-        if (seen.has(n.id)) return;
-        seen.add(n.id);
-        parent.set(n.id, n.parentId);
-        if (n.entityType === 'DEVICE') {
-          deviceIds.add(n.id);
-          return;
-        }
-        assetIds.add(n.id);
-        const rels = await api.childrenOf({ id: n.id, entityType: 'ASSET' }).catch(() => []);
-        children.set(
-          n.id,
-          rels.map((r) => r.to.id),
-        );
-        for (const r of rels) if (r.to.entityType === 'ASSET' || r.to.entityType === 'DEVICE') queue.push({ id: r.to.id, entityType: r.to.entityType, parentId: n.id });
-      }),
-    );
+  let level: { id: string; entityType: string; parentId: string | null }[] = refs.map((r) => ({ id: r.id, entityType: r.entityType, parentId: null }));
+  while (level.length) {
+    const next: typeof level = [];
+    for (const n of level) {
+      if (seen.has(n.id)) continue;
+      seen.add(n.id);
+      parent.set(n.id, n.parentId);
+      if (n.entityType === 'DEVICE') {
+        deviceIds.add(n.id);
+        continue;
+      }
+      assetIds.add(n.id);
+      const ks = kids.get(n.id) ?? [];
+      children.set(
+        n.id,
+        ks.map((k) => k.id),
+      );
+      for (const k of ks) next.push({ id: k.id, entityType: k.entityType, parentId: n.id });
+    }
+    level = next;
   }
 
-  const [assets, devices] = await Promise.all([api.assetsByIds([...assetIds]), api.devicesByIds([...deviceIds])]);
-  for (const a of assets)
-    ctx.nodes.set(a.id.id, {
-      id: a.id.id,
+  // ancestors above each root, nearest first (first ASSET parent at each level, cycle-safe)
+  const aboveIds = new Map<string, string[]>();
+  refs.forEach((r, i) => {
+    const parentOf = new Map<string, string>();
+    for (const rel of up[i]) if (rel.from.entityType === 'ASSET' && !parentOf.has(rel.to.id)) parentOf.set(rel.to.id, rel.from.id);
+    const chain: string[] = [];
+    let cur = parentOf.get(r.id);
+    while (cur && !chain.includes(cur) && cur !== r.id) {
+      chain.push(cur);
+      cur = parentOf.get(cur);
+    }
+    aboveIds.set(r.id, chain);
+  });
+  const extIds = [...new Set([...aboveIds.values()].flat())].filter((id) => !assetIds.has(id));
+
+  const { byId, assets, devices } = await loadAssignments([...assetIds, ...extIds], [...deviceIds]);
+  const names = new Map<string, { name: string; label: string }>();
+  for (const a of assets) {
+    names.set(a.id, { name: a.fields.name, label: a.fields.label || a.fields.name });
+    if (!assetIds.has(a.id)) continue;
+    ctx.nodes.set(a.id, {
+      id: a.id,
       entityType: 'ASSET',
-      name: a.name,
-      label: a.label || a.name,
-      profile: a.type,
-      parentId: parent.get(a.id.id) ?? null,
-      children: (children.get(a.id.id) ?? []).filter((c) => seen.has(c)),
+      name: a.fields.name,
+      label: a.fields.label || a.fields.name,
+      profile: a.fields.type,
+      parentId: parent.get(a.id) ?? null,
+      children: (children.get(a.id) ?? []).filter((c) => seen.has(c)),
     });
+  }
   for (const d of devices)
-    ctx.nodes.set(d.id.id, {
-      id: d.id.id,
+    ctx.nodes.set(d.id, {
+      id: d.id,
       entityType: 'DEVICE',
-      name: d.name,
-      label: d.label || d.name,
-      profile: d.type,
-      parentId: parent.get(d.id.id) ?? null,
+      name: d.fields.name,
+      label: d.fields.label || d.fields.name,
+      profile: d.fields.type,
+      parentId: parent.get(d.id) ?? null,
       children: [],
     });
   // drop children that could not be loaded (e.g. other entity types)
   for (const n of ctx.nodes.values()) n.children = n.children.filter((c) => ctx.nodes.has(c));
+
+  const aboveRoot = new Map<string, { id: string; name: string; label: string }[]>();
+  for (const [r, chain] of aboveIds) aboveRoot.set(r, chain.map((id) => ({ id, ...(names.get(id) ?? { name: id, label: id }) })));
+  ctx.rootsAreTop = ctx.rootIds.length > 0 && [...aboveIds.values()].every((c) => c.length === 0);
+  const personal = api.parseMaybeJson(userAttrs.dbb_personal);
+  ctx.assign = { byId, aboveRoot, personal: personal && typeof personal === 'object' ? personal : {}, customer: {}, rev: '', at: Date.now(), stale: false };
 }
 
 // ---------- tree queries (pure) ----------

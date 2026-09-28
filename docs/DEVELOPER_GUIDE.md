@@ -44,7 +44,7 @@ Since we run **one ThingsBoard tenant per customer**, each tenant gets its own w
 
 1. **The repository.** Once pushed: https://github.com/AkshayR25/-iMEX-Self-Service-Dashboard. Until then, the git bundle `imex-selfservice.bundle` (`git clone imex-selfservice.bundle imex-dbb`).
 2. **Built widget types**, if they don't want to build: `widgets/dist/widget-types/imex_dbb_launcher.json` and `imex_dbb_renderer.json`. These can be imported into ThingsBoard (Widgets library → Widgets → **+** → *Import widget*).
-3. **An LLM API key** for the dev tenant: Claude (`sk-ant-…`), OpenAI (`sk-…`) or Gemini (`AIza…`). Only if chat is wanted; everything else works without it. The relay detects the provider from the key (D-021).
+3. **An LLM API key** for the dev tenant: Claude (`sk-ant-…`), OpenAI (`sk-…`) or Gemini (`AIza…` or the newer `AQ.…`). Only if chat is wanted; everything else works without it. The relay detects the provider from the key (D-021).
 4. **A tenant-admin login** on the dev instance, plus the list of our device profiles and their telemetry keys (for the catalogue).
 5. This guide, `README.md` and `DECISIONS.md`.
 
@@ -57,7 +57,7 @@ Since we run **one ThingsBoard tenant per customer**, each tenant gets its own w
 ```bash
 git clone <repo> imex-dbb && cd imex-dbb
 npm install
-npm test               # 56 unit tests against a fake ThingsBoard / fake WebSocket
+npm test               # 62 unit tests against a fake ThingsBoard / fake WebSocket
 npm run typecheck
 npm run build:widgets  # -> widgets/dist/imex-dbb.js, glue.json, widget-types/*.json
 ```
@@ -146,20 +146,27 @@ A machine shows the first match of: personal → device → nearest ancestor loc
 - Redraws: when a value is pushed (at most every 2 s) plus a safety redraw every 60 s (`entries/common.ts` `scheduleRedraw`). Paused while the tab is hidden.
 - **Fallback:** if the socket can't connect, everything behaves as before (REST polling every `refreshSeconds` = 10 s realtime, 60 s historic). Older ThingsBoard versions without `/api/ws` are handled by trying the legacy endpoint `/api/ws/plugins/telemetry`.
 
-Rough REST call counts for a machine page with 10 widgets (estimated from the code):
+**Since D-022: first page load in a fixed number of calls.**
 
-| Moment | Before D-021 | Now |
-|---|---|---|
-| First page load | ~40 | ~40 (unchanged: user context, layout resolution, first values) |
-| Opening another machine | ~20 | ~20 |
-| Per viewer, steady state (realtime) | ~10 every 10 s (~3,600/hour) | **measured on the demo: 2 calls in 74 s** (alarm refreshes); window queries ≤ every 60 s and chart re-fetch every 5 min where those widgets exist |
+- The user context (user, hierarchy, store, catalogue, assignments) is loaded **once per page** and shared by all iMEX widgets (`window.__imexDbbCtx`, `entries/common.ts`).
+- The hierarchy comes from one `POST /api/relations` per scope root and direction plus one Entity Data Query (`POST /api/entitiesQuery/find`) per entity type, whatever the size of the tree (`core/scope.ts`).
+- Opening a machine costs one store read: the assignments are already in the context (`store.resolveForDevice`). When anyone changes an assignment, the store attribute `dbb_assign_rev` changes and open pages reload their assignments on the next machine they open.
+- Map and Listing read all machines' values in one Entity Data Query and all active alarm counts in one Alarm Data Query (`api.latestMany`, `api.activeAlarmCounts`).
 
-**What it does not change:** first page load. Still to do for that:
-- Load the library once as a ThingsBoard JS *resource* instead of embedding ~330 KB in each widget type's controller script. That also lets the widgets share one user context.
-- Replace the per-asset relations crawl in `core/scope.ts` with one `/api/relations/query` (or entity data query).
-- Cache the user context in `sessionStorage`.
+Measured on the demo (4 machines, tenant admin, before → after D-022):
 
-Rough effort: 1–2 days.
+| Page | REST calls on first load |
+|---|---|
+| Machine page (navbar + machine dashboard) | 49 → **17** |
+| Map page | 44 → **14** |
+| Listing page | 46 → **15** |
+| Steady state, machine page (realtime) | ~10 every 10 s before D-021 → 2 in 74 s (D-021) |
+
+About 4 of the remaining calls are tenant-admin-only (finding the customer's top assets). The count no longer grows with the number of sites and machines; it grows only with widgets that need history (charts, alarm lists).
+
+**Still possible later:** load the library once as a ThingsBoard JS *resource* instead of embedding ~340 KB in each widget type (saves download/parse time, not API calls); cache the user context in `sessionStorage` (repeat visits within minutes, at the cost of up to 5 minutes' delay for role or hierarchy changes).
+
+**After every deploy:** ThingsBoard keeps widget code until the page is reloaded. A tab opened before a deploy keeps running the old code; the builder then shows "Reload the page (Ctrl+F5)" (store attribute `dbb_lib_version`, written by DBB_DEPLOY), and the chat relay answers the same if an old page sends a request it can't handle.
 
 **Will it slow pages down?** First load is a few hundred ms more than our hand-built states on a normal server (layout resolution). After that the page listens instead of polling, so server load per open screen is now lower than REST polling and close to stock ThingsBoard widgets.
 
@@ -173,7 +180,7 @@ Rough effort: 1–2 days.
   - the user's message.
 
   The model only returns layout operations (add/update/remove widget, time range, theme…). These are validated in the browser (`core/chat.ts`) before being applied as an undoable change. It never reads telemetry. An MCP server would only be needed if we wanted the chat to answer questions about the data itself.
-- **Providers (D-021):** Claude, OpenAI and Gemini. The rule chain picks the provider from the key format (`sk-ant-` → Claude, `AIza` → Gemini, other `sk-` → OpenAI) in *Build LLM request*, routes to *Call Claude* / *Call OpenAI* / *Call Gemini*, and *Parse LLM reply* reads each provider's tool-call format. The browser sends the tool in all three formats (`core/chat.ts` `PROVIDER_TOOLS`; Gemini gets a reduced schema from `geminiSchema`). Models: `dbb_llm_model_<provider>` on the config asset, defaults in `deploy-browser.js`.
+- **Providers (D-021):** Claude, OpenAI and Gemini. The rule chain picks the provider from the key format (`sk-ant-` → Claude, `AIza` or `AQ.` → Gemini, other `sk-` → OpenAI) in *Build LLM request*, routes to *Call Claude* / *Call OpenAI* / *Call Gemini*, and *Parse LLM reply* reads each provider's tool-call format. The browser sends the tool in all three formats (`core/chat.ts` `PROVIDER_TOOLS`; Gemini gets a reduced schema from `geminiSchema`). Models: `dbb_llm_model_<provider>` on the config asset, defaults in `deploy-browser.js`.
 - **Where the key lives:** server attribute `dbb_llm_api_key` on the **tenant-owned** asset `DBB-LLM-CONFIG`, read server-side by the rule chain through the relation `UsesLlmConfig` from the store asset. Tenant admins can see it; customer users can't, because the asset is not assigned to their customer. Never put the key on a customer-assigned asset (the store, a site, the org root): every user of that customer can read those attributes through the REST API. The deploy script refuses to continue if the config asset is assigned to a customer.
 - There's a limit of 30 chat requests per user per hour, enforced in the browser.
 

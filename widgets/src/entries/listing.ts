@@ -105,8 +105,8 @@ export function mapNodes(ctx: Pick<UserContext, 'nodes' | 'rootIds'>, siteProfil
 
 /**
  * Map page (settings.mode = 'map'): title, one card per site (click opens the listing for that site), and a button to the listing.
- * Per site card: machine count, running count, active alarm count. Costs several REST calls per device
- * (latest runStatus, active alarms, timeseries keys + latest values); loaded once, no refresh timer.
+ * Per site card: machine count, running count, active alarm count. All machines' values and alarm counts come
+ * from 2 calls in total (machineStats, D-022; before: about 4 calls per machine); loaded once, no refresh timer.
  */
 function initMap(tbCtx: any, host: HTMLElement) {
   ensureCss('dbb-css-list', L_CSS);
@@ -128,21 +128,12 @@ function initMap(tbCtx: any, host: HTMLElement) {
         sitesEl.innerHTML = `${ctx.warnings.map((w) => `<div class="dbb-banner warn">${esc(w)}</div>`).join('')}<div class="dbb-hint">No sites in your scope.</div>`;
         return;
       }
+      // every machine on the page in 2 calls (D-022): latest values + active alarm counts
+      const ms = await machineStats(ctx, sites.flatMap((n) => scope.devicesUnder(ctx, n.id)));
       const cards = await Promise.all(
         sites.map(async (n) => {
           const devs = scope.devicesUnder(ctx, n.id);
-          const stats = await Promise.all(
-            devs.map(async (d) => {
-              const [lv, al] = await Promise.all([
-                api.latest(d.id, ['runStatus']).catch(() => ({}) as api.Latest),
-                api.alarms({ id: d.id, entityType: 'DEVICE' }, { status: 'ACTIVE', limit: 50 }).catch(() => []),
-              ]);
-              const ts = await lastTs(d.id);
-              const rs = lv.runStatus?.value;
-              const online = !!ts && Date.now() - ts < 5 * 60e3;
-              return { running: online && (rs === undefined || rs === null || (rs as any) === '' || Number(rs) === 1), alarms: al.length };
-            }),
-          );
+          const stats = devs.map((d) => ms.get(d.id)!);
           const run = stats.filter((x) => x.running).length;
           const alarms = stats.reduce((a, x) => a + x.alarms, 0);
           const pct = devs.length ? Math.round((run / devs.length) * 100) : 0;
@@ -187,6 +178,8 @@ export function init(tbCtx: any) {
   let ctx: UserContext;
   let selected: string | null = null;
   let lastEnt: string | null = null;
+  let dashList = '';
+  let dashListFor: UserContext | null = null;
 
   const openMachine = (n: Node) =>
     tbCtx.stateController.openState(tbCtx.settings?.machineState || 'machine', { entityId: { id: n.id, entityType: 'DEVICE' }, entityName: n.label, entityLabel: n.label }, false);
@@ -226,16 +219,10 @@ export function init(tbCtx: any) {
 
   // Machine card. Shows up to 4 catalogue keys (dbb_profile_keys) excluding status/hours keys.
   // Offline = no fresh value among the shown keys + runStatus for 5 min.
-  const deviceCard = async (d: Node): Promise<string> => {
+  const deviceCard = (d: Node, m: MStat): string => {
     const metas = (ctx.profileKeys[d.profile] ?? []).filter((k) => !/status|hours/i.test(k.key)).slice(0, 4);
-    const [lv, al] = await Promise.all([
-      api.latest(d.id, [...metas.map((m) => m.key), 'runStatus']).catch(() => ({}) as api.Latest),
-      api.alarms({ id: d.id, entityType: 'DEVICE' }, { status: 'ACTIVE', limit: 50 }).catch(() => []),
-    ]);
-    const ts = Math.max(0, ...Object.values(lv).map((v) => v?.ts ?? 0));
-    const offline = !ts || Date.now() - ts > 5 * 60e3;
-    const rs = lv.runStatus?.value;
-    const running = !offline && (rs === undefined || rs === null || (rs as any) === '' || Number(rs) === 1);
+    const { values: lv, lastTs: ts, offline, running } = m;
+    const al = { length: m.alarms };
     const [st, col] = offline ? ['Offline', STATUS.neutral] : running ? ['Running', STATUS.good] : ['Stopped', STATUS.warning];
     return `<div class="dbb-mc" data-dev="${d.id}" style="--st:${col}"><div class="dbb-mc-h"><span class="dbb-mc-ic">${ICON_SVG.cpu}</span><div><div class="dbb-mc-t">${esc(d.label)}</div><div class="dbb-mc-s">${esc(d.profile)}</div></div><span class="dbb-stp"><i></i>${st}</span></div>
       <div class="dbb-kv">${metas
@@ -244,21 +231,10 @@ export function init(tbCtx: any) {
       <div class="dbb-mc-f">${al.length ? `<span class="dbb-dot" style="background:${STATUS.critical}"></span><b style="color:${STATUS.critical}">${al.length} active alarm${al.length > 1 ? 's' : ''}</b>` : `<span class="dbb-dot" style="background:${STATUS.good}"></span>No active alarms`}${ts ? `<span style="margin-left:auto;color:var(--ink-3)">${agoTxt(ts)}</span>` : ''}</div></div>`;
   };
 
-  // Location card: counts over every device below the node (REST calls per device, as on the map page).
-  const nodeCard = async (n: Node): Promise<string> => {
+  // Location card: counts over every device below the node (from the page's machineStats, D-022).
+  const nodeCard = (n: Node, ms: Map<string, MStat>): string => {
     const devs = scope.devicesUnder(ctx, n.id);
-    const stats = await Promise.all(
-      devs.map(async (d) => {
-        const [lv, al] = await Promise.all([
-          api.latest(d.id, ['runStatus']).catch(() => ({}) as api.Latest),
-          api.alarms({ id: d.id, entityType: 'DEVICE' }, { status: 'ACTIVE', limit: 50 }).catch(() => []),
-        ]);
-        const ts = await lastTs(d.id);
-        const rs = lv.runStatus?.value;
-        const online = !!ts && Date.now() - ts < 5 * 60e3;
-        return { running: online && (rs === undefined || rs === null || (rs as any) === '' || Number(rs) === 1), alarms: al.length };
-      }),
-    );
+    const stats = devs.map((d) => ms.get(d.id)!);
     const run = stats.filter((s) => s.running).length;
     const alarms = stats.reduce((a, s) => a + s.alarms, 0);
     const pct = devs.length ? Math.round((run / devs.length) * 100) : 0;
@@ -271,17 +247,23 @@ export function init(tbCtx: any) {
   const drawCards = async () => {
     const n = selected ? ctx.nodes.get(selected) : null;
     const children = n ? n.children.map((c) => ctx.nodes.get(c)!).filter(Boolean) : ctx.rootIds.map((r) => ctx.nodes.get(r)!).filter(Boolean);
-    const cards = await Promise.all(children.map(async (c): Promise<Card> => ({ node: c, html: c.entityType === 'DEVICE' ? await deviceCard(c) : await nodeCard(c) })));
-    let dashList = '';
-    // standalone dashboards are listed only when the app has a state for them (settings.dashboardState not empty)
-    if (tbCtx.settings?.dashboardState !== '') try {
-      const ds = (await store.listDashboards(ctx)).filter((d) => d.kind === 'standalone');
-      if (ds.length)
-        dashList = `<div class="dbb-h2">Dashboards</div><div class="dbb-cgrid">${ds
-          .map((d) => `<div class="dbb-mc" data-dash="${d.id}" data-name="${esc(d.name)}"><div class="dbb-mc-t">${esc(d.name)}</div><div class="dbb-muted">${d.widgets.length} widgets · by ${esc(d.ownerName)}</div></div>`)
-          .join('')}</div>`;
-    } catch {
-      /* no store */
+    // all machines behind the cards in 2 calls (D-022)
+    const ms = await machineStats(ctx, [...new Set(children.flatMap((c) => scope.devicesUnder(ctx, c.id)))]);
+    const cards: Card[] = children.map((c) => ({ node: c, html: c.entityType === 'DEVICE' ? deviceCard(c, ms.get(c.id)!) : nodeCard(c, ms) }));
+    // standalone dashboards are listed only when the app has a state for them (settings.dashboardState not empty);
+    // read on (re)load only, not on every live redraw (D-022)
+    if (tbCtx.settings?.dashboardState !== '' && dashListFor !== ctx) {
+      dashListFor = ctx;
+      dashList = '';
+      try {
+        const ds = (await store.listDashboards(ctx)).filter((d) => d.kind === 'standalone');
+        if (ds.length)
+          dashList = `<div class="dbb-h2">Dashboards</div><div class="dbb-cgrid">${ds
+            .map((d) => `<div class="dbb-mc" data-dash="${d.id}" data-name="${esc(d.name)}"><div class="dbb-mc-t">${esc(d.name)}</div><div class="dbb-muted">${d.widgets.length} widgets · by ${esc(d.ownerName)}</div></div>`)
+            .join('')}</div>`;
+      } catch {
+        /* no store */
+      }
     }
     cardsEl.innerHTML = `${ctx.warnings.map((w) => `<div class="dbb-banner warn">${esc(w)}</div>`).join('')}
       <div class="dbb-h2">${esc(n ? scope.pathLabel(ctx, n.id) : 'All locations')}<small>${cards.length} item${cards.length === 1 ? '' : 's'}</small></div>
@@ -334,12 +316,46 @@ function agoTxt(ts: number): string {
   return s < 60 ? `${s}s ago` : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} d ago`;
 }
 
-/** Latest telemetry timestamp over up to 20 keys of the device; 0 when none or on error. */
-async function lastTs(deviceId: string): Promise<number> {
-  const keys = await api.timeseriesKeys(deviceId).catch(() => [] as string[]);
-  if (!keys.length) return 0;
-  const l = await api.latest(deviceId, keys.slice(0, 20)).catch(() => ({}) as api.Latest);
-  return Math.max(0, ...Object.values(l).map((v) => v?.ts ?? 0));
+/** Status of one machine for the map/listing cards. */
+interface MStat {
+  values: api.Latest;
+  /** Latest telemetry time over the catalogue keys + runStatus (0 = none). */
+  lastTs: number;
+  offline: boolean;
+  running: boolean;
+  alarms: number;
+}
+
+/**
+ * Status of many machines in 2 calls (D-022): latest values of each machine type's catalogue keys (up to 20)
+ * plus runStatus (api.latestMany: WebSocket live cache, else one Entity Data Query), and active alarm counts
+ * (api.activeAlarmCounts: one Alarm Data Query). Machine types without a catalogue list their keys first
+ * (one call per such machine). Offline = no value newer than 5 minutes; running = online and runStatus is
+ * 1 or missing. Failed reads count as offline / no alarms.
+ */
+async function machineStats(ctx: UserContext, devs: Node[]): Promise<Map<string, MStat>> {
+  const req = await Promise.all(
+    devs.map(async (d) => {
+      let keys = (ctx.profileKeys[d.profile] ?? []).map((k) => k.key).slice(0, 20);
+      if (!keys.length) keys = (await api.timeseriesKeys(d.id).catch(() => [] as string[])).slice(0, 20);
+      if (!keys.includes('runStatus')) keys.push('runStatus');
+      return { deviceId: d.id, keys };
+    }),
+  );
+  const [lv, al] = await Promise.all([
+    api.latestMany(req).catch(() => new Map<string, api.Latest>()),
+    api.activeAlarmCounts(devs.map((d) => d.id)).catch(() => new Map<string, number>()),
+  ]);
+  const out = new Map<string, MStat>();
+  for (const d of devs) {
+    const values = lv.get(d.id) ?? {};
+    const lastTs = Math.max(0, ...Object.values(values).map((v) => v?.ts ?? 0));
+    const offline = !lastTs || Date.now() - lastTs > 5 * 60e3;
+    const rs = values.runStatus?.value;
+    const running = !offline && (rs === undefined || rs === null || (rs as any) === '' || Number(rs) === 1);
+    out.set(d.id, { values, lastTs, offline, running, alarms: al.get(d.id) ?? 0 });
+  }
+  return out;
 }
 
 /** Widget onStateChanged: reloads the listing (no-op in map mode, which sets no reload hook). */

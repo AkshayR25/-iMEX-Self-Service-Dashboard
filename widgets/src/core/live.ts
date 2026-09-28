@@ -165,6 +165,24 @@ export class Live {
     return (this.hist.get(deviceId)?.get(key) ?? []).filter((p) => p.ts > afterTs);
   }
 
+  /**
+   * Resolves true as soon as get(deviceId, keys) would return live values, false when the socket is down
+   * or `timeoutMs` passes first (D-022: lets a cold page wait briefly instead of making REST calls).
+   * Checks every 50 ms; call want() first.
+   */
+  waitReady(deviceId: string, keys: string[], timeoutMs: number): Promise<boolean> {
+    const until = this.o.now() + timeoutMs;
+    return new Promise((resolve) => {
+      const check = () => {
+        const s = this.subs.get(deviceId);
+        if (this.state === 'open' && s && s.ready && !s.failed && keys.every((k) => s.keys.has(k))) return resolve(true);
+        if (this.state === 'down' || (s && s.failed) || this.o.now() >= until) return resolve(false);
+        this.o.later(check, 50);
+      };
+      check();
+    });
+  }
+
   /** Called (batched per tick) with the devices whose values changed. Returns an unsubscribe function. */
   onChange(fn: (deviceIds: string[]) => void): () => void {
     this.listeners.add(fn);

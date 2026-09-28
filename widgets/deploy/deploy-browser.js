@@ -110,7 +110,7 @@ window.DBB_DEPLOY = async function (opts) {
   // (core/chat.ts buildRequest). Replies go to `dbb_chat_resp_<userId>` =
   // {reqId, ok, provider, toolInput | toolInputJson | error, usage}.
   const filterScript = "return msgType == 'ATTRIBUTES_UPDATED' && msg.dbb_chat_req != null && msg.dbb_chat_req.body != null;";
-  // Key -> provider: sk-ant-... = Anthropic, AIza... = Google Gemini, any other sk-... = OpenAI.
+  // Key -> provider: sk-ant-... = Anthropic, AIza... or AQ.... (newer AI Studio keys) = Google Gemini, any other sk-... = OpenAI.
   // Model per provider: config asset attribute dbb_llm_model_<provider>, else the default below.
   const buildScript = [
     'var req = msg.dbb_chat_req;',
@@ -120,7 +120,9 @@ window.DBB_DEPLOY = async function (opts) {
     'if (key == null) { key = ""; }',
     'key = key.trim();',
     'var provider = "none";',
-    'if (key.startsWith("sk-ant-")) { provider = "anthropic"; } else if (key.startsWith("AIza")) { provider = "gemini"; } else if (key.startsWith("sk-")) { provider = "openai"; }',
+    'if (key.startsWith("sk-ant-")) { provider = "anthropic"; } else if (key.startsWith("AIza") || key.startsWith("AQ.")) { provider = "gemini"; } else if (key.startsWith("sk-")) { provider = "openai"; }',
+    // a builder page loaded before D-021 sends no openai/gemini tool block: answer with a clear error instead of failing inside TBEL
+    'if ((provider == "openai" && b.openai == null) || (provider == "gemini" && b.gemini == null)) { provider = "none"; md.error = "OLD_CLIENT"; }',
     'md.provider = provider;',
     'md.llmKey = key;',
     'var model = "";',
@@ -148,7 +150,7 @@ window.DBB_DEPLOY = async function (opts) {
     '  }',
     '  body = {systemInstruction: {parts: [{text: b.system}]}, contents: contents, tools: b.gemini.tools, toolConfig: b.gemini.toolConfig, generationConfig: {maxOutputTokens: 2048}};',
     '} else {',
-    `  md.error = "NO_KEY";`,
+    `  if (md.error == null) { md.error = "NO_KEY"; }`,
     '}',
     'md.llmModel = model;',
     'return {msg: body, metadata: md, msgType: msgType};',
@@ -199,16 +201,22 @@ window.DBB_DEPLOY = async function (opts) {
     'var p = metadata.provider;',
     'if (p == null) { p = ""; }',
     `if (err.startsWith("NO_KEY")) { err = "No LLM API key is set. A tenant admin sets dbb_llm_api_key (Claude, OpenAI or Gemini key) on the asset ${o.llmConfigName}."; }`,
-    `else if (p == "") { err = "The chat relay could not read the LLM settings. Check that asset ${o.llmConfigName} exists and is linked to this store (relation UsesLlmConfig)."; }`,
+    'else if (err.startsWith("OLD_CLIENT")) { err = "This page is running an older version of the Dashboard Builder. Reload the page (Ctrl+F5) and try again."; }',
+    `else if (p == "") { err = "The chat relay could not read the LLM settings or build the request. Check that asset ${o.llmConfigName} exists and is linked to this store (relation UsesLlmConfig)."; }`,
     `else if (err.contains("401") || err.contains("403") || err.contains("authentication") || err.contains("API key not valid") || err.contains("API_KEY_INVALID")) { err = "The " + p + " API key on ${o.llmConfigName} is invalid or has no access to the model."; }`,
     'else if (err.contains("404")) { err = "The " + p + " model was not found. Set dbb_llm_model_" + p + " on the LLM config asset."; }',
     'else if (err.contains("429")) { err = "The " + p + " API is rate-limited or out of credit. Try again later or switch the key."; }',
     'else if (body != "") { err = p + " rejected the request: " + body; }',
     'if (err.length() > 300) { err = err.substring(0, 300); }',
-    'var resp = {reqId: metadata.reqId, ok: false, provider: p, status: "" + metadata.status, error: err};',
+    // failures before "Build LLM request" have no reqId/userId in metadata yet: take them from the request itself,
+    // otherwise the builder ignores the reply and waits for its 30 s timeout
+    'var rid = metadata.reqId;',
+    'var uid = metadata.userId;',
+    'if (msg.dbb_chat_req != null) { if (rid == null) { rid = msg.dbb_chat_req.reqId; } if (uid == null) { uid = msg.dbb_chat_req.userId; } }',
+    'var resp = {reqId: rid, ok: false, provider: p, status: "" + metadata.status, error: err};',
     'var out = {};',
-    'out["dbb_chat_resp_" + metadata.userId] = resp;',
-    'var md = {reqId: "" + metadata.reqId, userId: "" + metadata.userId};',
+    'out["dbb_chat_resp_" + uid] = resp;',
+    'var md = {reqId: "" + rid, userId: "" + uid};',
     'return {msg: out, metadata: md, msgType: "POST_ATTRIBUTES_REQUEST"};',
   ].join('\n');
   // Node order matters: connections below refer to nodes by index (0 = first node).
@@ -401,13 +409,19 @@ window.DBB_DEPLOY = async function (opts) {
       defaultConfig: JSON.stringify({ datasources: [], showTitle: false, backgroundColor: 'rgba(0,0,0,0)', color: 'rgba(0,0,0,0.87)', padding: '0px', settings: {}, title: names[k], dropShadow: false, enableFullscreen: false }),
     };
     // Merging into the existing type keeps its id/version, so POST updates it in place.
-    const body = Object.assign(wt || {}, { fqn, name: names[k], descriptor, description: `${MARK} built ${window.IMEX_DBB_VERSION || ''}`, deprecated: false, scada: false });
+    const body = Object.assign(wt || {}, { fqn, name: names[k], descriptor, description: `${MARK} built ${window.__dbbGlue.version || ''}`, deprecated: false, scada: false });
     wt = await api('POST', '/api/widgetType', body);
     fqns.push(wt.fqn);
     say(`widget type ${fqn} saved (${Math.round(descriptor.controllerScript.length / 1024)} KB)`);
   }
   // Sets (replaces) the bundle's widget type list.
   await api('POST', `/api/widgetsBundle/${bundle.id.id}/widgetTypeFqns`, fqns);
+  // Build now deployed (D-022): pages still running an older build see "reload the page" in the builder.
+  // Written only after the widget types are saved, so a failed deploy never claims a newer build.
+  if (window.__dbbGlue.version) {
+    await api('POST', `/api/plugins/telemetry/ASSET/${store.id.id}/attributes/SERVER_SCOPE`, { dbb_lib_version: window.__dbbGlue.version });
+    say('store: dbb_lib_version = ' + window.__dbbGlue.version);
+  }
 
   // --- stand-in app dashboard
   // Unused (fixed ids below are used instead; `void wid` silences the linter).

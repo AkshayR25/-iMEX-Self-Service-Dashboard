@@ -17,10 +17,16 @@
 //   dbb_personal          { [deviceId]: dashboardId }      personal override (only this user;
 //                                                         still resolved, no longer created by the UI, D-017)
 //
+//   dbb_assign_rev        changes on every assignment write (D-022; tells other pages their snapshot is old)
+//   dbb_lib_version       build of the widget library deployed last (written by DBB_DEPLOY)
+//
 // Resolution (`resolveForDevice`): first match of
 //   personal > device > nearest ancestor location (walking the REAL hierarchy up) > customer-wide
 //   > built-in default layout (dashboard null).
 // All matches are returned as `candidates` for the "Show dashboard" switcher.
+// D-022: the assignments come from the snapshot loaded with the user context (`ctx.assign`), so a machine
+// page costs ONE store read (dashboards + `dbb_assign_rev`); the snapshot is reloaded (3 calls) only when
+// `dbb_assign_rev` changed or this page wrote an assignment. Devices outside the snapshot use the old walk.
 //
 // Saving: `saveDashboard` validates (Zod + checkDashboard incl. property kinds), then uses
 // optimistic concurrency on `version` and keeps history. Two attribute writes are not atomic in
@@ -227,10 +233,104 @@ export async function realAncestors(deviceId: string): Promise<{ id: string; nam
  * on each real ancestor, nearest first) > customer-wide (store `dbb_assign_customer[profile]`)
  * > default layout (`dashboard: null`, level 'default').
  * Assignments whose dashboard is missing or invalid are skipped, so the next level wins.
- * Read-only; about 3 + 2 x (hierarchy depth) calls.
+ * Read-only. Normally ONE call (see D-022 in the file header); 3 more when the assignment snapshot is
+ * reloaded; the old walk (about 3 + 2 x depth calls) for machines outside the snapshot.
  * @param profile the machine's device profile (assignments above device level are per profile).
  */
 export async function resolveForDevice(ctx: UserContext, deviceId: string, profile: string): Promise<Resolved> {
+  const snap = ctx.assign;
+  if (!snap || !ctx.nodes.has(deviceId) || !ctx.store) return resolveFresh(ctx, deviceId, profile);
+  const store = ctx.store;
+  const read = async (ids: string[]) => api.getAttrs(store, [...ids.map(D), 'dbb_assign_rev', 'dbb_assign_customer']);
+  let cands = snapshotCandidates(ctx, deviceId, profile);
+  let got = await read([...new Set(cands.map((c) => c.id))]);
+  if (snap.stale || String(got.dbb_assign_rev ?? '') !== snap.rev) {
+    await refreshAssign(ctx, got);
+    cands = snapshotCandidates(ctx, deviceId, profile);
+    const need = [...new Set(cands.map((c) => c.id))].filter((id) => !(D(id) in got));
+    if (need.length) got = { ...got, ...(await api.getAttrs(store, need.map(D))) };
+  }
+  return finish(cands, got, ctx.assign!.byId.get(deviceId) ?? null);
+}
+
+type Cand = { id: string; level: SourceLevel; sourceLabel: string; nodeId?: string };
+
+/** Candidates from the assignment snapshot: personal, device, in-scope ancestors, ancestors above the root, customer. */
+function snapshotCandidates(ctx: UserContext, deviceId: string, profile: string): Cand[] {
+  const snap = ctx.assign!;
+  const cands: Cand[] = [];
+  const personal = snap.personal?.[deviceId];
+  if (personal) cands.push({ id: personal, level: 'personal', sourceLabel: 'Your personal view' });
+  const devAssign = snap.byId.get(deviceId);
+  if (devAssign?.dashboardId)
+    cands.push({ id: devAssign.dashboardId, level: 'device', sourceLabel: devAssign.mode === 'customised' ? 'Customised for this machine' : 'Assigned to this machine' });
+  const inScope = scope.ancestors(ctx, deviceId);
+  const top = inScope.length ? inScope[inScope.length - 1].id : deviceId;
+  const chain = [...inScope.map((n) => ({ id: n.id, label: n.label })), ...(snap.aboveRoot.get(top) ?? []).map((a) => ({ id: a.id, label: a.label }))];
+  for (const a of chain) {
+    const as = snap.byId.get(a.id)?.[profile];
+    if (as?.dashboardId) cands.push({ id: as.dashboardId, level: 'node', sourceLabel: `All ${profile} machines in ${a.label}`, nodeId: a.id });
+  }
+  const cw = snap.customer?.[profile];
+  if (cw?.dashboardId) cands.push({ id: cw.dashboardId, level: 'customer', sourceLabel: `All ${profile} machines` });
+  return cands;
+}
+
+/**
+ * Reloads the assignment snapshot (`ctx.assign`): `dbb_assign` of every node in scope and above the roots
+ * (2 entity queries) and the user's `dbb_personal` (1 read). `storeAttrs` must hold the store's current
+ * `dbb_assign_rev` / `dbb_assign_customer`; when omitted they are read too.
+ */
+export async function refreshAssign(ctx: UserContext, storeAttrs?: Record<string, any>): Promise<scope.AssignSnapshot> {
+  const snap = ctx.assign!;
+  const assets = [...ctx.nodes.values()].filter((n) => n.entityType === 'ASSET').map((n) => n.id);
+  const devices = [...ctx.nodes.values()].filter((n) => n.entityType === 'DEVICE').map((n) => n.id);
+  const above = [...new Set([...snap.aboveRoot.values()].flat().map((a) => a.id))].filter((id) => !ctx.nodes.has(id));
+  const [a, u, st] = await Promise.all([
+    scope.loadAssignments([...assets, ...above], devices),
+    api.getAttrs({ id: ctx.userId, entityType: 'USER' }, ['dbb_personal']).catch(() => ({}) as any),
+    storeAttrs ?? (ctx.store ? api.getAttrs(ctx.store, ['dbb_assign_rev', 'dbb_assign_customer']) : Promise.resolve({} as any)),
+  ]);
+  snap.byId = a.byId;
+  snap.personal = u.dbb_personal && typeof u.dbb_personal === 'object' ? u.dbb_personal : {};
+  snap.customer = st.dbb_assign_customer ?? {};
+  snap.rev = String(st.dbb_assign_rev ?? '');
+  snap.at = Date.now();
+  snap.stale = false;
+  return snap;
+}
+
+/**
+ * Marks the snapshot stale and changes the store's `dbb_assign_rev`, after any assignment write, so this
+ * page and every other open page reload their snapshot on the next resolve. Best effort.
+ * @param extra other store attributes to write in the same call.
+ */
+async function assignChanged(ctx: UserContext, extra: Record<string, unknown> = {}) {
+  if (ctx.assign) ctx.assign.stale = true;
+  if (ctx.store) await api.saveAttrs(ctx.store, { ...extra, dbb_assign_rev: newId('v') }).catch(() => undefined);
+}
+
+/** Builds the Resolved result from candidates and the loaded dashboard documents. */
+function finish(cands: Cand[], docs: Record<string, any>, devAssign: DeviceAssignment | null): Resolved {
+  const candidates: Resolved['candidates'] = [];
+  for (const c of cands) {
+    const p = Dashboard.safeParse(docs[D(c.id)]);
+    if (p.success) candidates.push({ dashboard: p.data, level: c.level, sourceLabel: c.sourceLabel });
+  }
+  const first = candidates[0];
+  const nodeC = cands.find((c) => first && c.id === first.dashboard.id && c.level === first.level);
+  return {
+    dashboard: first?.dashboard ?? null,
+    level: first?.level ?? 'default',
+    sourceLabel: first?.sourceLabel ?? 'Default layout',
+    sourceNodeId: nodeC?.nodeId,
+    deviceAssignment: devAssign,
+    candidates,
+  };
+}
+
+/** Resolution by walking the real hierarchy with fresh reads (machines outside the snapshot; before D-022 the only path). */
+async function resolveFresh(ctx: UserContext, deviceId: string, profile: string): Promise<Resolved> {
   const store = ctx.store;
   const [userAttrs, devAssign, anc, storeAttrs] = await Promise.all([
     api.getAttrs({ id: ctx.userId, entityType: 'USER' }, ['dbb_personal']).catch(() => ({}) as any),
@@ -261,22 +361,7 @@ export async function resolveForDevice(ctx: UserContext, deviceId: string, profi
   // load the dashboards (dedupe)
   const ids = [...new Set(cands.map((c) => c.id))];
   const docs = ids.length && store ? await api.getAttrs(store, ids.map(D)) : {};
-  const candidates: Resolved['candidates'] = [];
-  for (const c of cands) {
-    const p = Dashboard.safeParse((docs as any)[D(c.id)]);
-    if (p.success) candidates.push({ dashboard: p.data, level: c.level, sourceLabel: c.sourceLabel });
-  }
-  const first = candidates[0];
-  // node id of the winning candidate, when it came from a location assignment
-  const nodeC = cands.find((c) => first && c.id === first.dashboard.id && c.level === first.level);
-  return {
-    dashboard: first?.dashboard ?? null,
-    level: first?.level ?? 'default',
-    sourceLabel: first?.sourceLabel ?? 'Default layout',
-    sourceNodeId: nodeC?.nodeId,
-    deviceAssignment: devAssign,
-    candidates,
-  };
+  return finish(cands, docs, devAssign);
 }
 
 /**
@@ -404,6 +489,7 @@ export async function apply(ctx: UserContext, doc: Dashboard, t: ApplyTarget): P
   if (t.type === 'personal') {
     const cur = (await api.getAttrs({ id: ctx.userId, entityType: 'USER' }, ['dbb_personal'])).dbb_personal ?? {};
     await api.saveAttrs({ id: ctx.userId, entityType: 'USER' }, { dbb_personal: { ...cur, [t.deviceId]: doc.id } });
+    await assignChanged(ctx);
     return [t.deviceId];
   }
   if (t.type === 'devices') {
@@ -418,17 +504,19 @@ export async function apply(ctx: UserContext, doc: Dashboard, t: ApplyTarget): P
       await api.saveAttrs(dev(id), { dbb_assign: a });
       done.push(id);
     }
+    await assignChanged(ctx);
     return done;
   }
   const a: Assignment = { dashboardId: doc.id, by: ctx.displayName, at: now };
   if (t.type === 'node') {
     const cur = (await readAssign(asset(t.nodeId))) ?? {};
     await api.saveAttrs(asset(t.nodeId), { dbb_assign: { ...cur, [t.profile]: a } });
+    await assignChanged(ctx);
     return scope.devicesUnder(ctx, t.nodeId, t.profile).map((d) => d.id);
   }
   const store = requireStore(ctx);
   const cur = (await api.getAttrs(store, ['dbb_assign_customer'])).dbb_assign_customer ?? {};
-  await api.saveAttrs(store, { dbb_assign_customer: { ...cur, [t.profile]: a } });
+  await assignChanged(ctx, { dbb_assign_customer: { ...cur, [t.profile]: a } });
   return scope.allDevices(ctx, t.profile).map((d) => d.id);
 }
 
@@ -450,6 +538,7 @@ export async function customise(ctx: UserContext, deviceId: string, template: Da
     ownerName: ctx.displayName,
   });
   await api.saveAttrs(dev(deviceId), { dbb_assign: { dashboardId: copy.id, mode: 'customised', by: ctx.displayName, at: Date.now() } });
+  await assignChanged(ctx);
   return copy;
 }
 
@@ -462,6 +551,7 @@ export async function customise(ctx: UserContext, deviceId: string, template: Da
 export async function resetDevice(ctx: UserContext, deviceId: string): Promise<void> {
   const a: DeviceAssignment | null = await readAssign(dev(deviceId));
   await api.deleteAttrs(dev(deviceId), ['dbb_assign']);
+  await assignChanged(ctx);
   if (a && (a.mode === 'customised' || a.mode === 'copy') && ctx.store) {
     await api.deleteAttrs(ctx.store, [D(a.dashboardId), H(a.dashboardId), VIS(a.dashboardId)]).catch(() => undefined);
   }
@@ -473,6 +563,7 @@ export async function clearPersonal(ctx: UserContext, deviceId: string) {
   const cur = (await api.getAttrs(u, ['dbb_personal'])).dbb_personal ?? {};
   delete cur[deviceId];
   await api.saveAttrs(u, { dbb_personal: cur });
+  await assignChanged(ctx);
 }
 
 /**
@@ -507,16 +598,21 @@ export async function deleteDashboard(ctx: UserContext, doc: Dashboard): Promise
   if (doc.ownerId !== ctx.userId && !ctx.isAdmin) throw new Error('Only the owner or an admin can delete this dashboard.');
   const store = requireStore(ctx);
   const affected: string[] = [];
+  // current assignments of every node in scope in 2 calls (D-022) instead of one read per node
+  const snap = ctx.assign ? await refreshAssign(ctx) : null;
+  let changed = false;
   for (const n of ctx.nodes.values()) {
-    const a = await readAssign(n.entityType === 'DEVICE' ? dev(n.id) : asset(n.id));
+    const a = snap ? snap.byId.get(n.id) : await readAssign(n.entityType === 'DEVICE' ? dev(n.id) : asset(n.id));
     if (!a) continue;
     if (n.entityType === 'DEVICE' && a.dashboardId === doc.id) {
       await api.deleteAttrs(dev(n.id), ['dbb_assign']);
+      changed = true;
       affected.push(n.label);
     } else if (n.entityType === 'ASSET') {
       const keep = Object.fromEntries(Object.entries(a).filter(([, v]: any) => v?.dashboardId !== doc.id));
       if (Object.keys(keep).length !== Object.keys(a).length) {
         await api.saveAttrs(asset(n.id), { dbb_assign: keep });
+        changed = true;
         affected.push(`${n.label} (all ${doc.profile})`);
       }
     }
@@ -527,6 +623,7 @@ export async function deleteDashboard(ctx: UserContext, doc: Dashboard): Promise
     await api.saveAttrs(store, { dbb_assign_customer: keep });
     affected.push(`All ${doc.profile} machines`);
   }
+  if (changed || affected.length) await assignChanged(ctx);
   await api.deleteAttrs(store, [D(doc.id), H(doc.id), VIS(doc.id)]);
   return affected;
 }
