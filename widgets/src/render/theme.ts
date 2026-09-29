@@ -85,7 +85,7 @@ const SHADOWS: Record<string, string> = {
 };
 const PADS: Record<string, string> = { compact: '6px', normal: '10px', roomy: '16px' };
 
-// Font name -> Google Fonts css2 `family` parameter. Only these are loaded (schema FONTS minus Roboto).
+// Font name -> Google Fonts css2 `family` parameter. Only these are loaded (schema FONTS minus Roboto, which ships with ThingsBoard).
 const GOOGLE_FONTS: Record<string, string> = {
   Inter: 'Inter:wght@400;500;600;700',
   Poppins: 'Poppins:wght@400;500;600;700',
@@ -110,9 +110,12 @@ export function loadFont(name?: string | null) {
   document.head.appendChild(l);
 }
 
-/** CSS font-family value for a font name with a generic fallback (monospace / serif / sans-serif). Empty = ThingsBoard's Roboto stack. Quotes in the name are stripped. */
+/** Default font of the app (user decision 28 Sep 2026: Inter, the standard on the other iMEX pages). */
+export const INTER_STACK = 'Inter,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif';
+
+/** CSS font-family value for a font name with a generic fallback (monospace / serif / sans-serif). Empty = Inter (INTER_STACK). Quotes in the name are stripped. */
 export function fontStack(name?: string | null): string {
-  if (!name) return 'Roboto,"Helvetica Neue",Arial,sans-serif';
+  if (!name) return INTER_STACK;
   const generic = /mono/i.test(name) ? 'monospace' : /serif/i.test(name) && !/sans/i.test(name) ? 'serif' : 'sans-serif';
   return `"${name.replace(/"/g, '')}",${generic}`;
 }
@@ -161,7 +164,7 @@ export function applyTheme(el: HTMLElement, t?: DashboardTheme | null): { dark: 
     '--title-align': t?.titleAlign ?? 'left',
   };
   for (const [k, val] of Object.entries(v)) el.style.setProperty(k, val);
-  loadFont(t?.font);
+  loadFont(t?.font || 'Inter');
   el.classList.toggle('dbb-dark', p.dark);
   const img = safeUrl(t?.bgImage);
   el.style.backgroundColor = 'var(--plane)';
@@ -183,9 +186,10 @@ export function isDark(t?: DashboardTheme | null): boolean {
  */
 export const CSS = `
 .dbb-root{--surface:#ffffff;--surface-2:#f4f5f7;--plane:#f4f5f7;--line:#e6e5e0;--grid:#efeeea;--ink:#0b0b0b;--ink-2:#52514e;--ink-3:#898781;--accent:#2a78d6;--danger:#d03b3b;--hover:#f3f8fe;
-  --radius:12px;--shadow:0 1px 2px rgba(16,24,40,.05),0 1px 3px rgba(16,24,40,.08);--pad:10px;--font:Roboto,"Helvetica Neue",Arial,sans-serif;--title-align:left;
+  --radius:12px;--shadow:0 1px 2px rgba(16,24,40,.05),0 1px 3px rgba(16,24,40,.08);--pad:10px;--font:Inter,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;--title-align:left;
   font-family:var(--font);color:var(--ink);font-size:13px;box-sizing:border-box;-webkit-font-smoothing:antialiased}
 .dbb-root *{box-sizing:border-box}
+.dbb-root :is(button,input,select,textarea,option){font-family:inherit}
 .dbb-card{background:var(--card-bg,var(--surface));border:var(--card-border,1px solid var(--line));border-radius:var(--card-radius,var(--radius));box-shadow:var(--card-shadow,var(--shadow));height:100%;display:flex;flex-direction:column;overflow:hidden;position:relative;transition:box-shadow .15s,transform .15s;color:var(--ink)}
 .dbb-card.accent::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--card-accent)}
 .dbb-card.plain{background:transparent;border:0;box-shadow:none}
@@ -286,7 +290,7 @@ export const CSS = `
 .dbb-banner.err{background:#fdecec;color:#8e2222}
 .dbb-dark .dbb-banner{background:#1c2c44;color:#b7d3f6}
 @keyframes dbbfade{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}
-.dbb-card-b>*{animation:dbbfade .25s ease-out}
+.dbb-card-b.dbb-first>*{animation:dbbfade .25s ease-out}
 `;
 
 /** Adds a <style id=...> to <head> unless one with that id exists. Changing the CSS needs a page reload to apply. */

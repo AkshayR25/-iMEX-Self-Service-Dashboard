@@ -3,6 +3,8 @@ import { ithena, asUser } from '../test/fake-tb';
 import * as launcher from '../src/entries/launcher';
 import * as renderer from '../src/entries/renderer';
 import * as listing from '../src/entries/listing';
+import { openBuilder } from '../src/builder/builder';
+import { userContext } from '../src/entries/common';
 
 const tb = ithena();
 const now = Date.now();
@@ -31,10 +33,36 @@ tb.telemetry.set('pw', { temperature: gen(29, 4) });
 const role = new URLSearchParams(location.search).get('role') ?? 'Admin';
 asUser(tb, 'u1', role, [role === 'Viewer' ? 'pun' : role === 'Manager' ? 'ric' : 'root']);
 localStorage.setItem('jwt_token', 'x');
-(window as any).fetch = tb.fetch;
+// Chat relay stub (E2E): when the builder writes dbb_chat_req, answer with the next scripted tool input
+// from window.__chatQueue (or an error string) as the rule chain would, in dbb_chat_resp_<userId>.
+(window as any).__chatQueue = [] as any[];
+(window as any).__chatReqs = [] as any[];
+const baseFetch = tb.fetch;
+(window as any).fetch = async (url: string, init: any = {}) => {
+  const r = await baseFetch(url, init);
+  if ((init.method ?? 'GET').toUpperCase() === 'POST' && /\/attributes\/SERVER_SCOPE$/.test(url) && init.body?.includes('dbb_chat_req')) {
+    const req = JSON.parse(init.body).dbb_chat_req;
+    (window as any).__chatReqs.push(req);
+    const next = (window as any).__chatQueue.shift();
+    setTimeout(() => {
+      const resp = typeof next === 'string' ? { reqId: req.reqId, ok: false, provider: 'gemini', error: next } : { reqId: req.reqId, ok: true, provider: 'gemini', toolInput: next ?? { reply: 'ok', ops: [] } };
+      tb.setAttrs('ASSET', 'store', { [`dbb_chat_resp_${req.userId}`]: resp });
+    }, 200);
+  }
+  return r;
+};
 (window as any).__tb = tb;
 
 let state: any = { entityId: { id: new URLSearchParams(location.search).get('dev') ?? 'pc', entityType: 'DEVICE' } };
+// Simulates an app navbar that switches the machine by rewriting the state URL only (no onStateChanged,
+// state controller unchanged): the case reported on 28 Sep 2026.
+(window as any).__urlSwitch = (dev: string) => {
+  const arr = [{ id: 'machine', params: { entityId: { id: dev, entityType: 'DEVICE' } } }];
+  const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(arr)))).replace(/\+/g, '-').replace(/\//g, '_');
+  const u = new URL(location.href);
+  u.searchParams.set('state', b64);
+  history.replaceState(null, '', u.toString());
+};
 const mk = (sel: string, settings: any) => ({
   $container: [document.querySelector(sel)],
   settings,
@@ -43,6 +71,13 @@ const mk = (sel: string, settings: any) => ({
 const rctx = mk('#body', {});
 launcher.init(mk('#nav', { navbar: true, appName: 'iMEX · ITHENA' }));
 const pg = new URLSearchParams(location.search).get('page');
-if (pg === 'list') listing.init(mk('#body', {}));
+if (pg === 'builder') {
+  // Builder E2E: open the builder directly for ?dev= (or no machine with dev=none); instance on window.__b.
+  const dev = new URLSearchParams(location.search).get('dev');
+  void userContext(rctx).then((ctx) => {
+    (window as any).__closed = null;
+    (window as any).__b = openBuilder({ ctx, deviceId: dev === 'none' ? null : dev ?? 'pc', dashboardId: null, chatEnabled: true, onClose: (ch) => ((window as any).__closed = { changed: ch }) });
+  });
+} else if (pg === 'list') listing.init(mk('#body', {}));
 else if (pg === 'map') listing.init(mk('#body', { mode: 'map' }));
 else renderer.init(rctx);

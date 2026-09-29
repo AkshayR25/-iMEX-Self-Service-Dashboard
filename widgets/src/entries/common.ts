@@ -141,6 +141,24 @@ export function currentState(tbCtx: any): { id: string; params: any } {
   }
 }
 
+/**
+ * Entity of the page as the user sees it: the current state's params from the URL first (currentState),
+ * then the widget's state controller (stateEntity). The renderer used only the state controller, which
+ * missed a machine picked in an app navbar that changes the state URL without notifying the widget: the
+ * page kept the old machine's dashboard while the edit menu (URL-based) already had the new one (28 Sep 2026).
+ */
+export function currentEntity(tbCtx: any): { id: string; entityType: string; name?: string } | null {
+  const p = currentState(tbCtx).params ?? {};
+  const e = p.entityId ?? p[Object.keys(p).find((k) => p[k]?.entityId) ?? '']?.entityId;
+  if (e?.id) return { id: e.id, entityType: e.entityType, name: p.entityName };
+  return stateEntity(tbCtx);
+}
+
+/** One parameter of the current state, URL first (see currentEntity), then the state controller. */
+export function currentParam(tbCtx: any, key: string): any {
+  return currentState(tbCtx).params?.[key] ?? stateParam(tbCtx, key);
+}
+
 // ---------- edit actions shown in the navbar's edit menu ----------
 // The navbar (launcher widget) and the machine dashboard (renderer widget) are separate ThingsBoard
 // widgets, each with its own copy of this library, so they talk through `window` and an event.

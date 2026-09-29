@@ -14,7 +14,8 @@
     "build:browser": "esbuild scripts/browser/entry.ts --bundle --format=iife --global-name=POC --target=es2020 --outfile=scripts/output/poc-browser.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "build:widgets": "node widgets/build.mjs"
+    "build:widgets": "node widgets/build.mjs",
+    "test:e2e": "esbuild widgets/harness/harness.ts --bundle --format=iife --target=es2019 --outfile=widgets/harness/harness.js --log-level=warning && node widgets/e2e/builder.e2e.mjs"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

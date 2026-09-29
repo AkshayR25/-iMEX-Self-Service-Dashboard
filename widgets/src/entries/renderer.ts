@@ -14,7 +14,7 @@
 //   customerId      customer to show when a tenant admin opens the app (D-018)
 //   dashboardId     (not in the settings form) standalone dashboard to show when the state has none
 //
-// Which machine: the entity of the current dashboard state (stateEntity), set by the listing via
+// Which machine: the entity of the current dashboard state (currentEntity: state URL first, then the state controller; watched every 500 ms), set by the listing via
 // stateController.openState('machine', {entityId, ...}). Which dashboard: store.resolveForDevice
 // (D-013 order), or the one picked in the "Show dashboard" switcher (st.override, reset when the
 // machine changes).
@@ -39,18 +39,18 @@ import { openBuilder } from '../builder/builder';
 import { BUILDER_CSS } from '../builder/styles';
 import { modal, confirmModal, toast } from '../builder/ui';
 import { audit } from '../core/audit';
-import { userContext, stateEntity, stateParam, CHANGED_EVENT, notifyChanged, publishActions, EditAction, scheduleRedraw } from './common';
+import { userContext, currentEntity, currentParam, CHANGED_EVENT, notifyChanged, publishActions, EditAction, scheduleRedraw } from './common';
 
 const R_CSS = `
 .dbb-rend{height:100%;display:flex;flex-direction:column;background:var(--plane);position:relative}
-.dbb-rhead{display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--surface);border-bottom:1px solid var(--line);flex-wrap:wrap}
-.dbb-rtitle{font-size:19px;font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap;letter-spacing:-.01em}
-.dbb-crumb{font-size:12px;color:var(--ink-3);margin-bottom:2px}
+.dbb-rhead{display:flex;align-items:center;gap:10px;padding:7px 16px;min-height:40px;background:var(--surface);border-bottom:1px solid var(--line);flex-wrap:nowrap;min-width:0}
+.dbb-rtitle{font-size:15px;font-weight:600;display:flex;align-items:center;gap:8px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:-.01em}
+.dbb-crumb{font-size:13px;font-weight:500;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .dbb-src-chip{font-size:12px;color:var(--ink-2);background:var(--grid);border-radius:999px;padding:4px 11px}
-.dbb-range-chip{margin-left:auto;display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:var(--ink-2);background:var(--grid);border-radius:999px;padding:4px 11px}
+.dbb-range-chip{margin-left:auto;flex:none;display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:var(--ink-2);background:var(--grid);border-radius:999px;padding:4px 11px}
 .dbb-range-chip.live::before{content:"";width:7px;height:7px;border-radius:50%;background:#0ca30c;box-shadow:0 0 0 3px rgba(12,163,12,.2);animation:dbb-pulse 2s ease-in-out infinite}
 @keyframes dbb-pulse{50%{box-shadow:0 0 0 6px rgba(12,163,12,0)}}
-.dbb-status-pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;border-radius:999px;padding:3px 10px 3px 8px;background:color-mix(in srgb,var(--pill) 14%,transparent);color:var(--ink)}
+.dbb-status-pill{flex:none;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;border-radius:999px;padding:3px 10px 3px 8px;background:color-mix(in srgb,var(--pill) 14%,transparent);color:var(--ink)}
 .dbb-status-pill .dbb-dot{width:8px;height:8px;background:var(--pill);box-shadow:0 0 0 3px color-mix(in srgb,var(--pill) 25%,transparent)}
 .dbb-rtools{margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .dbb-rtools select{font:inherit;font-size:12px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink)}
@@ -83,6 +83,8 @@ export function init(tbCtx: any) {
     shownId?: string | null;
     override?: string | null; // dashboard picked in the switcher
     lastKey?: string;
+    /** Incremented by every load(); an older load that finishes late must not draw over a newer one. */
+    loadSeq?: number;
     range?: string;
     ticks?: number;
   } = {};
@@ -94,23 +96,31 @@ export function init(tbCtx: any) {
 
   // (Re)loads from the dashboard state: a DEVICE entity -> showDevice; else a `dbbDashboardId` state
   // param or settings.dashboardId -> showStandalone; else a placeholder. `force` reloads the user context.
+  // Which page to show: the state entity + standalone dashboard id, read URL-first (currentEntity).
+  const pageKey = () => {
+    const ent = currentEntity(tbCtx);
+    const standaloneId = currentParam(tbCtx, 'dbbDashboardId') ?? tbCtx.settings?.dashboardId;
+    return { ent, standaloneId, key: `${ent?.id ?? ''}|${standaloneId ?? ''}` };
+  };
   const load = async (force = false) => {
+    const seq = (st.loadSeq = (st.loadSeq ?? 0) + 1);
+    const stale = () => seq !== st.loadSeq;
+    const { ent, standaloneId, key } = pageKey();
+    if (key !== st.lastKey) st.override = null;
+    st.lastKey = key;
     try {
       const ctx = await userContext(tbCtx, force);
+      if (stale()) return;
       st.ctx = ctx;
-      const ent = stateEntity(tbCtx);
-      const standaloneId = stateParam(tbCtx, 'dbbDashboardId') ?? tbCtx.settings?.dashboardId;
-      const key = `${ent?.id ?? ''}|${standaloneId ?? ''}`;
-      if (key !== st.lastKey) st.override = null;
-      st.lastKey = key;
-      if (ent?.entityType === 'DEVICE') await showDevice(ctx, ent.id);
-      else if (standaloneId) await showStandalone(ctx, standaloneId);
+      if (ent?.entityType === 'DEVICE') await showDevice(ctx, ent.id, stale);
+      else if (standaloneId) await showStandalone(ctx, standaloneId, stale);
       else {
         head.innerHTML = `<div class="dbb-ph" style="height:auto">Open a machine to see its dashboard.</div>`;
         st.grid?.render([]);
         publishActions(id, null);
       }
     } catch (e: any) {
+      if (stale()) return;
       head.innerHTML = `<div class="dbb-banner err">Could not load the dashboard: ${esc(e.message ?? e)}</div>`;
     }
   };
@@ -141,7 +151,7 @@ export function init(tbCtx: any) {
    * reset (device has a `customised` copy), thresholds, the switcher when several dashboards apply,
    * and "clear personal view" (D-017: personal views are still resolved but no longer created).
    */
-  async function showDevice(ctx: UserContext, deviceId: string) {
+  async function showDevice(ctx: UserContext, deviceId: string, stale: () => boolean) {
     st.deviceId = deviceId;
     const node = ctx.nodes.get(deviceId);
     if (!node) {
@@ -151,6 +161,7 @@ export function init(tbCtx: any) {
       return;
     }
     const res = await store.resolveForDevice(ctx, deviceId, node.profile);
+    if (stale()) return;
     let dash: Dashboard | null = res.dashboard;
     let label = res.sourceLabel;
     let level = res.level;
@@ -168,12 +179,11 @@ export function init(tbCtx: any) {
     const canReset = admin && level === 'device' && res.deviceAssignment?.mode === 'customised';
     const range = normalizeRange(dash?.timeRange ?? 'realtime');
     st.range = range;
+    // One compact line (user request 28 Sep 2026): org › site, status, time range. The machine name and
+    // type are not repeated here; the app's navbar already shows the selected machine.
     head.innerHTML = `
-      <div>
-        <div class="dbb-crumb">${esc(scope.ancestors(ctx, deviceId).reverse().map((a) => a.label).join(' › '))}</div>
-        <div class="dbb-rtitle">${esc(node.label)} <span class="dbb-muted" style="font-size:13px">${esc(node.profile)}</span>
-          <span class="dbb-status-pill" style="--pill:${STATUS.neutral}"><span class="dbb-dot"></span>…</span></div>
-      </div>
+      <div class="dbb-crumb" title="${esc(node.label)} (${esc(node.profile)})">${esc(scope.ancestors(ctx, deviceId).reverse().map((a) => a.label).join(' › '))}</div>
+      <span class="dbb-status-pill" style="--pill:${STATUS.neutral}"><span class="dbb-dot"></span>…</span>
       <span class="dbb-range-chip ${range === 'realtime' ? 'live' : ''}" title="${range === 'realtime' ? 'Values update every 10 seconds; charts show the last hour' : 'Charts and summaries cover this window, ending now'}">${esc(rangeLabel(range))}</span>`;
     const grid = ensureGrid(ctx, deviceId, range, dash?.theme);
     grid.render(dash ? dash.widgets : defaultWidgets(ctx, node.profile));
@@ -242,9 +252,10 @@ export function init(tbCtx: any) {
   }
 
   /** Shows a stored dashboard not bound to a machine (state param `dbbDashboardId`); admins get "Edit". */
-  async function showStandalone(ctx: UserContext, dashboardId: string) {
+  async function showStandalone(ctx: UserContext, dashboardId: string, stale: () => boolean) {
     st.deviceId = null;
     const d = await store.getDashboard(ctx, dashboardId);
+    if (stale()) return;
     if (!d) {
       head.innerHTML = `<div class="dbb-banner warn">Dashboard not found.</div>`;
       return;
@@ -301,13 +312,22 @@ export function init(tbCtx: any) {
     () => st.grid?.refreshAll(),
     () => (st.range && st.range !== 'realtime' ? 60e3 : (tbCtx.settings?.refreshSeconds ?? 10) * 1000),
   );
+  // ThingsBoard does not always call onStateChanged (e.g. an app navbar that switches the machine by
+  // changing the state URL), so also watch the page key every 500 ms, like the navbar widget does.
+  const watch = setInterval(() => {
+    if (pageKey().key !== st.lastKey) void load();
+  }, 500);
   (tbCtx as any).__dbbCleanup = () => {
+    clearInterval(watch);
     window.removeEventListener(CHANGED_EVENT, onChanged);
     stopRedraw();
     publishActions(id, null);
     st.grid?.destroy();
   };
-  (tbCtx as any).__dbbReload = () => void load();
+  // onStateChanged: reload only if the page key changed (the watch may already have done it).
+  (tbCtx as any).__dbbReload = () => {
+    if (pageKey().key !== st.lastKey) void load();
+  };
   void load();
 }
 

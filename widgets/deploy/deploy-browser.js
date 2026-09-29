@@ -206,6 +206,8 @@ window.DBB_DEPLOY = async function (opts) {
     `else if (err.contains("401") || err.contains("403") || err.contains("authentication") || err.contains("API key not valid") || err.contains("API_KEY_INVALID")) { err = "The " + p + " API key on ${o.llmConfigName} is invalid or has no access to the model."; }`,
     'else if (err.contains("404")) { err = "The " + p + " model was not found. Set dbb_llm_model_" + p + " on the LLM config asset."; }',
     'else if (err.contains("429")) { err = "The " + p + " API is rate-limited or out of credit. Try again later or switch the key."; }',
+    // provider-side capacity problems (Gemini 503 UNAVAILABLE, Claude 529 overloaded_error): not our bug, say so plainly
+    'else if (err.contains("503") || err.contains("529") || err.contains("UNAVAILABLE") || err.contains("overloaded")) { err = "The " + p + " service is overloaded right now (a temporary problem on the provider\'s side). Try again in a minute. If it keeps happening, use a paid key or another provider\'s key on " + "DBB-LLM-CONFIG."; }',
     'else if (body != "") { err = p + " rejected the request: " + body; }',
     'if (err.length() > 300) { err = err.substring(0, 300); }',
     // failures before "Build LLM request" have no reqId/userId in metadata yet: take them from the request itself,

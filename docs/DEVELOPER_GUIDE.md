@@ -197,15 +197,17 @@ See the table in `README.md`. The most common changes:
 - **Styling / themes:** `widgets/src/render/theme.ts`; builder CSS in `widgets/src/builder/styles.ts`.
 - **Settings forms of the widget types:** `widgets/widget-types.mjs` **and** the copy in `widgets/deploy/deploy-browser.js` (keep both in sync).
 
-After a change: `npm test && npm run typecheck && npm run build:widgets`, then redeploy (Option A re-run, or re-import the JSON).
+After a change: `npm test && npm run typecheck && npm run test:e2e && npm run build:widgets`, then redeploy (Option A re-run, or re-import the JSON).
 
 **Local testing without ThingsBoard:** `widgets/harness/` has a fake ThingsBoard with generated data:
 
 ```bash
 npx esbuild widgets/harness/harness.ts --bundle --format=iife --target=es2019 --outfile=widgets/harness/harness.js
 node widgets/harness/shot.mjs '[{"wait":2000,"shot":"machine"}]' 'index.html'      # screenshot to /tmp/claude-0/
-# or serve widgets/harness/ with any static server and open index.html (?page=list / ?page=map)
+# or serve widgets/harness/ with any static server and open index.html (?page=list / ?page=map / ?page=builder&dev=pc)
 ```
+
+**End-to-end test (D-023):** `npm run test:e2e` builds the harness and runs `widgets/e2e/builder.e2e.mjs`: 38 scenarios in Chromium (Playwright) covering every builder function and the machine page, about 2.5 minutes. `node widgets/e2e/builder.e2e.mjs chat save` runs only tests whose name contains a word. A failed test saves a screenshot `e2e-fail-*.png` in the system temp folder. On a new machine run `npx playwright install chromium` once. The harness stubs the chat relay (`window.__chatQueue`) and can switch the machine through the state URL only (`window.__urlSwitch('rd')`), like an app navbar. Run it before every redeploy.
 
 ---
 

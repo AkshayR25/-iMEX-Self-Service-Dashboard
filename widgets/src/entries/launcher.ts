@@ -26,7 +26,7 @@
 // Admin checks here (icon visibility, open()) are UI-only; a customer user can still write attributes
 // through the REST API (D-012).
 import { openBuilder } from '../builder/builder';
-import { CSS, ensureCss, esc } from '../render/theme';
+import { CSS, ensureCss, esc, loadFont } from '../render/theme';
 import { userContext, stateEntity, notifyChanged, currentState, currentActions, ACTIONS_EVENT, EditAction } from './common';
 import * as scope from '../core/scope';
 
@@ -43,7 +43,7 @@ const svg = (p: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="current
 
 // The menu is appended to <body> (the navbar widget's own box clips overflow).
 const MENU_CSS = `
-.dbb-emenu{position:fixed;z-index:10050;min-width:280px;max-width:360px;background:#fff;color:#0b0b0b;border:1px solid #e3e2dd;border-radius:14px;box-shadow:0 12px 32px rgba(16,24,40,.18),0 2px 6px rgba(16,24,40,.08);padding:6px;font:13px Roboto,Inter,Arial,sans-serif;animation:dbb-menu-in .12s ease-out}
+.dbb-emenu{position:fixed;z-index:10050;min-width:280px;max-width:360px;background:#fff;color:#0b0b0b;border:1px solid #e3e2dd;border-radius:14px;box-shadow:0 12px 32px rgba(16,24,40,.18),0 2px 6px rgba(16,24,40,.08);padding:6px;font:13px Inter,"Segoe UI",Roboto,Arial,sans-serif;animation:dbb-menu-in .12s ease-out}
 @keyframes dbb-menu-in{from{opacity:0;transform:translateY(-4px)}}
 .dbb-emenu-h{padding:9px 11px 8px;border-bottom:1px solid #eeede8;margin-bottom:4px}
 .dbb-emenu-h b{display:block;font-size:13.5px}
@@ -65,7 +65,7 @@ const BTN_CSS = `
 .dbb-nav{display:flex;align-items:center;gap:14px;height:100%;padding:0 60px 0 16px;background:linear-gradient(90deg,#0a2458 0%,#123a7a 60%,#184f95 100%);color:#fff;box-shadow:0 2px 10px rgba(10,36,88,.25)}
 .dbb-nav-app{font-size:16px;font-weight:600;letter-spacing:.01em;display:flex;align-items:center;gap:9px;white-space:nowrap}
 .dbb-nav-app::before{content:"";width:26px;height:26px;border-radius:8px;background:linear-gradient(135deg,#6da7ec,#2a78d6);box-shadow:inset 0 0 0 5px rgba(255,255,255,.18)}
-.dbb-nav-link{background:none;border:0;color:#fff;font:500 13px Roboto,Arial,sans-serif;opacity:.8;cursor:pointer;padding:7px 12px;border-radius:999px;white-space:nowrap;transition:background .15s,opacity .15s}
+.dbb-nav-link{background:none;border:0;color:#fff;font:500 13px Inter,"Segoe UI",Roboto,Arial,sans-serif;opacity:.8;cursor:pointer;padding:7px 12px;border-radius:999px;white-space:nowrap;transition:background .15s,opacity .15s}
 .dbb-nav-link:hover{opacity:1;background:rgba(255,255,255,.1)}
 .dbb-nav-link.on{opacity:1;background:rgba(255,255,255,.18);box-shadow:inset 0 0 0 1px rgba(255,255,255,.18)}
 .dbb-nav-state{font-size:12px;font-weight:600;padding:4px 10px;border-radius:999px;background:rgba(255,255,255,.12);white-space:nowrap;text-transform:uppercase;letter-spacing:.05em}
@@ -77,7 +77,7 @@ const BTN_CSS = `
 .dbb-nav .dbb-launch{height:auto;padding:0}
 .dbb-launch{display:flex;align-items:center;justify-content:flex-end;height:100%;padding:0 4px}
 .dbb-launch button{display:inline-flex;align-items:center;gap:8px;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.1);color:inherit;
-  font:600 13px Roboto,Arial,sans-serif;padding:8px 14px;border-radius:10px;cursor:pointer;white-space:nowrap;transition:background .15s,transform .1s}
+  font:600 13px Inter,"Segoe UI",Roboto,Arial,sans-serif;padding:8px 14px;border-radius:10px;cursor:pointer;white-space:nowrap;transition:background .15s,transform .1s}
 .dbb-nav .dbb-launch button{background:linear-gradient(135deg,#3987e5,#2a78d6);border-color:rgba(255,255,255,.25);box-shadow:0 2px 8px rgba(0,0,0,.2)}
 .dbb-launch.light button{border-color:#d7d6d1;background:#fff;color:#0b0b0b}
 .dbb-launch button:hover{filter:brightness(1.08)}
@@ -136,6 +136,7 @@ export function init(tbCtx: any) {
   ensureCss('dbb-css-core', CSS);
   ensureCss('dbb-css-launch', BTN_CSS);
   ensureCss('dbb-css-emenu', MENU_CSS);
+  loadFont('Inter');
   const s = tbCtx.settings ?? {};
   const host: HTMLElement = tbCtx.$container[0];
   const btnHtml = `<button type="button" class="dbb-launch-btn dbb-edit-ic" title="${esc(s.label || 'Edit dashboards')}" aria-label="${esc(s.label || 'Edit dashboards')}" aria-haspopup="menu" aria-expanded="false">${svg(MENU_ICONS.edit)}</button>`;
@@ -303,7 +304,7 @@ export function init(tbCtx: any) {
 /** Shows `msg` as a red toast at the top of the page for 6 s (appended to <body>). */
 function alertInline(host: HTMLElement, msg: string) {
   const d = document.createElement('div');
-  d.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);background:#8e2222;color:#fff;padding:8px 14px;border-radius:8px;z-index:10001;font:13px Roboto,Arial';
+  d.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);background:#8e2222;color:#fff;padding:8px 14px;border-radius:8px;z-index:10001;font:13px Inter,Roboto,Arial';
   d.textContent = msg;
   document.body.appendChild(d);
   setTimeout(() => d.remove(), 6000);

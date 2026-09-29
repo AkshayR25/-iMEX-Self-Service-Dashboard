@@ -49,7 +49,7 @@ import * as store from '../core/store';
 import * as chat from '../core/chat';
 import { Dashboard, Widget, WidgetType, WIDGET_TYPES, WIDGET_LABELS, WIDGET_CAPS, WIDGET_GROUPS, CONTENT_TYPES, DEFAULT_SIZE, TIME_RANGES, HISTORIC_RANGES, MAX_WIDGETS, MAX_KEYS, MAX_DEVICES, normalizeRange, rangeLabel, checkDashboard, dashboardKind, newId } from '../core/schema';
 import { Grid, GRID_CSS, firstFit, resolveCollisions } from '../render/grid';
-import { CSS, ensureCss, esc, el, applyTheme, PRESETS, miniMarkdown as miniToHtml } from '../render/theme';
+import { CSS, ensureCss, esc, el, applyTheme, PRESETS, loadFont, miniMarkdown as miniToHtml } from '../render/theme';
 import { bindingLabel, defaultWidgets, keyMeta } from '../render/widgets';
 import { WIDGET_ICON } from '../render/icons';
 import { TEMPLATES } from '../render/templates';
@@ -121,6 +121,7 @@ export function openBuilder(o: BuilderOptions) {
   ensureCss('dbb-css-core', CSS);
   ensureCss('dbb-css-grid', GRID_CSS);
   ensureCss('dbb-css-builder', BUILDER_CSS);
+  loadFont('Inter'); // builder chrome font (user decision 28 Sep 2026)
   const b = new Builder(o);
   b.mount();
   return b;
@@ -282,8 +283,9 @@ class Builder {
    */
   onKey(e: KeyboardEvent) {
     const t = e.target as HTMLElement;
-    // Let inputs keep their native undo and Backspace. (contenteditable is not excluded.)
-    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return;
+    // Let inputs and the rich-text editor keep their native undo and Backspace/Delete. (Before 28 Sep 2026
+    // contenteditable was not excluded: Backspace while typing in a Text widget deleted the whole widget.)
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
       e.preventDefault();
       e.shiftKey ? this.redoLast() : this.undoLast();
@@ -1811,7 +1813,7 @@ class Builder {
 
   /**
    * "Open dashboard" modal: lists saved dashboards from the store asset (store.listDashboards)
-   * and offers "New blank dashboard". Does not ask about unsaved changes before replacing the draft.
+   * and offers "New blank dashboard". Asks before replacing a draft with unsaved changes.
    */
   async openDialog() {
     this.setBusy(true, 'Loading dashboards…');
@@ -1836,14 +1838,16 @@ class Builder {
        ${list.length ? `<div class="dbb-scroll" style="max-height:50vh"><table class="dbb-table dbb-pick"><thead><tr><th>Name</th><th>Machine type</th><th>Widgets</th><th>Owner</th><th>Updated</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<div class="dbb-hint">No saved dashboards yet.</div>'}`,
       [['cancel', 'Close']],
     );
-    m.body.querySelector('[data-new]')?.addEventListener('click', () => {
+    m.body.querySelector('[data-new]')?.addEventListener('click', async () => {
       m.close('new');
+      if (this.dirty() && !(await confirmModal(this.root, 'Discard unsaved changes?', 'The current dashboard has changes that are not saved.', 'Discard', true))) return;
       const prof = this.deviceId ? this.ctx.nodes.get(this.deviceId)!.profile : null;
       this.loadDraft(store.blankDashboard(this.ctx, prof ? `${prof} dashboard` : 'Untitled dashboard', prof));
     });
     m.body.querySelectorAll<HTMLElement>('tr[data-id]').forEach((tr) =>
-      tr.addEventListener('click', () => {
+      tr.addEventListener('click', async () => {
         m.close('open');
+        if (this.dirty() && !(await confirmModal(this.root, 'Discard unsaved changes?', 'The current dashboard has changes that are not saved.', 'Discard', true))) return;
         void this.openDashboard(tr.dataset.id!);
       }),
     );
@@ -1852,7 +1856,7 @@ class Builder {
   /**
    * "Version history" modal: the last 10 saved versions (`dbb_h_<id>`, D-013). Restore saves the
    * old content as a new version (store.restoreVersion), writes a `dashboard.restore` audit entry
-   * and reloads the draft; unsaved draft changes are dropped without asking.
+   * and reloads the draft; asks first when the draft has unsaved changes.
    */
   async versionsDialog() {
     const vs = await store.versions(this.ctx, this.draft.id).catch(() => []);
@@ -1872,6 +1876,7 @@ class Builder {
     m.body.querySelectorAll<HTMLElement>('[data-v]').forEach((b) =>
       b.addEventListener('click', async () => {
         m.close('restore');
+        if (this.dirty() && !(await confirmModal(this.root, 'Discard unsaved changes?', 'Restoring replaces the draft, including changes that are not saved.', 'Restore', true))) return;
         this.setBusy(true, 'Restoring…');
         try {
           const d = await store.restoreVersion(this.ctx, this.draft.id, Number(b.dataset.v));

@@ -22,7 +22,7 @@ import * as api from '../core/api';
 import * as scope from '../core/scope';
 import * as store from '../core/store';
 import type { UserContext, Node } from '../core/scope';
-import { CSS, ensureCss, esc, fmtNum, STATUS } from '../render/theme';
+import { CSS, ensureCss, esc, fmtNum, STATUS, loadFont } from '../render/theme';
 import { keyMeta } from '../render/widgets';
 import { ICON_SVG } from '../render/icons';
 import { userContext, stateEntity, CHANGED_EVENT, scheduleRedraw } from './common';
@@ -110,6 +110,7 @@ export function mapNodes(ctx: Pick<UserContext, 'nodes' | 'rootIds'>, siteProfil
  */
 function initMap(tbCtx: any, host: HTMLElement) {
   ensureCss('dbb-css-list', L_CSS);
+  loadFont('Inter');
   ensureCss('dbb-css-map', M_CSS);
   const s = tbCtx.settings ?? {};
   const listingState = s.listingState || 'listing';

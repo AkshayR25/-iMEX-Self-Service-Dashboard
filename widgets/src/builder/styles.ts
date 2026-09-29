@@ -24,7 +24,8 @@
  * page styles are `CSS` in `render/theme.ts`.
  */
 export const BUILDER_CSS = `
-.dbb-overlay{position:fixed;inset:0;z-index:10000;background:#f4f5f7;display:flex;flex-direction:column}
+.dbb-overlay{position:fixed;inset:0;z-index:10000;background:#f4f5f7;display:flex;flex-direction:column;font-family:Inter,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
+.dbb-overlay .dbb-center{font-family:var(--font)}
 .dbb-top{display:flex;align-items:flex-end;gap:10px;padding:10px 14px;background:#fff;border-bottom:1px solid var(--line);flex-wrap:wrap;box-shadow:0 1px 3px rgba(16,24,40,.05);position:relative;z-index:3}
 .dbb-brand{font-size:15px;font-weight:600;align-self:center;margin-right:6px;white-space:nowrap;display:flex;align-items:center;gap:8px;letter-spacing:-.01em}
 .dbb-logo{width:30px;height:30px;border-radius:9px;display:inline-flex;align-items:center;justify-content:center;color:#fff;background:linear-gradient(135deg,#3987e5,#184f95);box-shadow:0 2px 6px rgba(42,120,214,.35)}
@@ -105,7 +106,7 @@ export const BUILDER_CSS = `
 .dbb-seg.sm button{padding:4px 9px;font-size:11.5px}
 .dbb-swatch{position:relative;display:inline-block;width:30px;height:30px;border-radius:8px;border:1px solid rgba(0,0,0,.12);cursor:pointer;flex:none;box-shadow:inset 0 0 0 2px rgba(255,255,255,.6)}
 .dbb-swatch.empty{background:repeating-conic-gradient(#e6e5e0 0 25%,#fff 0 50%) 0 0/10px 10px}
-.dbb-swatch input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;border:0;padding:0}
+.dbb-swatch input,.dbb-swatch input[type=color]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;border:0;padding:0}
 .dbb-colf{display:inline-flex;align-items:center;gap:6px}
 .dbb-x{border:0;background:none;color:var(--ink-3);cursor:pointer;font-size:12px;padding:4px;border-radius:6px;line-height:1}
 .dbb-x:hover{background:#f1f0ec;color:var(--danger)}
@@ -126,7 +127,7 @@ export const BUILDER_CSS = `
 .dbb-rule{border:1px solid var(--line);border-radius:10px;padding:8px;display:flex;flex-direction:column;gap:6px;background:#fbfbfa}
 .dbb-rule-main{display:flex;gap:6px;align-items:center}
 .dbb-rule-main select{flex:none;max-width:110px}
-.dbb-rule-main input{flex:1;width:60px}
+.dbb-rule-main input:not([type=color]){flex:1;width:60px}
 .dbb-rule-sub{display:flex;gap:6px;align-items:center}
 .dbb-rule-sub input{flex:1;font-size:12px!important;padding:5px 8px!important}
 .dbb-sw-row{display:flex;gap:3px}

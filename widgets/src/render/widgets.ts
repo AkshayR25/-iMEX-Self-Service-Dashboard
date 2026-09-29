@@ -189,7 +189,19 @@ export interface WidgetHandle {
 }
 
 /** Replaces a widget body with a centred grey message. */
-const placeholder = (body: HTMLElement, msg: string) => (body.innerHTML = `<div class="dbb-ph">${esc(msg)}</div>`);
+/**
+ * Sets static content (image, embedded page) only when it differs from what is shown, so a data refresh
+ * does not reload the iframe or re-decode the image (that reload was visible as a flicker every 10 s).
+ */
+const setStatic = (body: HTMLElement, html: string) => {
+  if (body.dataset.static === html && body.firstElementChild) return;
+  body.innerHTML = html;
+  body.dataset.static = html;
+};
+const placeholder = (body: HTMLElement, msg: string) => {
+  delete body.dataset.static;
+  body.innerHTML = `<div class="dbb-ph">${esc(msg)}</div>`;
+};
 
 // ---------- card styling ----------
 
@@ -321,10 +333,18 @@ export function renderWidget(container: HTMLElement, w: Widget, env: RenderEnv, 
   if (w.type === 'image' || w.type === 'embed' || w.type === 'link') body.style.padding = showTitle ? '4px var(--card-pad,var(--pad)) var(--card-pad,var(--pad))' : w.type === 'link' ? '0' : 'var(--card-pad,var(--pad))';
   let alive = true;
 
+  // The fade-in plays on the first draw only; later refreshes replace the content without any animation
+  // (the fade on every refresh was the flicker seen when new values arrived).
+  body.classList.add('dbb-first');
+  let drawn = false;
   const refresh = async () => {
     if (!alive) return;
     try {
       const rule = await draw(body, w, env);
+      if (!drawn) {
+        drawn = true;
+        setTimeout(() => body.classList.remove('dbb-first'), 400);
+      }
       // undefined = this widget type doesn't colour the card; null = clear any previous rule colour.
       if (rule !== undefined) applyRuleToCard(card, w, rule);
     } catch (e: any) {
@@ -436,15 +456,15 @@ async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<Color
   if (w.type === 'text') return drawText(body, w, env);
   if (w.type === 'image') {
     const u = safeUrl(s.url);
-    body.innerHTML = u ? `<img class="dbb-img" src="${esc(u)}" alt="${esc(w.title || 'Image')}" style="object-fit:${s.fit ?? 'contain'}" referrerpolicy="no-referrer"/>` : `<div class="dbb-ph">Add an image address (https://…) in the widget settings.</div>`;
+    setStatic(body, u ? `<img class="dbb-img" src="${esc(u)}" alt="${esc(w.title || 'Image')}" style="object-fit:${s.fit ?? 'contain'}" referrerpolicy="no-referrer"/>` : `<div class="dbb-ph">Add an image address (https://…) in the widget settings.</div>`);
     return undefined;
   }
   if (w.type === 'embed') {
     // safeUrl also allows data:image URIs; only https pages may be framed (sandboxed, no referrer).
     const u = safeUrl(s.url);
-    body.innerHTML = u && u.startsWith('https://')
+    setStatic(body, u && u.startsWith('https://')
       ? `<iframe class="dbb-frame" src="${esc(u)}" sandbox="allow-scripts allow-same-origin allow-forms allow-popups" referrerpolicy="no-referrer" loading="lazy" title="${esc(w.title || 'Embedded page')}"></iframe>`
-      : `<div class="dbb-ph">Add a page address (https://…) in the widget settings. Some sites refuse to be embedded.</div>`;
+      : `<div class="dbb-ph">Add a page address (https://…) in the widget settings. Some sites refuse to be embedded.</div>`);
     return undefined;
   }
   if (w.type === 'link') return drawLink(body, w, env);
