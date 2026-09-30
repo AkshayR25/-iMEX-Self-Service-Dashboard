@@ -174,7 +174,7 @@ export function bindingLabel(ctx: UserContext, b: Binding): string {
     case 'nearest':
       return `Nearest ${b.profile}`;
     case 'nodeQuery':
-      return `All ${b.profile} in ${ctx.nodes.get(b.nodeId)?.label ?? 'a node outside your access'}`;
+      return `All ${b.profile || 'machines'} in ${ctx.nodes.get(b.nodeId)?.label ?? 'a node outside your access'}`;
     default:
       return '';
   }

@@ -207,7 +207,7 @@ node widgets/harness/shot.mjs '[{"wait":2000,"shot":"machine"}]' 'index.html'   
 # or serve widgets/harness/ with any static server and open index.html (?page=list / ?page=map / ?page=builder&dev=pc)
 ```
 
-**End-to-end test (D-023):** `npm run test:e2e` builds the harness and runs `widgets/e2e/builder.e2e.mjs`: 38 scenarios in Chromium (Playwright) covering every builder function and the machine page, about 2.5 minutes. `node widgets/e2e/builder.e2e.mjs chat save` runs only tests whose name contains a word. A failed test saves a screenshot `e2e-fail-*.png` in the system temp folder. On a new machine run `npx playwright install chromium` once. The harness stubs the chat relay (`window.__chatQueue`) and can switch the machine through the state URL only (`window.__urlSwitch('rd')`), like an app navbar. Run it before every redeploy.
+**End-to-end test (D-023):** `npm run test:e2e` builds the harness and runs `widgets/e2e/builder.e2e.mjs`: 49 scenarios in Chromium (Playwright) covering every builder function and the machine page, about 2.5 minutes. `node widgets/e2e/builder.e2e.mjs chat save` runs only tests whose name contains a word. A failed test saves a screenshot `e2e-fail-*.png` in the system temp folder. On a new machine run `npx playwright install chromium` once. The harness stubs the chat relay (`window.__chatQueue`) and can switch the machine through the state URL only (`window.__urlSwitch('rd')`), like an app navbar. Run it before every redeploy.
 
 ---
 

@@ -208,6 +208,8 @@ window.DBB_DEPLOY = async function (opts) {
     'else if (err.contains("429")) { err = "The " + p + " API is rate-limited or out of credit. Try again later or switch the key."; }',
     // provider-side capacity problems (Gemini 503 UNAVAILABLE, Claude 529 overloaded_error): not our bug, say so plainly
     'else if (err.contains("503") || err.contains("529") || err.contains("UNAVAILABLE") || err.contains("overloaded")) { err = "The " + p + " service is overloaded right now (a temporary problem on the provider\'s side). Try again in a minute. If it keeps happening, use a paid key or another provider\'s key on " + "DBB-LLM-CONFIG."; }',
+    // network problems between ThingsBoard and the provider (seen as "WebClientRequestException: null" / timeouts, D-024)
+    'else if (err.contains("WebClientRequestException") || err.contains("ReadTimeout") || err.contains("timed out") || err.contains("Connection reset")) { err = "Could not reach the " + p + " service (a network problem between ThingsBoard and the provider). Try again in a moment."; }',
     'else if (body != "") { err = p + " rejected the request: " + body; }',
     'if (err.length() > 300) { err = err.substring(0, 300); }',
     // failures before "Build LLM request" have no reqId/userId in metadata yet: take them from the request itself,
@@ -366,9 +368,10 @@ window.DBB_DEPLOY = async function (opts) {
           chatEnabled: { title: 'Enable chat', type: 'boolean', default: true },
           chatEnabledRoles: { title: 'Chat only for roles (comma separated, empty = all)', type: 'string', default: '' },
           hideForRoles: { title: 'Hide the edit icon for roles (comma separated)', type: 'string', default: '' },
+          dashboardList: { title: 'Show "Dashboard list" (standalone dashboards) to every user', type: 'boolean', default: true },
         },
       },
-      form: ['label', 'adminOnly', 'navbar', 'appName', 'homeState', 'homeLabel', 'listingState', 'listingLabel', 'machineState', 'machineLabel', 'customerId', 'lightStyle', 'chatEnabled', 'chatEnabledRoles', 'hideForRoles'],
+      form: ['label', 'adminOnly', 'navbar', 'appName', 'homeState', 'homeLabel', 'listingState', 'listingLabel', 'machineState', 'machineLabel', 'customerId', 'lightStyle', 'chatEnabled', 'chatEnabledRoles', 'hideForRoles', 'dashboardList'],
     },
     renderer: {
       schema: { type: 'object', properties: { refreshSeconds: { title: 'Refresh every (s)', type: 'number', default: 10 }, chatEnabled: { title: 'Enable chat in builder', type: 'boolean', default: true }, customerId: { title: 'Customer id for tenant admins', type: 'string', default: '' } } },

@@ -11,6 +11,8 @@
 //   label            tooltip / aria-label of the edit icon
 //   adminOnly        show the icon to admins only (default true; D-017). `false` shows it to everyone.
 //   hideForRoles     comma-separated roles that never see the icon
+//   dashboardList    (default true) every user gets the icon with "Dashboard list" (standalone dashboards,
+//                    D-025); users who can't edit see a list icon and only that item
 //   navbar           true = full stand-in navbar (app name, Map/Listing links, state chip, breadcrumb,
 //                    user avatar); false = only the icon (to drop into an existing header)
 //   appName, homeState/homeLabel, listingState/listingLabel, machineState/machineLabel, stateTitles
@@ -20,14 +22,17 @@
 //   customerId       customer to show when a tenant admin opens the app (D-018)
 //
 // Edit menu (D-020): the items come from the renderer widget via window.__imexDbbActions / ACTIONS_EVENT
-// (see common.ts), because the renderer runs in another copy of the library. The launcher only adds
-// "Dashboard Builder". The menu is appended to <body> so the navbar cell does not clip it.
+// (see common.ts), because the renderer runs in another copy of the library. The launcher adds
+// "Dashboard list" (everyone, D-025) and "Dashboard Builder" (editors). The menu is appended to <body> so the navbar cell does not clip it.
 //
 // Admin checks here (icon visibility, open()) are UI-only; a customer user can still write attributes
 // through the REST API (D-012).
 import { openBuilder } from '../builder/builder';
+import { BUILDER_CSS } from '../builder/styles';
+import { modal } from '../builder/ui';
+import * as store from '../core/store';
 import { CSS, ensureCss, esc, loadFont } from '../render/theme';
-import { userContext, stateEntity, notifyChanged, currentState, currentActions, ACTIONS_EVENT, EditAction } from './common';
+import { userContext, stateEntity, notifyChanged, currentState, currentActions, ACTIONS_EVENT, EditAction, RSTATE_KEY } from './common';
 import * as scope from '../core/scope';
 
 const MENU_ICONS: Record<string, string> = {
@@ -38,6 +43,7 @@ const MENU_ICONS: Record<string, string> = {
   sliders: '<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/>',
   eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
   check: '<path d="M5 12l5 5L20 7"/>',
+  list: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9h10M7 13h10M7 17h6"/>',
 };
 const svg = (p: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
 
@@ -209,11 +215,19 @@ export function init(tbCtx: any) {
   // NB: hiding is UI only; see DECISIONS D-012.
   const hide = roleList(s.hideForRoles);
   btn.style.display = 'none';
+  // D-025: everyone may open the "Dashboard list" (standalone dashboards); only editors get the edit items.
+  // Non-editors see a list icon instead of the pencil. settings.dashboardList = false restores admin-only.
+  let editor = false;
   void userContext(tbCtx)
     .then((c) => {
-      const allowed = (s.adminOnly === false || c.isAdmin) && !hide.includes(c.role.toLowerCase());
-      if (allowed) btn.style.display = '';
-      else btn.remove();
+      editor = s.adminOnly === false || c.isAdmin;
+      if (hide.includes(c.role.toLowerCase()) || (!editor && s.dashboardList === false)) return btn.remove();
+      if (!editor) {
+        btn.innerHTML = svg(MENU_ICONS.list);
+        btn.title = 'Dashboards';
+        btn.setAttribute('aria-label', 'Dashboards');
+      }
+      btn.style.display = '';
     })
     .catch(() => btn.remove());
   // Errors (e.g. non-admin) are shown as a temporary toast at the top of the page.
@@ -256,7 +270,8 @@ export function init(tbCtx: any) {
   // Builds the menu from the renderer's published actions (if any) plus the fixed "Dashboard Builder"
   // item, positions it under the icon (clamped to the viewport) and focuses the first item.
   const openMenu = () => {
-    const acts = currentActions();
+    // Non-editors: the renderer publishes no actions for them; they only get the Dashboard list.
+    const acts = editor ? currentActions() : null;
     const main = acts?.items.filter((x) => x.group !== 'switch') ?? [];
     const sw = acts?.items.filter((x) => x.group === 'switch') ?? [];
     menu = document.createElement('div');
@@ -266,7 +281,8 @@ export function init(tbCtx: any) {
       ${main.map(item).join('')}
       ${sw.length ? `<div class="dbb-emenu-sec">Show dashboard</div>${sw.map(item).join('')}` : ''}
       ${main.length || sw.length ? '<hr/>' : ''}
-      ${item({ id: '__builder', label: 'Dashboard Builder', hint: acts ? 'All dashboards, templates and machines' : 'Build or change dashboards', icon: 'builder' })}`;
+      ${s.dashboardList !== false ? item({ id: '__list', label: 'Dashboard list', hint: 'Dashboards not tied to one machine', icon: 'list' }) : ''}
+      ${editor ? item({ id: '__builder', label: 'Dashboard Builder', hint: acts ? 'All dashboards, templates and machines' : 'Build or change dashboards', icon: 'builder' }) : ''}`;
     document.body.appendChild(menu);
     const r = btn.getBoundingClientRect();
     const mw = menu.offsetWidth;
@@ -278,6 +294,7 @@ export function init(tbCtx: any) {
         const id = b.dataset.m!;
         closeMenu();
         if (id === '__builder') void openBuilderFromMenu();
+        else if (id === '__list') void dashboardList(tbCtx, editor).catch((e) => alertInline(host, `Could not load the dashboards: ${e.message ?? e}`));
         else currentActions()?.run(id);
       }),
     );
@@ -299,6 +316,112 @@ export function init(tbCtx: any) {
     window.removeEventListener(ACTIONS_EVENT, onActs);
   };
   (window as any).IMEX_DBB = { open: (o?: any) => open(tbCtx, o) };
+}
+
+/** Rows per page in the Dashboard list. */
+const LIST_PAGE = 8;
+
+/**
+ * "Dashboard list" (D-025, user request 30 Sep 2026): a centred dialog with the standalone dashboards (not tied
+ * to one machine) that this user may see (shared ones and their own private ones, store.listDashboards),
+ * searchable by name / owner, 8 per page. Clicking a row opens the dashboard on the page: the machine-page
+ * state (settings.machineState, default 'machine') with state param `dbbDashboardId`, which the renderer
+ * shows full-page. Editors also get an Edit button that opens it in the Dashboard Builder.
+ * The dialog lives in a fixed full-screen `.dbb-root` layer on <body> so it gets the builder styles.
+ */
+export async function dashboardList(tbCtx: any, editor: boolean) {
+  ensureCss('dbb-css-builder', BUILDER_CSS);
+  const ctx = await userContext(tbCtx);
+  const all = (await store.listDashboards(ctx)).filter((d) => d.kind === 'standalone').sort((a, b) => a.name.localeCompare(b.name));
+  const layer = document.createElement('div');
+  layer.className = 'dbb-root dbb-list-layer';
+  layer.style.cssText = 'position:fixed;inset:0;z-index:10040;font-family:Inter,"Segoe UI",Roboto,Arial,sans-serif';
+  document.body.appendChild(layer);
+  const m = modal(
+    layer,
+    'Dashboard list',
+    `<div class="dbb-form" style="min-width:min(640px,86vw)">
+      <div class="dbb-pal-search"><input type="search" data-q placeholder="Search by name or owner" aria-label="Search dashboards"/></div>
+      <div class="dbb-scroll" style="max-height:52vh"><table class="dbb-table dbb-pick"><thead><tr><th>Name</th><th>Widgets</th><th>Owner</th><th>Updated</th>${editor ? '<th></th>' : ''}</tr></thead><tbody data-rows></tbody></table></div>
+      <div class="dbb-row" style="justify-content:space-between;align-items:center"><span class="dbb-muted" data-count></span>
+        <span class="dbb-row" style="gap:6px"><button class="dbb-btn sm" data-prev>‹ Previous</button><span data-page class="dbb-muted"></span><button class="dbb-btn sm" data-next>Next ›</button></span></div>
+    </div>`,
+    [['cancel', 'Close']],
+  );
+  void m.result.then(() => layer.remove());
+  const q = m.body.querySelector('[data-q]') as HTMLInputElement;
+  const rows = m.body.querySelector('[data-rows]') as HTMLElement;
+  let page = 0;
+  const draw = () => {
+    const f = q.value.trim().toLowerCase();
+    const hits = all.filter((d) => !f || d.name.toLowerCase().includes(f) || (d.ownerName ?? '').toLowerCase().includes(f));
+    const pages = Math.max(1, Math.ceil(hits.length / LIST_PAGE));
+    page = Math.min(page, pages - 1);
+    const shown = hits.slice(page * LIST_PAGE, (page + 1) * LIST_PAGE);
+    rows.innerHTML = shown.length
+      ? shown
+          .map(
+            (d) =>
+              `<tr data-id="${esc(d.id)}" tabindex="0" title="Open “${esc(d.name)}”"><td><b>${esc(d.name)}</b>${d.visibility === 'private' ? ' <span class="dbb-muted">· private</span>' : ''}</td><td>${d.widgets.length}</td><td>${esc(d.ownerName)}</td><td>${esc(new Date(d.updatedAt).toLocaleDateString())}</td>${
+                editor ? `<td><button class="dbb-btn sm" data-edit="${esc(d.id)}">Edit</button></td>` : ''
+              }</tr>`,
+          )
+          .join('')
+      : `<tr><td colspan="${editor ? 5 : 4}" class="dbb-muted" style="text-align:center;padding:18px">${
+          all.length ? 'No dashboard matches.' : editor ? 'No dashboards yet. In the Dashboard Builder, pick “No machine (standalone dashboard)” to build one.' : 'No dashboards have been shared with you yet.'
+        }</td></tr>`;
+    (m.body.querySelector('[data-count]') as HTMLElement).textContent = `${hits.length} dashboard${hits.length === 1 ? '' : 's'}`;
+    (m.body.querySelector('[data-page]') as HTMLElement).textContent = `Page ${page + 1} of ${pages}`;
+    (m.body.querySelector('[data-prev]') as HTMLButtonElement).disabled = page === 0;
+    (m.body.querySelector('[data-next]') as HTMLButtonElement).disabled = page >= pages - 1;
+  };
+  q.addEventListener('input', () => {
+    page = 0;
+    draw();
+  });
+  m.body.querySelector('[data-prev]')!.addEventListener('click', () => (page--, draw()));
+  m.body.querySelector('[data-next]')!.addEventListener('click', () => (page++, draw()));
+  const openOnPage = (id: string) => {
+    m.close('open');
+    try {
+      tbCtx.stateController?.openState?.(rendererState(tbCtx), { dbbDashboardId: id }, false);
+    } catch (e: any) {
+      alertInline(layer, `Could not open the dashboard: ${e.message ?? e}`);
+    }
+  };
+  rows.addEventListener('click', (e) => {
+    const t = e.target as HTMLElement;
+    const ed = t.closest<HTMLElement>('[data-edit]');
+    if (ed) {
+      m.close('edit');
+      openBuilder({ ctx, dashboardId: ed.dataset.edit!, deviceId: null, chatEnabled: tbCtx.settings?.chatEnabled !== false, onClose: (ch) => ch && notifyChanged() });
+      return;
+    }
+    const tr = t.closest<HTMLElement>('tr[data-id]');
+    if (tr) openOnPage(tr.dataset.id!);
+  });
+  rows.addEventListener('keydown', (e) => {
+    const tr = (e.target as HTMLElement).closest<HTMLElement>('tr[data-id]');
+    if (tr && e.key === 'Enter') openOnPage(tr.dataset.id!);
+  });
+  draw();
+  setTimeout(() => q.focus(), 0);
+}
+
+/**
+ * State that holds the machine dashboard (renderer) widget: settings.machineState, else the state the renderer
+ * last ran in on this ThingsBoard dashboard (remembered by the renderer, see RSTATE_KEY), else 'machine'.
+ * Apps name their states differently, so a fixed 'machine' is not enough (D-025).
+ */
+function rendererState(tbCtx: any): string {
+  if (tbCtx.settings?.machineState) return tbCtx.settings.machineState;
+  try {
+    const v = localStorage.getItem(RSTATE_KEY());
+    if (v) return v;
+  } catch {
+    /* ignore */
+  }
+  return 'machine';
 }
 
 /** Shows `msg` as a red toast at the top of the page for 6 s (appended to <body>). */

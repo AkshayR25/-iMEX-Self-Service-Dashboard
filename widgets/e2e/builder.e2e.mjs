@@ -705,7 +705,8 @@ test('chat: builds widgets from the reply, highlight, discard; clarification; pr
   await t.page.keyboard.press('Enter');
   await t.page.waitForSelector('.dbb-chat-log [data-opt="Pune"]', { timeout: 8000 });
   // provider overload message is shown as the assistant reply, draft unchanged
-  await t.b(() => window.__chatQueue.push('The gemini service is overloaded right now (a temporary problem on the provider\'s side). Try again in a minute.'));
+  // overloaded twice: the builder retries once by itself (D-024), then shows the message
+  await t.b(() => window.__chatQueue.push('The gemini service is overloaded right now (a temporary problem on the provider\'s side). Try again in a minute.', 'The gemini service is overloaded right now (a temporary problem on the provider\'s side). Try again in a minute.'));
   await t.click('.dbb-chat-log [data-opt="Pune"]');
   await t.page.waitForFunction(() => /overloaded right now/.test(document.querySelector('.dbb-chat-log')?.textContent ?? ''), null, { timeout: 8000 });
   eq((await t.draft()).widgets.length, 0, 'draft unchanged on error');
@@ -723,6 +724,130 @@ test('chat: invalid answer gets one corrective retry', async (t) => {
   await t.page.waitForFunction(() => window.__b.draft.widgets.length === 1 && !window.__b.busy, null, { timeout: 10000 });
   eq(await t.b(() => window.__chatReqs.length), 2, 'two relay requests');
   eq((await t.draft()).widgets[0].keys, ['dischargeTemp'], 'second answer applied');
+});
+
+test('chat: role request asks where to build; "Start a new dashboard" builds a new unsaved one (undo goes back)', async (t) => {
+  // an existing, saved machine dashboard is open
+  await saveFirst(t);
+  await t.page.click('.dbb-modal [data-mb="apply"]');
+  await t.idle(400);
+  const old = await t.draft();
+  await t.click('.dbb-right .dbb-tab[data-tab="chat"]');
+  await t.b(() => {
+    window.__chatQueue.push({ intent: 'clarify', reply: '', ops: [], clarification: { question: 'Where should I build it?', options: ['Start a new dashboard', 'Replace this dashboard', 'Add to this dashboard'] } });
+    window.__chatQueue.push({
+      intent: 'build',
+      reply: 'Built a fleet overview.',
+      ops: [
+        { op: 'startNewDashboard', name: 'Fleet overview' },
+        { op: 'addWidget', type: 'table', title: 'Compressors', binding: { mode: 'nodeQuery', node: 'N1', machineType: 'Compressor' }, keys: ['runStatus', 'dischargePressure'] },
+        { op: 'addWidget', type: 'alarms', title: 'All alarms', binding: { mode: 'nodeQuery', node: 'N1', machineType: 'ALL' }, keys: [] },
+      ],
+    });
+  });
+  await t.page.fill('.dbb-chat-in', 'I am the CEO, overview of all machines across every location');
+  await t.page.keyboard.press('Enter');
+  await t.page.waitForSelector('.dbb-chat-log [data-opt="Start a new dashboard"]', { timeout: 8000 });
+  await t.click('.dbb-chat-log [data-opt="Start a new dashboard"]');
+  await t.page.waitForFunction(() => window.__b.draft.name === 'Fleet overview' && !window.__b.busy, null, { timeout: 8000 });
+  const d = await t.draft();
+  ok(d.id !== old.id, 'new dashboard id');
+  eq([d.version, d.kind, d.widgets.length], [0, 'standalone', 2], 'new unsaved standalone draft');
+  const hist = await t.b(() => JSON.stringify(window.__chatReqs[1].body.messages));
+  ok(/Where should I build it\? Options: Start a new dashboard \| Replace this dashboard \| Add to this dashboard/.test(hist), 'the question and options are in the history of the next turn');
+  eq(await t.page.textContent('.dbb-top [data-a="save"]').then((x) => x.trim()), 'Save', 'unsaved');
+  await t.page.waitForTimeout(1000);
+  eq(await t.cardErrors(), [], 'fleet widgets render');
+  await t.click('.dbb-top [data-a="undo"]');
+  eq((await t.draft()).id, old.id, 'undo returns to the machine dashboard');
+});
+
+test('chat: if the model builds a fleet overview straight away, the builder still asks where; the choice needs no second LLM call', async (t) => {
+  await t.addWidget('value');
+  await t.addWidget('gauge');
+  const id = (await t.draft()).id;
+  await t.click('.dbb-right .dbb-tab[data-tab="chat"]');
+  await t.b(() =>
+    window.__chatQueue.push({
+      intent: 'build',
+      reply: 'Overview built.',
+      ops: [
+        { op: 'clearWidgets' },
+        { op: 'addWidget', type: 'table', title: 'Compressors', binding: { mode: 'nodeQuery', node: 'N1', machineType: 'Compressor' }, keys: ['runStatus'] },
+        { op: 'addWidget', type: 'alarms', title: 'All alarms', binding: { mode: 'nodeQuery', node: 'N1', machineType: 'ALL' }, keys: [] },
+      ],
+    }),
+  );
+  await t.page.fill('.dbb-chat-in', 'I am the CEO, give me an overview of all machines');
+  await t.page.keyboard.press('Enter');
+  await t.page.waitForSelector('.dbb-chat-log [data-opt="Replace this dashboard"]', { timeout: 8000 });
+  eq((await t.draft()).widgets.length, 2, 'nothing changed before the choice');
+  await t.click('.dbb-chat-log [data-opt="Replace this dashboard"]');
+  await t.page.waitForFunction(() => window.__b.draft.widgets.some((w) => w.title === 'Compressors') && !window.__b.busy, null, { timeout: 8000 });
+  const d = await t.draft();
+  eq([d.id, d.widgets.map((w) => w.title)], [id, ['Compressors', 'All alarms']], 'replaced in place');
+  eq(await t.b(() => window.__chatReqs.length), 1, 'only one LLM request');
+});
+
+test('chat: starting a new dashboard over unsaved changes asks first', async (t) => {
+  await t.addWidget('value');
+  await t.click('.dbb-right .dbb-tab[data-tab="chat"]');
+  await t.b(() => window.__chatQueue.push({ intent: 'build', reply: 'ok', ops: [{ op: 'startNewDashboard', name: 'New one' }, { op: 'addWidget', type: 'alarms', title: 'A', binding: { mode: 'nodeQuery', node: 'N1', machineType: 'ALL' }, keys: [] }] }));
+  await t.page.fill('.dbb-chat-in', 'start a new dashboard with all alarms');
+  await t.page.keyboard.press('Enter');
+  await t.page.waitForSelector('.dbb-modal :text("Start a new dashboard?")', { timeout: 8000 });
+  await t.page.click('.dbb-modal [data-mb="cancel"]');
+  await t.page.waitForFunction(() => !window.__b.busy);
+  eq((await t.draft()).widgets.length, 1, 'draft kept on cancel');
+  ok(/Not started/.test(await t.page.textContent('.dbb-chat-log')), 'says it was not started');
+});
+
+test('chat: "Replace this dashboard" keeps the id and swaps the widgets', async (t) => {
+  await t.addWidget('value');
+  await t.addWidget('gauge');
+  const id = (await t.draft()).id;
+  await t.click('.dbb-right .dbb-tab[data-tab="chat"]');
+  await t.b(() => window.__chatQueue.push({ intent: 'build', reply: 'Replaced.', ops: [{ op: 'clearWidgets' }, { op: 'addWidget', type: 'line', title: 'Trend', binding: { mode: 'current' }, keys: ['dischargePressure'] }] }));
+  await t.page.fill('.dbb-chat-in', 'Replace this dashboard');
+  await t.page.keyboard.press('Enter');
+  await t.page.waitForFunction(() => window.__b.draft.widgets.length === 1 && !window.__b.busy, null, { timeout: 8000 });
+  eq((await t.draft()).id, id, 'same dashboard');
+  eq((await t.draft()).widgets[0].title, 'Trend', 'widgets replaced');
+});
+
+test('chat: out-of-scope and data questions get a reply, no changes', async (t) => {
+  await t.addWidget('value');
+  await t.click('.dbb-right .dbb-tab[data-tab="chat"]');
+  await t.b(() => window.__chatQueue.push({ intent: 'refuse', reply: 'I can only help with dashboards in this builder, for example: “Show the key values of this machine with an 8-hour trend”.', ops: [] }));
+  await t.page.fill('.dbb-chat-in', 'What is the capital of France?');
+  await t.page.keyboard.press('Enter');
+  await t.page.waitForFunction(() => /only help with dashboards/.test(document.querySelector('.dbb-chat-log')?.textContent ?? '') && !window.__b.busy, null, { timeout: 8000 });
+  eq((await t.draft()).widgets.length, 1, 'no change');
+  await t.b(() => window.__chatQueue.push({ intent: 'help', reply: 'I don’t read live values, but I can add a card that shows it.', ops: [], clarification: { question: 'Add it to the dashboard?', options: ['Add a value card for Discharge pressure', 'No thanks'] } }));
+  await t.page.fill('.dbb-chat-in', 'what is the discharge pressure now?');
+  await t.page.keyboard.press('Enter');
+  await t.page.waitForSelector('.dbb-chat-log [data-opt="No thanks"]', { timeout: 8000 });
+  eq((await t.draft()).widgets.length, 1, 'still no change');
+});
+
+test('chat: invalid parts are skipped and listed instead of failing everything', async (t) => {
+  await t.click('.dbb-right .dbb-tab[data-tab="chat"]');
+  const bad = { intent: 'build', reply: 'Overview built.', ops: [{ op: 'addWidget', type: 'value', title: 'Temp', binding: { mode: 'current' }, keys: ['dischargeTemp'] }, { op: 'addWidget', type: 'gauge', title: 'Vibration', binding: { mode: 'current' }, keys: ['vibration'] }] };
+  await t.b((x) => window.__chatQueue.push(x, x), bad);
+  await t.page.fill('.dbb-chat-in', 'overview');
+  await t.page.keyboard.press('Enter');
+  await t.page.waitForFunction(() => window.__b.draft.widgets.length === 1 && !window.__b.busy, null, { timeout: 10000 });
+  ok(/Some parts could not be built: Skipped “Vibration”: Compressor has no property vibration/.test(await t.page.textContent('.dbb-chat-log')), 'skipped part explained');
+});
+
+test('Widget tab: alarm list can cover all machine types under a location', async (t) => {
+  await t.addWidget('alarms');
+  const w = (await t.draft()).widgets[0];
+  await t.page.check(`.dbb-right input[name="src-${w.id}"][value="nodeQuery"]`);
+  await t.page.selectOption('.dbb-right [data-s="sprof"]', '');
+  eq((await t.draft()).widgets[0].binding.profile, '', 'all machine types');
+  await t.page.waitForTimeout(900);
+  eq(await t.cardErrors(), [], 'renders');
 });
 
 // ------------------------------------------------------------------ machine page (renderer)
@@ -880,6 +1005,100 @@ test('machine page: edit menu opens the builder on the shown dashboard; viewers 
   Object.assign(t, s);
   await t.page.waitForTimeout(1500);
   eq(await t.b(() => window.__imexDbbActions?.items ?? null), null, 'no edit actions for a viewer');
+});
+
+// ------------------------------------------------------------------ D-025
+
+test('builder: a chat-built "This machine" dashboard with no machine picked previews on a machine of that type', async (t) => {
+  await t.page.close();
+  Object.assign(t, await open('page=builder&dev=none'));
+  await t.click('.dbb-right .dbb-tab[data-tab="chat"]');
+  await t.b(() =>
+    window.__chatQueue.push({
+      intent: 'build',
+      reply: 'Built a Compressor overview.',
+      ops: [
+        { op: 'setMachineType', machineType: 'Compressor' },
+        { op: 'addWidget', type: 'kpi', title: 'Discharge pressure', binding: { mode: 'current' }, keys: ['dischargePressure'] },
+        { op: 'addWidget', type: 'line', title: 'Pressure trend', binding: { mode: 'current' }, keys: ['dischargePressure'] },
+      ],
+    }),
+  );
+  await t.page.fill('.dbb-chat-in', 'Show discharge pressure and other KPIs');
+  await t.page.keyboard.press('Enter');
+  await t.page.waitForFunction(() => window.__b.draft.widgets.length === 2 && !window.__b.busy, null, { timeout: 8000 });
+  await t.page.waitForTimeout(1200);
+  const sel = await t.page.inputValue('.dbb-top [data-a="machine"]');
+  ok(['pc', 'rc'].includes(sel), `a Compressor is picked for the preview (${sel})`);
+  ok(!/Open this dashboard for a machine/.test(await t.page.textContent('.dbb-canvas')), 'no "open for a machine" placeholders');
+  ok(/Previewing with/.test(await t.toastText()), 'says which machine it previews with');
+});
+
+async function seedStandalone(t, n) {
+  await t.b((n) => {
+    const now = Date.now();
+    const docs = {};
+    for (let i = 1; i <= n; i++) {
+      const id = 'sa' + i;
+      docs['dbb_d_' + id] = { schemaVersion: 1, id, name: (i === 7 ? 'Energy board ' : 'Fleet board ') + String(i).padStart(2, '0'), kind: 'standalone', profile: null, version: 1, ownerId: 'u1', ownerName: 'Asha', updatedBy: 'Asha', updatedAt: now - i * 1000, timeRange: 'realtime', copiedFrom: null,
+        widgets: [{ id: 'w' + i, type: 'value', title: 'SA VALUE ' + i, x: 0, y: 0, w: 3, h: 2, binding: { mode: 'fixed', deviceIds: ['pc'] }, keys: ['dischargePressure'], settings: {} }] };
+    }
+    // one machine dashboard that must NOT be listed
+    docs.dbb_d_dev1 = { ...docs.dbb_d_sa1, id: 'dev1', name: 'Machine board', kind: 'device', profile: 'Compressor', widgets: [{ ...docs.dbb_d_sa1.widgets[0], binding: { mode: 'current' } }] };
+    window.__tb.setAttrs('ASSET', 'store', docs);
+  }, n);
+}
+
+test('navbar: Dashboard list shows only standalone dashboards, with search and pages; a row opens it on the page', async (t) => {
+  await t.page.close();
+  Object.assign(t, await open('dev=pc'));
+  await seedStandalone(t, 11);
+  await t.page.click('#nav .dbb-launch-btn');
+  await t.page.click('.dbb-emenu [data-m="__list"]');
+  await t.page.waitForSelector('.dbb-modal :text("Dashboard list")');
+  const names = () => t.b(() => [...document.querySelectorAll('.dbb-modal tr[data-id]')].map((r) => r.textContent));
+  let n = await names();
+  eq(n.length, 8, 'first page has 8');
+  ok(!n.some((x) => /Machine board/.test(x)), 'machine dashboards are not listed');
+  ok(/11 dashboards/.test(await t.page.textContent('.dbb-modal [data-count]')), 'count');
+  await t.page.click('.dbb-modal [data-next]');
+  eq((await names()).length, 3, 'second page has 3');
+  ok(await t.page.isDisabled('.dbb-modal [data-next]'), 'no third page');
+  await t.page.fill('.dbb-modal [data-q]', 'energy');
+  n = await names();
+  eq(n.length, 1, 'search by name');
+  ok(/Page 1 of 1/.test(await t.page.textContent('.dbb-modal [data-page]')), 'search resets to page 1');
+  ok(await t.page.$('.dbb-modal [data-edit]'), 'admins get Edit');
+  await t.page.click('.dbb-modal tr[data-id="sa7"]');
+  await t.page.waitForFunction(() => /SA VALUE 7/.test(document.querySelector('.dbb-rbody')?.textContent ?? ''), null, { timeout: 5000 });
+  ok(/Energy board 07/.test(await t.page.textContent('.dbb-rhead')), 'standalone dashboard shown on the page with its name');
+  ok(!(await t.page.$('.dbb-list-layer')), 'dialog closed');
+});
+
+test('navbar: Edit in the Dashboard list opens the builder on that dashboard', async (t) => {
+  await t.page.close();
+  Object.assign(t, await open('dev=pc'));
+  await seedStandalone(t, 3);
+  await t.page.click('#nav .dbb-launch-btn');
+  await t.page.click('.dbb-emenu [data-m="__list"]');
+  await t.page.click('.dbb-modal [data-edit="sa2"]');
+  await t.page.waitForSelector('.dbb-overlay .dbb-top select');
+  await t.page.waitForTimeout(600);
+  eq(await t.page.inputValue('.dbb-top [data-a="name"]'), 'Fleet board 02', 'builder opened on it');
+  eq(await t.page.inputValue('.dbb-top [data-a="machine"]'), '', 'as a standalone dashboard');
+});
+
+test('navbar: viewers get a list icon with only the Dashboard list', async (t) => {
+  await t.page.close();
+  Object.assign(t, await open('dev=pc&role=Viewer'));
+  await seedStandalone(t, 2);
+  await t.page.waitForSelector('#nav .dbb-launch-btn', { state: 'visible' });
+  eq(await t.page.getAttribute('#nav .dbb-launch-btn', 'title'), 'Dashboards', 'list icon for viewers');
+  await t.page.click('#nav .dbb-launch-btn');
+  eq(await t.b(() => [...document.querySelectorAll('.dbb-emenu [data-m]')].map((b) => b.dataset.m)), ['__list'], 'only the Dashboard list');
+  await t.page.click('.dbb-emenu [data-m="__list"]');
+  await t.page.waitForSelector('.dbb-modal tr[data-id]');
+  ok(!(await t.page.$('.dbb-modal [data-edit]')), 'no Edit for viewers');
 });
 
 // ------------------------------------------------------------------ run

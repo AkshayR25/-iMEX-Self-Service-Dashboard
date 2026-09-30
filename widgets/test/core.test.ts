@@ -284,6 +284,223 @@ describe('chat operations', () => {
   });
 });
 
+describe('chat D-024: role requests, guard rails, mixed equipment, lenient apply', () => {
+  const T = (answers: any[]): chat.Transport & { sent: any[] } => {
+    const sent: any[] = [];
+    return { sent, send: async (b) => (sent.push(b), { toolInput: answers[Math.min(sent.length - 1, answers.length - 1)] }) };
+  };
+
+  it('an empty clarification object ({} or empty question) is not an error', () => {
+    const o1 = chat.normaliseToolInput({ reply: 'ok', ops: [], clarification: {} });
+    const o2 = chat.normaliseToolInput({ reply: 'ok', ops: [], clarification: { question: '', options: [] } });
+    expect(o1.clarification).toBeNull();
+    expect(o2.clarification).toBeNull();
+  });
+
+  it('a "where should I build it" question without a clarification object still gets the three buttons', () => {
+    const o = chat.normaliseToolInput({ intent: 'clarify', reply: 'Where should I build your new fleet overview dashboard?', ops: [] });
+    expect(o.clarification?.options).toEqual(['Start a new dashboard', 'Replace this dashboard', 'Add to this dashboard']);
+  });
+
+  it('small-model slips are tolerated: add then refine by the new W alias, updateWidget without widget, name/title swaps', async () => {
+    const ctx = await ctxFor('Admin', ['root']);
+    const cat = chat.buildCatalog(ctx);
+    const rc = cat.byId.get('rc')!;
+    const d0 = store.blankDashboard(ctx, 'x', null);
+    const r = chat.applyOps(
+      ctx,
+      d0,
+      chat.normaliseToolInput({
+        reply: '',
+        ops: [
+          { op: 'startNewDashboard', title: 'Ops board' },
+          { op: 'addWidget', type: 'line' },
+          { op: 'updateWidget', widget: 'W1', keys: ['dischargePressure'], binding: { mode: 'fixed', machines: [rc] } },
+          { op: 'addWidget', type: 'gauge', widget: 'W2' },
+          { op: 'updateWidget', name: 'Temp', keys: ['dischargeTemp'], binding: { mode: 'fixed', machines: [rc] } },
+        ],
+      }),
+      cat,
+    );
+    expect(r.draft.name).toBe('Ops board');
+    expect(r.draft.widgets.map((w) => [w.type, w.title, w.keys[0]])).toEqual(
+      expect.arrayContaining([
+        ['line', '', 'dischargePressure'],
+        ['gauge', 'Temp', 'dischargeTemp'],
+      ]),
+    );
+  });
+
+  it('rewriting one widget to several data sources in one answer is rejected (would silently keep only the last)', async () => {
+    const ctx = await ctxFor('Admin', ['root']);
+    const cat = chat.buildCatalog(ctx);
+    const [rc, rd] = [cat.byId.get('rc')!, cat.byId.get('rd')!];
+    const ops = [
+      { op: 'addWidget', type: 'line', title: 'Mix' },
+      { op: 'updateWidget', widget: 'W1', keys: ['dischargePressure'], binding: { mode: 'fixed', machines: [rc] } },
+      { op: 'updateWidget', widget: 'W1', keys: ['dewPoint'], binding: { mode: 'fixed', machines: [rd] } },
+    ];
+    expect(() => chat.applyOps(ctx, store.blankDashboard(ctx, 'x', null), chat.normaliseToolInput({ reply: '', ops }), cat)).toThrow(/several different data sources/);
+  });
+
+  it('a help answer never changes the draft, even with ops attached', async () => {
+    const ctx = await ctxFor('Admin', ['root']);
+    const d0 = store.blankDashboard(ctx, 'x', 'Compressor');
+    const r = await chat.chatTurn(ctx, T([{ intent: 'help', reply: 'Use Apply to…', ops: [{ op: 'setApplyTarget', target: 'node' }] }]), d0, [], 'how do I apply?', 'rc');
+    expect([r.intent, r.draft, r.attempts]).toEqual(['help', d0, 1]);
+  });
+
+  it('where-guard: a machine dashboard with widgets is not cleared or replaced before the user chooses', async () => {
+    const ctx = await ctxFor('Admin', ['root']);
+    const cat = chat.buildCatalog(ctx);
+    const root = cat.byId.get('root')!;
+    const d0 = { ...store.blankDashboard(ctx, 'Compressor V1', 'Compressor'), version: 2, widgets: [widget({ id: 'a' })] } as any;
+    const ans = {
+      intent: 'build',
+      reply: 'Overview built.',
+      ops: [
+        { op: 'clearWidgets' },
+        { op: 'addWidget', type: 'table', title: 'Compressors', binding: { mode: 'nodeQuery', node: root, machineType: 'Compressor' }, keys: ['runStatus'] },
+        { op: 'addWidget', type: 'alarms', title: 'Alarms', binding: { mode: 'nodeQuery', node: root, machineType: 'ALL' }, keys: [] },
+      ],
+    };
+    const r = await chat.chatTurn(ctx, T([ans]), d0, [], 'I am the CEO, overview of everything', 'rc');
+    expect(r.clarification?.options).toEqual([...chat.WHERE_OPTIONS]);
+    expect(r.draft).toBe(d0);
+    const nw = chat.applyWhere(ctx, d0, r.pending!, 'Start a new dashboard');
+    expect([nw.newDashboard, nw.draft.version, nw.draft.widgets.length]).toEqual([true, 0, 2]);
+    const rp = chat.applyWhere(ctx, d0, r.pending!, 'Replace this dashboard');
+    expect([rp.draft.id, rp.draft.widgets.length]).toEqual([d0.id, 2]);
+    const ad = chat.applyWhere(ctx, d0, r.pending!, 'Add to this dashboard');
+    expect(ad.draft.widgets.map((w) => w.id)).toContain('a');
+    expect(ad.draft.widgets.length).toBe(3);
+    // said where already -> no question
+    const r2 = await chat.chatTurn(ctx, T([ans]), d0, [], 'Replace this dashboard with a CEO overview', 'rc');
+    expect(r2.clarification ?? null).toBeNull();
+    expect(r2.draft.widgets.length).toBe(2);
+  });
+
+  it('help answers that offer to add a widget get yes/no buttons; title inside settings is moved out', () => {
+    const o = chat.normaliseToolInput({ intent: 'help', reply: 'I cannot see live data. Would you like me to add a value card?', ops: [] });
+    expect(o.clarification?.options).toEqual(['Yes, add it', 'No thanks']);
+    const o2 = chat.normaliseToolInput({ reply: '', ops: [{ op: 'addWidget', type: 'line', settings: '{"title":"Trend","timeRange":"1h"}' }] });
+    expect((o2.ops[0] as any).title).toBe('Trend');
+    expect((o2.ops[0] as any).settings.title).toBeUndefined();
+    const o3 = chat.normaliseToolInput({ reply: '', ops: [{ op: 'addWidget', type: 'table', title: 't', machineType: 'Dryer', binding: { mode: 'nodeQuery', node: 'N1' }, keys: ['dewPoint'] }] });
+    expect((o3.ops[0] as any).binding).toEqual({ mode: 'nodeQuery', node: 'N1', machineType: 'Dryer' });
+  });
+
+  it('startNewDashboard gives a new unsaved standalone draft; the old one is untouched', async () => {
+    const ctx = await ctxFor('Admin', ['root']);
+    const cat = chat.buildCatalog(ctx);
+    const d0 = { ...store.blankDashboard(ctx, 'Dryer dashboard (V1)', 'Dryer'), version: 3, widgets: [widget({ id: 'a', keys: ['dewPoint'], binding: { mode: 'current' } })] } as any;
+    const root = cat.byId.get('root')!;
+    const r = chat.applyOps(
+      ctx,
+      d0,
+      chat.normaliseToolInput({
+        intent: 'build',
+        reply: 'Built a fleet overview.',
+        ops: [
+          { op: 'startNewDashboard', name: 'Fleet overview' },
+          { op: 'addWidget', type: 'table', title: 'Compressors', binding: { mode: 'nodeQuery', node: root, machineType: 'Compressor' }, keys: ['runStatus', 'dischargePressure'] },
+          { op: 'addWidget', type: 'alarms', title: 'All alarms', binding: { mode: 'nodeQuery', node: root, machineType: 'ALL' }, keys: [] },
+        ],
+      }),
+      cat,
+    );
+    expect(r.newDashboard).toBe(true);
+    expect(r.draft.id).not.toBe(d0.id);
+    expect([r.draft.version, r.draft.name, r.draft.kind, r.draft.profile]).toEqual([0, 'Fleet overview', 'standalone', null]);
+    expect(r.draft.widgets.map((w) => w.type)).toEqual(expect.arrayContaining(['table', 'alarms']));
+    expect(r.draft.widgets.find((w) => w.type === 'alarms')!.binding).toEqual({ mode: 'nodeQuery', nodeId: 'root', profile: '' });
+    expect(d0.widgets.length).toBe(1);
+  });
+
+  it('startNewDashboard must come first; ALL machine types only for alarm lists', async () => {
+    const ctx = await ctxFor('Admin', ['root']);
+    const cat = chat.buildCatalog(ctx);
+    const d0 = store.blankDashboard(ctx, 'x', null);
+    const root = cat.byId.get('root')!;
+    expect(() => chat.applyOps(ctx, d0, chat.normaliseToolInput({ reply: '', ops: [{ op: 'setTimeRange', range: '8h' }, { op: 'startNewDashboard', name: 'n' }] }), cat)).toThrow(/first op/);
+    expect(() => chat.applyOps(ctx, d0, chat.normaliseToolInput({ reply: '', ops: [{ op: 'addWidget', type: 'table', title: 't', binding: { mode: 'nodeQuery', node: root, machineType: 'ALL' }, keys: ['runStatus'] }] }), cat)).toThrow(/only works for an alarm list/);
+  });
+
+  it('clearWidgets replaces this dashboard (same id, new widgets)', async () => {
+    const ctx = await ctxFor('Admin', ['root']);
+    const cat = chat.buildCatalog(ctx);
+    const d0 = { ...store.blankDashboard(ctx, 'd', 'Compressor'), widgets: [widget({ id: 'a' }), widget({ id: 'b', x: 3 })] } as any;
+    const r = chat.applyOps(ctx, d0, chat.normaliseToolInput({ reply: '', ops: [{ op: 'clearWidgets' }, { op: 'addWidget', type: 'gauge', title: 'T', binding: { mode: 'current' }, keys: ['dischargeTemp'] }] }), cat);
+    expect(r.draft.id).toBe(d0.id);
+    expect(r.draft.widgets.map((w) => w.title)).toEqual(['T']);
+    expect(r.changed.removed.length).toBe(2);
+    expect(r.newDashboard).toBe(false);
+  });
+
+  it('a widget cannot mix keys of different machine types; the catalogue lists shared keys', async () => {
+    const ctx = await ctxFor('Admin', ['root']);
+    const cat = chat.buildCatalog(ctx);
+    expect(Object.keys(JSON.parse(cat.text).sharedKeys)).not.toContain('dischargePressure');
+    const [rc, rd] = [cat.byId.get('rc')!, cat.byId.get('rd')!];
+    const d0 = store.blankDashboard(ctx, 'x', null);
+    expect(() => chat.applyOps(ctx, d0, chat.normaliseToolInput({ reply: '', ops: [{ op: 'addWidget', type: 'line', title: 'Mix', binding: { mode: 'fixed', machines: [rc, rd] }, keys: ['dischargePressure', 'dewPoint'] }] }), cat)).toThrow(/Dryer has no propert/);
+  });
+
+  it('help / refuse answers with no ops leave the draft unchanged and keep the intent', async () => {
+    const ctx = await ctxFor('Admin', ['root']);
+    const d0 = store.blankDashboard(ctx, 'x', 'Compressor');
+    const r = await chat.chatTurn(ctx, T([{ intent: 'refuse', reply: 'I can only help with dashboards in this builder.', ops: [] }]), d0, [], 'Write me a poem', 'rc');
+    expect([r.intent, r.draft, r.attempts]).toEqual(['refuse', d0, 1]);
+  });
+
+  it('after a failed retry the valid ops are applied and the invalid ones reported (lenient)', async () => {
+    const ctx = await ctxFor('Admin', ['root']);
+    const bad = {
+      intent: 'build',
+      reply: 'Overview built.',
+      ops: [
+        { op: 'addWidget', type: 'value', title: 'Temp', binding: { mode: 'current' }, keys: ['dischargeTemp'] },
+        { op: 'addWidget', type: 'gauge', title: 'Vibration', binding: { mode: 'current' }, keys: ['vibration'] },
+        { op: 'addWidget', type: 'nonsense', title: 'X' },
+      ],
+    };
+    const t = T([bad, bad]);
+    const d0 = store.blankDashboard(ctx, 'x', 'Compressor');
+    const r = await chat.chatTurn(ctx, t, d0, [], 'overview', 'rc');
+    expect(r.attempts).toBe(2);
+    expect(r.draft.widgets.map((w) => w.title)).toEqual(['Temp']);
+    expect(r.skipped!.join(' ')).toMatch(/Vibration.*no property vibration/);
+    expect(r.skipped!.join(' ')).toMatch(/unreadable/);
+  });
+
+  it('when nothing is valid the error names the reason', async () => {
+    const ctx = await ctxFor('Admin', ['root']);
+    const bad = { reply: 'x', ops: [{ op: 'addWidget', type: 'gauge', title: 'Vibration', binding: { mode: 'current' }, keys: ['vibration'] }] };
+    await expect(chat.chatTurn(ctx, T([bad]), store.blankDashboard(ctx, 'x', 'Compressor'), [], 'x', 'rc')).rejects.toThrow(/couldn't build that: Compressor has no property vibration/);
+  });
+
+  it('problems the draft already had do not block the model', async () => {
+    const ctx = await ctxFor('Admin', ['root']);
+    // a stored widget with a property the catalogue no longer has
+    const d0 = { ...store.blankDashboard(ctx, 'x', 'Compressor'), widgets: [widget({ id: 'old', type: 'gauge', keys: ['runStatus'] })] } as any;
+    const good = { reply: 'ok', ops: [{ op: 'addWidget', type: 'value', title: 'T', binding: { mode: 'current' }, keys: ['dischargeTemp'] }] };
+    const r = await chat.chatTurn(ctx, T([good]), d0, [], 'add temp', 'rc');
+    expect(r.attempts).toBe(1);
+    expect(r.draft.widgets.length).toBe(2);
+  });
+
+  it('the prompt carries the guard rails, role presets and the where-to-build question', async () => {
+    const ctx = await ctxFor('Admin', ['root']);
+    const cat = chat.buildCatalog(ctx);
+    const p = chat.systemPrompt(ctx, cat, null);
+    expect(p).toMatch(/Everything else is out of scope/);
+    expect(p).toMatch(/Start a new dashboard", "Replace this dashboard", "Add to this dashboard"/);
+    expect(p).toMatch(/Executive \/ CEO/);
+    expect(p).toMatch(/you cannot see values/);
+    expect((chat.TOOL.input_schema as any).required).toContain('intent');
+  });
+});
+
 describe('grid', () => {
   it('pushes overlapping widgets down and compacts', () => {
     const items = [

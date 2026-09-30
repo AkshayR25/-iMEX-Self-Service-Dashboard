@@ -115,6 +115,9 @@ export function stateParam(tbCtx: any, key: string): any {
   }
 }
 
+/** localStorage key (per ThingsBoard dashboard URL) of the state that holds the renderer widget (D-025). */
+export const RSTATE_KEY = () => `dbb_rstate_${location.pathname}`;
+
 /** Window event meaning "stored dashboards or assignments changed"; listeners reload with force. */
 export const CHANGED_EVENT = 'imex-dbb:changed';
 /** Fires CHANGED_EVENT on `window`, reaching every widget (every library copy) on the page. */

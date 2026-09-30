@@ -47,7 +47,7 @@ import * as scope from '../core/scope';
 import type { UserContext } from '../core/scope';
 import * as store from '../core/store';
 import * as chat from '../core/chat';
-import { Dashboard, Widget, WidgetType, WIDGET_TYPES, WIDGET_LABELS, WIDGET_CAPS, WIDGET_GROUPS, CONTENT_TYPES, DEFAULT_SIZE, TIME_RANGES, HISTORIC_RANGES, MAX_WIDGETS, MAX_KEYS, MAX_DEVICES, normalizeRange, rangeLabel, checkDashboard, dashboardKind, newId } from '../core/schema';
+import { RELATIVE_MODES, Dashboard, Widget, WidgetType, WIDGET_TYPES, WIDGET_LABELS, WIDGET_CAPS, WIDGET_GROUPS, CONTENT_TYPES, DEFAULT_SIZE, TIME_RANGES, HISTORIC_RANGES, MAX_WIDGETS, MAX_KEYS, MAX_DEVICES, normalizeRange, rangeLabel, checkDashboard, dashboardKind, newId } from '../core/schema';
 import { Grid, GRID_CSS, firstFit, resolveCollisions } from '../render/grid';
 import { CSS, ensureCss, esc, el, applyTheme, PRESETS, loadFont, miniMarkdown as miniToHtml } from '../render/theme';
 import { bindingLabel, defaultWidgets, keyMeta } from '../render/widgets';
@@ -169,6 +169,8 @@ class Builder {
   preChat: string | null = null;
   /** Apply target suggested by chat; the Apply dialog opens with it pre-selected after the next Save. */
   pendingApply: chat.ApplyProposal | null = null;
+  /** Answer held back until the user says where to build it (chat.needsWhere, D-024), with the draft it was made for. */
+  pendingWhere: { out: chat.LlmOutput; draftJson: string } | null = null;
   /** Widget ids briefly highlighted on the canvas ("Highlight" link in chat). */
   highlight = new Set<string>();
   /** True while a REST call or chat turn is in flight (spinner shown, chat Send disabled). */
@@ -512,6 +514,7 @@ class Builder {
     this.redo = [];
     d.kind = dashboardKind(d.widgets);
     this.draft = d;
+    this.autoPreview();
     this.renderTop();
     this.renderCanvas();
     if (opts.panel) this.renderRight();
@@ -541,8 +544,25 @@ class Builder {
       <div class="dbb-busy" hidden><div class="dbb-spin"></div><span></span></div>`;
   }
 
+  /**
+   * D-025: a draft with "This machine" widgets but no machine picked shows only "Open this dashboard for a
+   * machine" placeholders. Pick the first in-scope machine of the draft's type for the preview (as Open
+   * does), so a dashboard built by chat, a template or a type change shows data at once. The user can
+   * still switch machine at the top. Returns true when it picked one.
+   */
+  autoPreview(): boolean {
+    if (this.deviceId || !this.draft.profile || !this.draft.widgets.some((w) => RELATIVE_MODES.has(w.binding.mode))) return false;
+    const dev = scope.allDevices(this.ctx, this.draft.profile)[0];
+    if (!dev) return false;
+    this.deviceId = dev.id;
+    this.source = null;
+    if (this.root) toast(this.root, `Previewing with ${dev.label}. Pick another ${this.draft.profile} at the top if you like.`, 'ok');
+    return true;
+  }
+
   /** Redraws every region. */
   renderAll() {
+    this.autoPreview();
     this.renderTop();
     this.renderBanner();
     this.renderLeft();
@@ -1065,7 +1085,9 @@ class Builder {
 
     const srcOpt = (mode: string, label: string, allowed = true) =>
       allowed ? `<label class="dbb-check"><input type="radio" name="src-${w.id}" value="${mode}" ${b.mode === mode ? 'checked' : ''}/> <span>${label}</span></label>` : '';
-    const profSel = (cur: string | undefined, a: string) => `<select data-s="${a}">${allProfiles.map((p) => `<option ${p === cur ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select>`;
+    // The alarm list may cover every machine type under a location (profile '' = all types, D-024).
+    const profSel = (cur: string | undefined, a: string) =>
+      `<select data-s="${a}">${w.type === 'alarms' && a === 'sprof' && b.mode === 'nodeQuery' ? `<option value="" ${cur === '' ? 'selected' : ''}>All machine types</option>` : ''}${allProfiles.map((p) => `<option ${p === cur ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select>`;
     // A type is greyed out when none of the source's properties can be shown with it.
     const typeOpts = WIDGET_GROUPS.map(
       (g) =>
@@ -1573,23 +1595,39 @@ class Builder {
     this.busy = true;
     this.renderRight();
     const before = JSON.stringify(this.draft);
+    // A held-back answer + one of the three "where" buttons: apply it locally, no second LLM call.
+    const held = this.pendingWhere && this.pendingWhere.draftJson === before && (chat.WHERE_OPTIONS as readonly string[]).includes(text) ? this.pendingWhere : null;
+    this.pendingWhere = null;
     try {
-      const res = await chat.chatTurn(this.ctx, chat.ruleChainTransport(this.ctx), this.draft, this.chatHistory, text, this.deviceId);
-      this.chatHistory.push({ role: 'user', content: text }, { role: 'assistant', content: res.reply || '(ok)' });
+      const res = held
+        ? { ...chat.applyWhere(this.ctx, this.draft, held.out, text), attempts: 0, usage: undefined }
+        : await chat.chatTurn(this.ctx, chat.ruleChainTransport(this.ctx), this.draft, this.chatHistory, text, this.deviceId);
+      if (res.pending) this.pendingWhere = { out: res.pending, draftJson: before };
+      // The model must see its own question and options on the next turn, or an option click has no context (D-024).
+      const said = res.clarification ? `${res.clarification.question || res.reply} Options: ${res.clarification.options.join(' | ')}` : res.reply || '(ok)';
+      this.chatHistory.push({ role: 'user', content: text }, { role: 'assistant', content: said });
       const changedCount = res.changed.added.length + res.changed.updated.length + res.changed.removed.length;
       if (res.clarification) {
         this.chatLog.push({ role: 'assistant', text: res.clarification.question || res.reply, options: res.clarification.options });
+      } else if (res.newDashboard && this.dirty() && !(await confirmModal(this.root, 'Start a new dashboard?', `“${this.draft.name}” has changes that are not saved. The assistant will start a new dashboard; you can go back with Undo.`, 'Start new'))) {
+        this.chatLog.push({ role: 'system', text: 'Not started: the current dashboard has unsaved changes. Save it first, or ask again and choose “Start new”.' });
       } else {
         // Also commit when only layout/dashboard fields changed (no widget added/updated/removed).
         if (changedCount || JSON.stringify(res.draft) !== before) {
           if (!this.preChat) this.preChat = before;
           this.commit(res.draft);
+          // A new dashboard is not what the open machine shows, and has no usage yet.
+          if (res.newDashboard) {
+            this.usageInfo = null;
+            this.renderBanner();
+          }
         }
         this.chatLog.push({ role: 'assistant', text: [res.reply, ...res.warnings].filter(Boolean).join(' '), changed: changedCount ? res.changed : undefined });
+        if (res.skipped?.length) this.chatLog.push({ role: 'system', text: `Some parts could not be built: ${res.skipped.join(' ')}` });
         if (res.applyProposal) this.pendingApply = res.applyProposal;
         if (res.applyProposal) this.chatLog.push({ role: 'system', text: 'When you press Save, the Apply dialog will open with this target selected.' });
       }
-      void audit(this.ctx, 'chat', { message: text, ops: res.changed, ok: true, attempts: res.attempts, usage: res.usage });
+      void audit(this.ctx, 'chat', { message: text, ops: res.changed, ok: true, intent: res.intent, attempts: res.attempts, skipped: res.skipped, usage: res.usage });
     } catch (e: any) {
       this.chatLog.push({ role: 'assistant', text: e.message || "I couldn't build that; try rephrasing." });
       void audit(this.ctx, 'chat', { message: text, ok: false, error: String(e.message ?? e) });

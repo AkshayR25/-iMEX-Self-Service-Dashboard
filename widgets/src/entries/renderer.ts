@@ -39,7 +39,7 @@ import { openBuilder } from '../builder/builder';
 import { BUILDER_CSS } from '../builder/styles';
 import { modal, confirmModal, toast } from '../builder/ui';
 import { audit } from '../core/audit';
-import { userContext, currentEntity, currentParam, CHANGED_EVENT, notifyChanged, publishActions, EditAction, scheduleRedraw } from './common';
+import { userContext, currentEntity, currentParam, RSTATE_KEY, CHANGED_EVENT, notifyChanged, publishActions, EditAction, scheduleRedraw } from './common';
 
 const R_CSS = `
 .dbb-rend{height:100%;display:flex;flex-direction:column;background:var(--plane);position:relative}
@@ -89,6 +89,13 @@ export function init(tbCtx: any) {
     ticks?: number;
   } = {};
   (tbCtx as any).__dbb = st;
+  // Remember which dashboard state holds this widget, so the navbar's Dashboard list can open it (D-025).
+  try {
+    const sid = tbCtx.stateController?.getStateId?.();
+    if (sid) localStorage.setItem(RSTATE_KEY(), sid);
+  } catch {
+    /* ignore */
+  }
   host.innerHTML = `<div class="dbb-root dbb-rend" id="${id}"><div class="dbb-rhead"><div class="dbb-ph" style="height:auto">Loading…</div></div><div class="dbb-rbody"><div class="dbb-rgrid"></div></div></div>`;
   const root = host.querySelector('.dbb-rend') as HTMLElement;
   const head = root.querySelector('.dbb-rhead') as HTMLElement;
