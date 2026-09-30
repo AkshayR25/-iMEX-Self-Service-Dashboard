@@ -28,9 +28,10 @@ export const settingsSchemas = {
         chatEnabledRoles: { title: 'Chat only for roles (comma separated, empty = all)', type: 'string', default: '' },
         hideForRoles: { title: 'Hide the edit icon for roles (comma separated)', type: 'string', default: '' },
         dashboardList: { title: 'Show "Dashboard list" (standalone dashboards) to every user', type: 'boolean', default: true },
+        overviewState: { title: 'Dashboard Overview state id (standalone dashboards)', type: 'string', default: 'dashboard_overview' },
       },
     },
-    form: ['label', 'adminOnly', 'navbar', 'appName', 'homeState', 'homeLabel', 'listingState', 'listingLabel', 'machineState', 'machineLabel', 'customerId', 'lightStyle', 'chatEnabled', 'chatEnabledRoles', 'hideForRoles', 'dashboardList'],
+    form: ['label', 'adminOnly', 'navbar', 'appName', 'homeState', 'homeLabel', 'listingState', 'listingLabel', 'machineState', 'machineLabel', 'customerId', 'lightStyle', 'chatEnabled', 'chatEnabledRoles', 'hideForRoles', 'dashboardList', 'overviewState'],
   },
   renderer: {
     schema: { type: 'object', properties: { refreshSeconds: { title: 'Refresh every (s)', type: 'number', default: 10 }, chatEnabled: { title: 'Enable chat in builder', type: 'boolean', default: true }, customerId: { title: 'Customer id for tenant admins', type: 'string', default: '' } } },

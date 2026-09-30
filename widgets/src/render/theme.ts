@@ -257,6 +257,7 @@ export const CSS = `
 .dbb-table td .cell{display:inline-block;border-radius:6px;padding:1px 7px}
 .dbb-scroll{height:100%;overflow:auto}
 .dbb-md{height:100%;overflow:auto;line-height:1.45;word-wrap:break-word}
+[style*="--card-justify"] .dbb-md{display:flex;flex-direction:column;justify-content:var(--card-justify)}
 .dbb-md h1,.dbb-md h2,.dbb-md h3,.dbb-md h4{margin:0 0 4px;font-weight:600;line-height:1.2}
 .dbb-md h1{font-size:24px}.dbb-md h2{font-size:18px}.dbb-md h3{font-size:15px}.dbb-md h4{font-size:13px}
 .dbb-md p,.dbb-md div{margin:0 0 4px}.dbb-md ul,.dbb-md ol{margin:0 0 6px;padding-left:20px}

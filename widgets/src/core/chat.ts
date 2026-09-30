@@ -29,6 +29,7 @@
 // and a user who can write `dbb_chat_req` directly can use the relay. The prompt treats catalogue
 // and draft text as data to limit prompt injection through entity labels.
 
+import { designPass, sizeWidget } from './design';
 import { z } from 'zod';
 import * as api from './api';
 import type { UserContext, Node } from './scope';
@@ -179,6 +180,8 @@ export interface ChatResult {
   /** D-024: ops dropped by the lenient apply after a failed retry, in plain words. */
   skipped?: string[];
   intent?: LlmOutput['intent'];
+  /** D-026: the answer built a fresh dashboard (new, replaced, or on an empty draft); the design pass runs on it. */
+  fresh?: boolean;
 }
 
 /** Draft as the LLM sees it: widget aliases W1.., bindings with catalog aliases, never raw ids. */
@@ -407,6 +410,7 @@ export function applyOps(
     // the model must call setMachineType (this error is sent back to it on the retry)
     errs.push('The dashboard uses "this machine" bindings but has no machine type; call setMachineType.');
   }
+  for (const w of d.widgets) if (changed.added.includes(w.id)) sizeWidget(ctx, w);
   autoPlace(d, new Set(changed.added));
   const parsed = Dashboard.safeParse(d);
   if (!parsed.success) errs.push(...parsed.error.issues.slice(0, 8).map((i) => `${i.path.join('.')}: ${i.message}`));
@@ -414,7 +418,8 @@ export function applyOps(
   // Problems the draft already had before this turn don't block the model's changes.
   const fresh = opts.ignore ? errs.filter((e) => !opts.ignore!.has(e)) : errs;
   if (fresh.length) throw new OpsError(fresh);
-  return { draft: parsed.success ? parsed.data : d, reply: out.reply, clarification: out.clarification ?? null, applyProposal, changed, warnings, newDashboard, intent: out.intent };
+  const isFresh = newDashboard || out.ops.some((o) => o.op === 'clearWidgets') || (draft.widgets.length === 0 && changed.added.length > 0);
+  return { draft: parsed.success ? parsed.data : d, reply: out.reply, clarification: out.clarification ?? null, applyProposal, changed, warnings, newDashboard, intent: out.intent, fresh: isFresh };
 }
 
 /** Problems a draft already has (checkDashboard with property kinds); ignored when judging the model's ops. */
@@ -481,6 +486,7 @@ export function applyOpsLenient(ctx: UserContext, draft: Dashboard, out: LlmOutp
       acc.changed.removed.push(...r.changed.removed);
       acc.warnings.push(...r.warnings);
       if (r.applyProposal) acc.applyProposal = r.applyProposal;
+      if (r.fresh || r.newDashboard) acc.fresh = true;
     } catch (e: any) {
       const why = e instanceof OpsError ? e.problems.map(plainProblem).join(' ') : String(e?.message ?? e);
       const what = o.op === 'addWidget' ? `“${o.title || o.type}”` : o.op === 'updateWidget' ? `the change to ${o.widget}` : o.op;
@@ -490,6 +496,7 @@ export function applyOpsLenient(ctx: UserContext, draft: Dashboard, out: LlmOutp
   const any = acc.changed.added.length + acc.changed.updated.length + acc.changed.removed.length > 0 || acc.newDashboard || JSON.stringify(cur) !== JSON.stringify(draft);
   if (!any) throw new OpsError(acc.skipped!);
   acc.draft = cur;
+  if (draft.widgets.length === 0 && acc.changed.added.length) acc.fresh = true;
   return acc;
 }
 
@@ -576,7 +583,7 @@ export function systemPrompt(ctx: UserContext, cat: Catalog, currentMachineAlias
     '- On the machine page the pencil menu has: Edit this dashboard, Customise for this machine (own copy), Reset to shared dashboard, Alarm thresholds, Show dashboard (switch between dashboards that apply). Standalone dashboards are opened from the Dashboards section of the listing page.',
     '',
     'ROLE AND FLEET REQUESTS (e.g. "I am the CEO, give me an overview of all machines", "create a manager dashboard", "dashboard for a technician"):',
-    '- Presets. Executive / CEO / owner / director: fleet overview across every location in the CATALOG: a text header (name of the organisation, {{time}}), per machine type one table (binding nodeQuery on the top node, that type, its 2-4 most important properties, a run/state property first if there is one), one alarm list for all machines (binding nodeQuery, top node, machineType "ALL"), and at most one trend of a property that several machines share. Manager / plant / site / production manager: the same per location (use the location the user names; if none, all locations, one table per machine type), plus one trend line comparing machines of the most common type. Operator / technician / maintenance / engineer: one machine in detail (the open machine, or the one named): status, 2-4 value or gauge cards of key properties, one trend of 2-4 properties, service or running-hours counters if present, and its alarm list. Energy: power and energy properties. Quality: temperatures, pressures and flows against rules.',
+    '- Presets. Executive / CEO / owner / director: fleet overview across every location in the CATALOG, laid out to fill the page: a short text header (the organisation or dashboard name only; the app turns it into a coloured banner), 2-4 kpi or value cards of the headline numbers (e.g. total power, average pressure, running hours of the busiest machine; one machine or one location each), per machine type one table (binding nodeQuery on the top node, that type, its 2-4 most important properties, a run/state property first if there is one), one alarm list for all machines (binding nodeQuery, top node, machineType "ALL"), and at most one trend of a property that several machines share. Stay within the widget limit; the app sizes tables to their rows, adds Running/Stopped status cards when there is room, and colours each machine type. Manager / plant / site / production manager: the same per location (use the location the user names; if none, all locations, one table per machine type), plus one trend line comparing machines of the most common type. Operator / technician / maintenance / engineer: one machine in detail (the open machine, or the one named): status, 2-4 value or gauge cards of key properties, one trend of 2-4 properties, service or running-hours counters if present, and its alarm list. Energy: power and energy properties. Quality: temperatures, pressures and flows against rules.',
     '- Where to build it. If the DRAFT already has widgets and is a machine dashboard (machineType set), and the user has not said where, do NOT build yet: set intent "clarify" and set clarification = {"question": "Where should I build it?", "options": ["Start a new dashboard", "Replace this dashboard", "Add to this dashboard"]} (the clarification object is required; the reply may repeat the question). Then, depending on the answer: new = first op startNewDashboard {name} and build with fixed / nodeQuery bindings (no "current"), replace = first op clearWidgets then build, add = only add widgets (stay within the limit). If the DRAFT is empty or already a standalone dashboard, build directly without asking.',
     '- Never answer a role request with an error or an empty reply: build the preset, or ask one clarification question.',
     '',
@@ -927,7 +934,7 @@ export async function chatTurn(
       // An answer (help) or a refusal never changes the draft, even if the model also sent ops.
       if (!out.ops.length || out.intent === 'help' || out.intent === 'refuse') return { draft, reply: out.reply, clarification: null, changed: none, warnings: [], attempts: attempt, usage, intent: out.intent ?? 'help' };
       if (needsWhere(base, out, message)) return { draft, reply: 'Where should I build it?', clarification: { question: 'Where should I build it?', options: [...WHERE_OPTIONS] }, changed: none, warnings: [], attempts: attempt, usage, intent: 'clarify', pending: out };
-      const res = applyOps(ctx, base, out, cat, { ignore });
+      const res = polish(ctx, applyOps(ctx, base, out, cat, { ignore }));
       return { ...res, attempts: attempt, usage };
     } catch (e: any) {
       lastProblems = e instanceof OpsError ? e.problems : e?.issues ? e.issues.slice(0, 6).map((i: any) => `${i.path?.join('.')}: ${i.message}`) : [String(e?.message ?? e)];
@@ -938,7 +945,7 @@ export async function chatTurn(
           const { out, dropped } = normaliseLenient(toolInput);
           if (out.clarification) return { draft, reply: out.reply, clarification: out.clarification, changed: none, warnings: [], attempts: 2, usage, intent: 'clarify' };
           if (needsWhere(base, out, message)) return { draft, reply: 'Where should I build it?', clarification: { question: 'Where should I build it?', options: [...WHERE_OPTIONS] }, changed: none, warnings: [], attempts: 2, usage, intent: 'clarify', pending: out };
-          const res = applyOpsLenient(ctx, base, out, cat);
+          const res = polish(ctx, applyOpsLenient(ctx, base, out, cat));
           return { ...res, skipped: [...dropped, ...(res.skipped ?? [])], attempts: 2, usage };
         } catch (e2: any) {
           if (e2 instanceof OpsError) lastProblems = e2.problems;
@@ -989,10 +996,16 @@ export function applyWhere(ctx: UserContext, draft: Dashboard, pending: LlmOutpu
   const ops = where === 'new' ? [...head, ...body] : [...head, ...body.filter((o) => o.op !== 'renameDashboard')];
   const out: LlmOutput = { ...pending, ops, clarification: null };
   try {
-    return applyOps(ctx, draft, out, cat, { ignore: existingProblems(ctx, draft) });
+    return polish(ctx, applyOps(ctx, draft, out, cat, { ignore: existingProblems(ctx, draft) }));
   } catch {
-    return applyOpsLenient(ctx, draft, out, cat);
+    return polish(ctx, applyOpsLenient(ctx, draft, out, cat));
   }
+}
+
+/** D-026: runs the design pass on a fresh dashboard (see core/design.ts); other drafts are returned as they are. */
+export function polish<T extends ChatResult>(ctx: UserContext, res: T): T {
+  if (res.fresh) res.draft = designPass(ctx, res.draft);
+  return res;
 }
 
 /** Up to 4 example requests for an empty chat, based on the current machine and the first 'Site' asset in scope. */

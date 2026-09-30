@@ -63,10 +63,24 @@ let state: any = { entityId: { id: new URLSearchParams(location.search).get('dev
   u.searchParams.set('state', b64);
   history.replaceState(null, '', u.toString());
 };
+// States of the fake app dashboard; ?noOverview=1 simulates an app without the Dashboard Overview state.
+const states = ['default', 'listing', 'machine', ...(new URLSearchParams(location.search).get('noOverview') ? [] : ['dashboard_overview'])];
+let stateId = 'machine';
+(window as any).__stateId = () => stateId;
 const mk = (sel: string, settings: any) => ({
   $container: [document.querySelector(sel)],
   settings,
-  stateController: { getStateParams: () => state, openState: (_s: string, p: any) => { state = p; renderer.onStateChanged(rctx); } },
+  stateController: {
+    getStateParams: () => state,
+    getStateId: () => stateId,
+    // Like ThingsBoard: opening an unknown state does nothing.
+    openState: (s: string, p: any) => {
+      if (!states.includes(s)) return;
+      stateId = s;
+      state = p;
+      renderer.onStateChanged(rctx);
+    },
+  },
 });
 const rctx = mk('#body', {});
 launcher.init(mk('#nav', { navbar: true, appName: 'iMEX · ITHENA' }));

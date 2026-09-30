@@ -89,13 +89,16 @@ export function init(tbCtx: any) {
     ticks?: number;
   } = {};
   (tbCtx as any).__dbb = st;
-  // Remember which dashboard state holds this widget, so the navbar's Dashboard list can open it (D-025).
-  try {
-    const sid = tbCtx.stateController?.getStateId?.();
-    if (sid) localStorage.setItem(RSTATE_KEY(), sid);
-  } catch {
-    /* ignore */
-  }
+  // Remember which dashboard state shows machines, as a fallback for the navbar's Dashboard list when the
+  // app has no "Dashboard Overview" state (D-025/D-026). Only recorded while a machine is shown.
+  const rememberState = () => {
+    try {
+      const sid = tbCtx.stateController?.getStateId?.();
+      if (sid) localStorage.setItem(RSTATE_KEY(), sid);
+    } catch {
+      /* ignore */
+    }
+  };
   host.innerHTML = `<div class="dbb-root dbb-rend" id="${id}"><div class="dbb-rhead"><div class="dbb-ph" style="height:auto">Loading…</div></div><div class="dbb-rbody"><div class="dbb-rgrid"></div></div></div>`;
   const root = host.querySelector('.dbb-rend') as HTMLElement;
   const head = root.querySelector('.dbb-rhead') as HTMLElement;
@@ -122,7 +125,7 @@ export function init(tbCtx: any) {
       if (ent?.entityType === 'DEVICE') await showDevice(ctx, ent.id, stale);
       else if (standaloneId) await showStandalone(ctx, standaloneId, stale);
       else {
-        head.innerHTML = `<div class="dbb-ph" style="height:auto">Open a machine to see its dashboard.</div>`;
+        head.innerHTML = `<div class="dbb-ph" style="height:auto">Open a machine, or pick a dashboard from the Dashboard list in the navbar menu.</div>`;
         st.grid?.render([]);
         publishActions(id, null);
       }
@@ -160,6 +163,7 @@ export function init(tbCtx: any) {
    */
   async function showDevice(ctx: UserContext, deviceId: string, stale: () => boolean) {
     st.deviceId = deviceId;
+    rememberState();
     const node = ctx.nodes.get(deviceId);
     if (!node) {
       head.innerHTML = `<div class="dbb-banner warn">This machine is outside your access.</div>`;
@@ -274,7 +278,7 @@ export function init(tbCtx: any) {
     publishActions(
       id,
       ctx.isAdmin
-        ? { el: root, title: d.name, subtitle: `By ${d.ownerName}`, items: [{ id: 'edit', label: 'Edit this dashboard', icon: 'edit' }], run: () => openBuilder({ ctx, dashboardId: d.id, onClose: (ch) => ch && notifyChanged() }) }
+        ? { el: root, title: d.name, subtitle: `Dashboard overview · by ${d.ownerName}`, items: [{ id: 'edit', label: 'Edit this dashboard', hint: `Opens “${d.name}” in the Dashboard Builder`, icon: 'edit' }], run: () => openBuilder({ ctx, dashboardId: d.id, chatEnabled: tbCtx.settings?.chatEnabled !== false, onClose: (ch) => ch && notifyChanged() }) }
         : null,
     );
   }

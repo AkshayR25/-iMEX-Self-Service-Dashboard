@@ -11,6 +11,8 @@
 //   label            tooltip / aria-label of the edit icon
 //   adminOnly        show the icon to admins only (default true; D-017). `false` shows it to everyone.
 //   hideForRoles     comma-separated roles that never see the icon
+//   overviewState    state id that shows standalone dashboards (default 'dashboard_overview', named
+//                    "Dashboard Overview", D-026); it holds the machine dashboard widget like the machine state
 //   dashboardList    (default true) every user gets the icon with "Dashboard list" (standalone dashboards,
 //                    D-025); users who can't edit see a list icon and only that item
 //   navbar           true = full stand-in navbar (app name, Map/Listing links, state chip, breadcrumb,
@@ -28,8 +30,6 @@
 // Admin checks here (icon visibility, open()) are UI-only; a customer user can still write attributes
 // through the REST API (D-012).
 import { openBuilder } from '../builder/builder';
-import { BUILDER_CSS } from '../builder/styles';
-import { modal } from '../builder/ui';
 import * as store from '../core/store';
 import { CSS, ensureCss, esc, loadFont } from '../render/theme';
 import { userContext, stateEntity, notifyChanged, currentState, currentActions, ACTIONS_EVENT, EditAction, RSTATE_KEY } from './common';
@@ -121,10 +121,12 @@ export async function open(tbCtx: any, opts: { deviceId?: string | null; dashboa
   const chatEnabled = settings.chatEnabled !== false && (!chatRoles.length || chatRoles.includes(ctx.role.toLowerCase()));
   const cp = currentState(tbCtx).params ?? {};
   const ent = cp.entityId?.id ? { id: cp.entityId.id, entityType: cp.entityId.entityType } : stateEntity(tbCtx);
+  // On the Dashboard Overview state the builder opens the standalone dashboard shown there (D-026).
+  const shown = !ent && typeof cp.dbbDashboardId === 'string' ? cp.dbbDashboardId : null;
   openBuilder({
     ctx,
     deviceId: opts.deviceId ?? (ent?.entityType === 'DEVICE' ? ent.id : null),
-    dashboardId: opts.dashboardId ?? null,
+    dashboardId: opts.dashboardId ?? shown,
     chatEnabled,
     onClose: (changed) => changed && notifyChanged(),
   });
@@ -167,7 +169,7 @@ export function init(tbCtx: any) {
     const stateEl = host.querySelector('.dbb-nav-state') as HTMLElement;
     // Current dashboard state shown in the navbar ("Map page" / "Listing page" / "Machine page").
     const stateTitles: Record<string, string> = Object.assign(
-      { [s.homeState || 'default']: s.homeLabel || 'Map page', [s.listingState || 'listing']: s.listingLabel || 'Listing page', [s.machineState || 'machine']: s.machineLabel || 'Machine page' },
+      { [s.homeState || 'default']: s.homeLabel || 'Map page', [s.listingState || 'listing']: s.listingLabel || 'Listing page', [s.machineState || 'machine']: s.machineLabel || 'Machine page', [s.overviewState || 'dashboard_overview']: 'Dashboard Overview' },
       typeof s.stateTitles === 'object' && s.stateTitles ? s.stateTitles : {},
     );
     let lastKey = '';
@@ -321,91 +323,253 @@ export function init(tbCtx: any) {
 /** Rows per page in the Dashboard list. */
 const LIST_PAGE = 8;
 
+// Dashboard list styles (D-026). Self-contained and scoped under .dbb-dl, with resets, so the host app's
+// global CSS (Material buttons, table and input styles) can't restyle it. Injected once with ensureCss.
+const DL_CSS = `
+.dbb-dl{position:fixed;inset:0;z-index:10040;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(9,20,40,.46);backdrop-filter:blur(3px);animation:dbb-dl-fade .14s ease-out}
+.dbb-dl,.dbb-dl *{box-sizing:border-box;font-family:Inter,"Segoe UI",Roboto,Arial,sans-serif;letter-spacing:normal;text-transform:none;line-height:1.35}
+@keyframes dbb-dl-fade{from{opacity:0}}
+@keyframes dbb-dl-up{from{opacity:0;transform:translateY(10px) scale(.985)}}
+.dbb-dl button{all:unset;box-sizing:border-box;cursor:pointer;font-family:inherit}
+.dbb-dl input{all:unset;box-sizing:border-box;font-family:inherit}
+.dbb-dl svg{display:block}
+.dbb-dl .box{width:min(760px,100%);max-height:min(720px,92vh);display:flex;flex-direction:column;background:#fff;color:#0f1a2a;border-radius:18px;box-shadow:0 24px 64px rgba(9,20,40,.32),0 2px 8px rgba(9,20,40,.12);overflow:hidden;animation:dbb-dl-up .18s ease-out}
+.dbb-dl .hd{display:flex;align-items:center;gap:14px;padding:20px 22px 14px}
+.dbb-dl .logo{width:42px;height:42px;border-radius:12px;display:flex;align-items:center;justify-content:center;color:#fff;background:linear-gradient(135deg,#2a78d6,#6d4ce0);box-shadow:0 6px 16px rgba(42,120,214,.35);flex:none}
+.dbb-dl .logo svg{width:22px;height:22px}
+.dbb-dl .ttl{flex:1;min-width:0}
+.dbb-dl .ttl b{display:block;font-size:18px;font-weight:700;color:#0f1a2a}
+.dbb-dl .ttl span{display:block;font-size:13px;color:#667085;margin-top:2px}
+.dbb-dl .x{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;color:#667085}
+.dbb-dl .x:hover{background:#f2f4f7;color:#0f1a2a}
+.dbb-dl .x svg{width:18px;height:18px}
+.dbb-dl .tools{display:flex;gap:10px;align-items:center;padding:0 22px 14px}
+.dbb-dl .search{flex:1;display:flex;align-items:center;gap:8px;height:40px;padding:0 12px;border:1px solid #e4e7ec;border-radius:11px;background:#f9fafb;transition:border-color .12s,box-shadow .12s,background .12s}
+.dbb-dl .search:focus-within{border-color:#2a78d6;background:#fff;box-shadow:0 0 0 4px rgba(42,120,214,.14)}
+.dbb-dl .search svg{width:16px;height:16px;color:#98a2b3;flex:none}
+.dbb-dl .search input{flex:1;height:100%;font-size:14px;color:#0f1a2a}
+.dbb-dl .search input::placeholder{color:#98a2b3}
+.dbb-dl .seg{display:flex;background:#f2f4f7;border-radius:10px;padding:3px}
+.dbb-dl .seg button{padding:7px 11px;border-radius:8px;font-size:12.5px;font-weight:500;color:#475467;white-space:nowrap}
+.dbb-dl .seg button.on{background:#fff;color:#0f1a2a;box-shadow:0 1px 3px rgba(16,24,40,.12)}
+.dbb-dl .list{flex:1;overflow:auto;padding:4px 14px 8px;border-top:1px solid #eef0f3}
+.dbb-dl .row{display:flex;align-items:center;gap:14px;padding:9px 10px;border-radius:12px;cursor:pointer;outline:none;transition:background .12s}
+.dbb-dl .row + .row{border-top:1px solid #f2f4f7}
+.dbb-dl .row:hover,.dbb-dl .row:focus-visible{background:#f4f8fe}
+.dbb-dl .row:hover + .row,.dbb-dl .row:focus-visible + .row{border-top-color:transparent}
+.dbb-dl .av{width:40px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;color:#fff;flex:none}
+.dbb-dl .main{flex:1;min-width:0}
+.dbb-dl .nm{display:flex;align-items:center;gap:8px;font-size:14.5px;font-weight:600;color:#0f1a2a}
+.dbb-dl .nm span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dbb-dl .nm mark{all:unset;background:#fff3c4;border-radius:3px}
+.dbb-dl .badge{flex:none;font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;background:#f2f4f7;color:#475467}
+.dbb-dl .badge.priv{background:#fef0c7;color:#93370d}
+.dbb-dl .meta{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;margin-top:4px;font-size:12.5px;color:#667085}
+.dbb-dl .meta i{font-style:normal;display:inline-flex;align-items:center;gap:5px}
+.dbb-dl .meta svg{width:13px;height:13px;color:#98a2b3}
+.dbb-dl .own{width:18px;height:18px;border-radius:50%;background:#e0eaff;color:#2a55b8;font-size:9.5px;font-weight:700;display:inline-flex;align-items:center;justify-content:center}
+.dbb-dl .acts{display:flex;gap:8px;flex:none}
+.dbb-dl .btn{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 13px;border-radius:9px;font-size:13px;font-weight:600;white-space:nowrap}
+.dbb-dl .btn svg{width:15px;height:15px}
+.dbb-dl .btn.open{background:#2a78d6;color:#fff;box-shadow:0 1px 2px rgba(16,24,40,.14)}
+.dbb-dl .btn.open:hover{background:#1f66bd}
+.dbb-dl .btn.edit{border:1px solid #d0d5dd;color:#344054;background:#fff}
+.dbb-dl .btn.edit:hover{background:#f9fafb;border-color:#98a2b3}
+.dbb-dl .empty{padding:44px 20px;text-align:center;color:#667085;font-size:13.5px}
+.dbb-dl .empty .ic{width:54px;height:54px;margin:0 auto 12px;border-radius:16px;background:#eef4ff;color:#2a78d6;display:flex;align-items:center;justify-content:center}
+.dbb-dl .empty .ic svg{width:26px;height:26px}
+.dbb-dl .empty b{display:block;color:#0f1a2a;font-size:15px;margin-bottom:4px}
+.dbb-dl .ft{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 22px;border-top:1px solid #eef0f3;background:#fcfcfd;font-size:12.5px;color:#667085}
+.dbb-dl .pager{display:flex;gap:4px;align-items:center}
+.dbb-dl .pager button{min-width:32px;height:32px;padding:0 8px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;font-size:13px;font-weight:500;color:#344054}
+.dbb-dl .pager button:hover:not([disabled]){background:#f2f4f7}
+.dbb-dl .pager button.on{background:#eaf2fd;color:#1f66bd;font-weight:700}
+.dbb-dl .pager button[disabled]{opacity:.35;cursor:default}
+.dbb-dl .pager svg{width:16px;height:16px}
+@media (max-width:560px){.dbb-dl .acts .edit{display:none}.dbb-dl .seg{display:none}}
+`;
+
+/** Colours for dashboard avatars, picked by a hash of the name (stable per dashboard). */
+const AV_COLORS = ['linear-gradient(135deg,#2a78d6,#5b9cf0)', 'linear-gradient(135deg,#6d4ce0,#9b7cf5)', 'linear-gradient(135deg,#0f9d8f,#35c2b2)', 'linear-gradient(135deg,#e8590c,#f59f4c)', 'linear-gradient(135deg,#c2185b,#e5578e)', 'linear-gradient(135deg,#3f51b5,#7986cb)'];
+const DL_ICONS = {
+  grid: '<rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="5" rx="2"/><rect x="13" y="10" width="8" height="11" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/>',
+  x: '<path d="M6 6l12 12M18 6L6 18"/>',
+  widgets: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  open: '<path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
+  edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
+  left: '<path d="M15 18l-6-6 6-6"/>',
+  right: '<path d="M9 18l6-6-6-6"/>',
+};
+const dlsvg = (k: keyof typeof DL_ICONS) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${DL_ICONS[k]}</svg>`;
+
+/** "just now", "5 min ago", "3 h ago", "yesterday", "4 days ago", else the date. */
+function relTime(ts: number): string {
+  const s = (Date.now() - ts) / 1000;
+  if (s < 60) return 'just now';
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
+  if (s < 172800) return 'yesterday';
+  if (s < 30 * 86400) return `${Math.floor(s / 86400)} days ago`;
+  return new Date(ts).toLocaleDateString();
+}
+
+/** Up to two initials of a name ("Ithena Fleet Overview" -> "IF"). */
+const initials = (n: string) =>
+  n
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0]!.toUpperCase())
+    .join('') || '?';
+
 /**
- * "Dashboard list" (D-025, user request 30 Sep 2026): a centred dialog with the standalone dashboards (not tied
- * to one machine) that this user may see (shared ones and their own private ones, store.listDashboards),
- * searchable by name / owner, 8 per page. Clicking a row opens the dashboard on the page: the machine-page
- * state (settings.machineState, default 'machine') with state param `dbbDashboardId`, which the renderer
- * shows full-page. Editors also get an Edit button that opens it in the Dashboard Builder.
- * The dialog lives in a fixed full-screen `.dbb-root` layer on <body> so it gets the builder styles.
+ * "Dashboard list" (D-025; redesigned D-026): a centred dialog with the standalone dashboards (not tied to one
+ * machine) this user may see (shared ones and their own private ones, store.listDashboards). Search by name
+ * or owner (matches highlighted), sort by name or last update, 8 per page with numbered pages. Open (or a
+ * click on the row / Enter) shows it in the Dashboard Overview state (openStandalone); editors also get Edit
+ * (Dashboard Builder). Esc or a click on the backdrop closes it.
  */
 export async function dashboardList(tbCtx: any, editor: boolean) {
-  ensureCss('dbb-css-builder', BUILDER_CSS);
+  ensureCss('dbb-css-dlist', DL_CSS);
   const ctx = await userContext(tbCtx);
-  const all = (await store.listDashboards(ctx)).filter((d) => d.kind === 'standalone').sort((a, b) => a.name.localeCompare(b.name));
-  const layer = document.createElement('div');
-  layer.className = 'dbb-root dbb-list-layer';
-  layer.style.cssText = 'position:fixed;inset:0;z-index:10040;font-family:Inter,"Segoe UI",Roboto,Arial,sans-serif';
-  document.body.appendChild(layer);
-  const m = modal(
-    layer,
-    'Dashboard list',
-    `<div class="dbb-form" style="min-width:min(640px,86vw)">
-      <div class="dbb-pal-search"><input type="search" data-q placeholder="Search by name or owner" aria-label="Search dashboards"/></div>
-      <div class="dbb-scroll" style="max-height:52vh"><table class="dbb-table dbb-pick"><thead><tr><th>Name</th><th>Widgets</th><th>Owner</th><th>Updated</th>${editor ? '<th></th>' : ''}</tr></thead><tbody data-rows></tbody></table></div>
-      <div class="dbb-row" style="justify-content:space-between;align-items:center"><span class="dbb-muted" data-count></span>
-        <span class="dbb-row" style="gap:6px"><button class="dbb-btn sm" data-prev>‹ Previous</button><span data-page class="dbb-muted"></span><button class="dbb-btn sm" data-next>Next ›</button></span></div>
-    </div>`,
-    [['cancel', 'Close']],
-  );
-  void m.result.then(() => layer.remove());
-  const q = m.body.querySelector('[data-q]') as HTMLInputElement;
-  const rows = m.body.querySelector('[data-rows]') as HTMLElement;
+  const all = (await store.listDashboards(ctx)).filter((d) => d.kind === 'standalone');
+  const wrap = document.createElement('div');
+  wrap.className = 'dbb-dl';
+  wrap.setAttribute('role', 'dialog');
+  wrap.setAttribute('aria-modal', 'true');
+  wrap.setAttribute('aria-label', 'Dashboard list');
+  wrap.innerHTML = `<div class="box">
+    <div class="hd"><div class="logo">${dlsvg('grid')}</div><div class="ttl"><b>Dashboards</b><span>Overviews that aren't tied to one machine</span></div><button class="x" data-close aria-label="Close" title="Close (Esc)">${dlsvg('x')}</button></div>
+    <div class="tools"><label class="search">${dlsvg('search')}<input data-q type="text" placeholder="Search by name or owner" aria-label="Search dashboards" autocomplete="off"/></label>
+      <div class="seg" role="radiogroup" aria-label="Sort"><button data-sort="name" class="on">A–Z</button><button data-sort="recent">Recently updated</button></div></div>
+    <div class="list" data-rows role="list"></div>
+    <div class="ft"><span data-count></span><div class="pager" data-pager></div></div></div>`;
+  document.body.appendChild(wrap);
+  const q = wrap.querySelector('[data-q]') as HTMLInputElement;
+  const rows = wrap.querySelector('[data-rows]') as HTMLElement;
   let page = 0;
+  let sort: 'name' | 'recent' = 'name';
+  const close = () => {
+    wrap.remove();
+    document.removeEventListener('keydown', onKey, true);
+  };
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      close();
+    }
+  };
+  document.addEventListener('keydown', onKey, true);
+  const hl = (text: string, f: string) => {
+    if (!f) return esc(text);
+    const i = text.toLowerCase().indexOf(f);
+    return i < 0 ? esc(text) : `${esc(text.slice(0, i))}<mark>${esc(text.slice(i, i + f.length))}</mark>${esc(text.slice(i + f.length))}`;
+  };
+  const colorOf = (s: string) => AV_COLORS[[...s].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % AV_COLORS.length];
   const draw = () => {
     const f = q.value.trim().toLowerCase();
-    const hits = all.filter((d) => !f || d.name.toLowerCase().includes(f) || (d.ownerName ?? '').toLowerCase().includes(f));
+    const hits = all
+      .filter((d) => !f || d.name.toLowerCase().includes(f) || (d.ownerName ?? '').toLowerCase().includes(f))
+      .sort((a, b) => (sort === 'recent' ? b.updatedAt - a.updatedAt : a.name.localeCompare(b.name)));
     const pages = Math.max(1, Math.ceil(hits.length / LIST_PAGE));
-    page = Math.min(page, pages - 1);
+    page = Math.max(0, Math.min(page, pages - 1));
     const shown = hits.slice(page * LIST_PAGE, (page + 1) * LIST_PAGE);
     rows.innerHTML = shown.length
       ? shown
           .map(
-            (d) =>
-              `<tr data-id="${esc(d.id)}" tabindex="0" title="Open “${esc(d.name)}”"><td><b>${esc(d.name)}</b>${d.visibility === 'private' ? ' <span class="dbb-muted">· private</span>' : ''}</td><td>${d.widgets.length}</td><td>${esc(d.ownerName)}</td><td>${esc(new Date(d.updatedAt).toLocaleDateString())}</td>${
-                editor ? `<td><button class="dbb-btn sm" data-edit="${esc(d.id)}">Edit</button></td>` : ''
-              }</tr>`,
+            (d) => `<div class="row" role="listitem" tabindex="0" data-id="${esc(d.id)}" title="Open “${esc(d.name)}”">
+        <div class="av" style="background:${colorOf(d.name)}">${esc(initials(d.name))}</div>
+        <div class="main"><div class="nm"><span>${hl(d.name, f)}</span>${d.visibility === 'private' ? '<em class="badge priv">Private</em>' : ''}</div>
+          <div class="meta"><i>${dlsvg('widgets')}${d.widgets.length} widget${d.widgets.length === 1 ? '' : 's'}</i><i><span class="own">${esc(initials(d.ownerName ?? ''))}</span>${hl(d.ownerName ?? '', f)}</i><i>${dlsvg('clock')}Updated ${esc(relTime(d.updatedAt))}</i></div></div>
+        <div class="acts">${editor ? `<button class="btn edit" data-edit="${esc(d.id)}" title="Edit in the Dashboard Builder">${dlsvg('edit')}Edit</button>` : ''}<button class="btn open" data-open="${esc(d.id)}">${dlsvg('open')}Open</button></div></div>`,
           )
           .join('')
-      : `<tr><td colspan="${editor ? 5 : 4}" class="dbb-muted" style="text-align:center;padding:18px">${
-          all.length ? 'No dashboard matches.' : editor ? 'No dashboards yet. In the Dashboard Builder, pick “No machine (standalone dashboard)” to build one.' : 'No dashboards have been shared with you yet.'
-        }</td></tr>`;
-    (m.body.querySelector('[data-count]') as HTMLElement).textContent = `${hits.length} dashboard${hits.length === 1 ? '' : 's'}`;
-    (m.body.querySelector('[data-page]') as HTMLElement).textContent = `Page ${page + 1} of ${pages}`;
-    (m.body.querySelector('[data-prev]') as HTMLButtonElement).disabled = page === 0;
-    (m.body.querySelector('[data-next]') as HTMLButtonElement).disabled = page >= pages - 1;
+      : `<div class="empty"><div class="ic">${dlsvg(all.length ? 'search' : 'grid')}</div><b>${all.length ? 'No dashboard matches' : 'No dashboards yet'}</b>${
+          all.length ? 'Try another name or owner.' : editor ? 'In the Dashboard Builder, pick “No machine (standalone dashboard)” to build one, or ask the chat for a fleet overview.' : 'Dashboards shared with you will appear here.'
+        }</div>`;
+    (wrap.querySelector('[data-count]') as HTMLElement).textContent = hits.length ? `Showing ${page * LIST_PAGE + 1}–${page * LIST_PAGE + shown.length} of ${hits.length}` : `0 of ${all.length}`;
+    const nums = Array.from({ length: pages }, (_, i) => i).filter((i) => pages <= 7 || i === 0 || i === pages - 1 || Math.abs(i - page) <= 1);
+    let last = -1;
+    (wrap.querySelector('[data-pager]') as HTMLElement).innerHTML =
+      `<button data-go="${page - 1}" ${page === 0 ? 'disabled' : ''} aria-label="Previous page">${dlsvg('left')}</button>` +
+      nums.map((i) => `${i - last > 1 ? '<span>…</span>' : ''}${((last = i), '')}<button data-go="${i}" class="${i === page ? 'on' : ''}" aria-label="Page ${i + 1}">${i + 1}</button>`).join('') +
+      `<button data-go="${page + 1}" ${page >= pages - 1 ? 'disabled' : ''} aria-label="Next page">${dlsvg('right')}</button>`;
   };
   q.addEventListener('input', () => {
     page = 0;
     draw();
   });
-  m.body.querySelector('[data-prev]')!.addEventListener('click', () => (page--, draw()));
-  m.body.querySelector('[data-next]')!.addEventListener('click', () => (page++, draw()));
+  wrap.querySelectorAll<HTMLElement>('[data-sort]').forEach((b) =>
+    b.addEventListener('click', () => {
+      sort = b.dataset.sort as 'name' | 'recent';
+      wrap.querySelectorAll('[data-sort]').forEach((x) => x.classList.toggle('on', x === b));
+      page = 0;
+      draw();
+    }),
+  );
+  wrap.querySelector('[data-pager]')!.addEventListener('click', (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-go]');
+    if (!b || b.disabled) return;
+    page = Number(b.dataset.go);
+    draw();
+  });
   const openOnPage = (id: string) => {
-    m.close('open');
+    close();
     try {
-      tbCtx.stateController?.openState?.(rendererState(tbCtx), { dbbDashboardId: id }, false);
+      openStandalone(tbCtx, id);
     } catch (e: any) {
-      alertInline(layer, `Could not open the dashboard: ${e.message ?? e}`);
+      alertInline(wrap, `Could not open the dashboard: ${e.message ?? e}`);
     }
   };
+  wrap.querySelector('[data-close]')!.addEventListener('click', close);
+  wrap.addEventListener('mousedown', (e) => e.target === wrap && close());
   rows.addEventListener('click', (e) => {
     const t = e.target as HTMLElement;
     const ed = t.closest<HTMLElement>('[data-edit]');
     if (ed) {
-      m.close('edit');
+      close();
       openBuilder({ ctx, dashboardId: ed.dataset.edit!, deviceId: null, chatEnabled: tbCtx.settings?.chatEnabled !== false, onClose: (ch) => ch && notifyChanged() });
       return;
     }
-    const tr = t.closest<HTMLElement>('tr[data-id]');
-    if (tr) openOnPage(tr.dataset.id!);
+    const row = t.closest<HTMLElement>('[data-id]');
+    if (row) openOnPage(row.dataset.id!);
   });
   rows.addEventListener('keydown', (e) => {
-    const tr = (e.target as HTMLElement).closest<HTMLElement>('tr[data-id]');
-    if (tr && e.key === 'Enter') openOnPage(tr.dataset.id!);
+    const row = (e.target as HTMLElement).closest<HTMLElement>('.row[data-id]');
+    if (!row) return;
+    if (e.key === 'Enter') openOnPage(row.dataset.id!);
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      ((e.key === 'ArrowDown' ? row.nextElementSibling : row.previousElementSibling) as HTMLElement | null)?.focus();
+    }
   });
   draw();
   setTimeout(() => q.focus(), 0);
+}
+
+/**
+ * Opens standalone dashboard `id` in the app's "Dashboard Overview" state (D-026, user request 30 Sep 2026:
+ * standalone dashboards get their own state; machine dashboards are unchanged). The state id is
+ * settings.overviewState (default 'dashboard_overview'). ThingsBoard ignores openState for a state that
+ * doesn't exist, so if the state didn't change, it falls back to the machine-dashboard state and says
+ * how to add the Dashboard Overview state.
+ */
+export function openStandalone(tbCtx: any, id: string) {
+  const sc = tbCtx.stateController;
+  const target = tbCtx.settings?.overviewState || 'dashboard_overview';
+  sc?.openState?.(target, { dbbDashboardId: id }, false);
+  let now: string | undefined;
+  try {
+    now = sc?.getStateId?.();
+  } catch {
+    now = undefined;
+  }
+  if (now !== undefined && now !== target) {
+    sc?.openState?.(rendererState(tbCtx), { dbbDashboardId: id }, false);
+    console.warn(`[iMEX] No dashboard state "${target}". Add a state with this id (name "Dashboard Overview") holding the machine dashboard widget, or set "Dashboard Overview state id" on the navbar widget.`);
+  }
 }
 
 /**

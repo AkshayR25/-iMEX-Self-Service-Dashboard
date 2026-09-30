@@ -368,16 +368,16 @@ describe('chat D-024: role requests, guard rails, mixed equipment, lenient apply
     expect(r.clarification?.options).toEqual([...chat.WHERE_OPTIONS]);
     expect(r.draft).toBe(d0);
     const nw = chat.applyWhere(ctx, d0, r.pending!, 'Start a new dashboard');
-    expect([nw.newDashboard, nw.draft.version, nw.draft.widgets.length]).toEqual([true, 0, 2]);
+    expect([nw.newDashboard, nw.draft.version, nw.draft.widgets.filter((w) => ['Compressors', 'Alarms'].includes(w.title)).length]).toEqual([true, 0, 2]);
     const rp = chat.applyWhere(ctx, d0, r.pending!, 'Replace this dashboard');
-    expect([rp.draft.id, rp.draft.widgets.length]).toEqual([d0.id, 2]);
+    expect([rp.draft.id, rp.draft.widgets.filter((w) => ['Compressors', 'Alarms'].includes(w.title)).length, rp.draft.widgets.some((w) => w.id === 'a')]).toEqual([d0.id, 2, false]);
     const ad = chat.applyWhere(ctx, d0, r.pending!, 'Add to this dashboard');
     expect(ad.draft.widgets.map((w) => w.id)).toContain('a');
     expect(ad.draft.widgets.length).toBe(3);
     // said where already -> no question
     const r2 = await chat.chatTurn(ctx, T([ans]), d0, [], 'Replace this dashboard with a CEO overview', 'rc');
     expect(r2.clarification ?? null).toBeNull();
-    expect(r2.draft.widgets.length).toBe(2);
+    expect(r2.draft.widgets.filter((w) => ['Compressors', 'Alarms'].includes(w.title)).length).toBe(2);
   });
 
   it('help answers that offer to add a widget get yes/no buttons; title inside settings is moved out', () => {
@@ -516,5 +516,77 @@ describe('grid', () => {
   it('first fit fills gaps', () => {
     expect(firstFit([{ x: 0, y: 0, w: 3, h: 2 }], 3, 2)).toEqual({ x: 3, y: 0 });
     expect(firstFit([{ x: 0, y: 0, w: 12, h: 2 }], 3, 2)).toEqual({ x: 0, y: 2 });
+  });
+});
+
+describe('design pass for chat-built dashboards (D-026)', () => {
+  const overlaps = (ws: any[]) => ws.some((a, i) => ws.some((b, j) => i < j && a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h));
+  // every row band is fully used: for each widget, the widgets sharing its top edge fill 12 columns
+  const fullRows = (ws: any[]) => [...new Set(ws.map((w) => w.y))].every((y) => ws.filter((w) => w.y === y).reduce((s, w) => s + w.w, 0) === 12);
+
+  async function ceo() {
+    const ctx = await ctxFor('Admin', ['root']);
+    const root = chat.buildCatalog(ctx).byId.get('root')!;
+    const ans = {
+      intent: 'build',
+      reply: 'Built.',
+      ops: [
+        { op: 'startNewDashboard', name: 'CEO overview' },
+        { op: 'addWidget', type: 'text', title: 'Header', binding: { mode: 'none' }, keys: [], settings: { html: '<p>ITHENA fleet</p>' } },
+        { op: 'addWidget', type: 'table', title: 'Compressors', binding: { mode: 'nodeQuery', node: root, machineType: 'Compressor' }, keys: ['runStatus', 'dischargePressure'] },
+        { op: 'addWidget', type: 'table', title: 'Dryers', binding: { mode: 'nodeQuery', node: root, machineType: 'Dryer' }, keys: [] },
+        { op: 'addWidget', type: 'alarms', title: 'Alarms', binding: { mode: 'nodeQuery', node: root, machineType: 'ALL' }, keys: [] },
+      ],
+    };
+    return { ctx, ans };
+  }
+  const T = (answers: any[]): chat.Transport => ({ send: async () => ({ toolInput: answers.shift() }) });
+
+  it('sizes tables to their rows, adds a banner, colours types and leaves no gaps or overlaps', async () => {
+    const { ctx, ans } = await ceo();
+    const d0 = store.blankDashboard(ctx, 'x', null as any);
+    const cat = chat.buildCatalog(ctx);
+    const dry = cat.profiles['Dryer']?.[0]?.key;
+    (ans.ops[3] as any).keys = dry ? [dry] : ['runStatus'];
+    const r = await chat.chatTurn(ctx, T([ans]), d0, [], 'I am the CEO, overview of everything', null);
+    expect(r.fresh).toBe(true);
+    const ws = r.draft.widgets;
+    const banner = ws.find((w) => w.type === 'text')!;
+    expect(banner.settings.style?.gradient).toBe(true);
+    expect(banner.settings.html).toMatch(/ITHENA fleet/);
+    expect(banner.settings.html).toMatch(/4 machines/);
+    expect([banner.x, banner.y, banner.w, banner.h]).toEqual([0, 0, 12, 2]);
+    const comp = ws.find((w) => w.title === 'Compressors')!;
+    expect(comp.h).toBeLessThanOrEqual(3); // 2 machines: header + 2 lines
+    expect(comp.settings.colorRules?.[0]).toMatchObject({ op: 'isTrue', key: 'runStatus', label: 'Running' });
+    expect(comp.settings.style?.accentBar).toBeTruthy();
+    expect(ws.find((w) => w.title === 'Dryers')!.settings.style?.accentBar).not.toBe(comp.settings.style?.accentBar);
+    expect(r.draft.theme?.preset).toBe('ocean');
+    expect(overlaps(ws)).toBe(false);
+    expect(fullRows(ws)).toBe(true);
+    expect(ws.length).toBeLessThanOrEqual(10);
+    expect(checkDashboard(r.draft)).toEqual([]);
+  });
+
+  it('adds Running/Stopped status cards for a fleet without cards, and nothing the model styled is overwritten', async () => {
+    const { ctx, ans } = await ceo();
+    (ans.ops[2] as any).settings = { style: { accentBar: '#123456' } };
+    ans.ops.splice(3, 1);
+    const r = await chat.chatTurn(ctx, T([ans]), store.blankDashboard(ctx, 'x', null as any), [], 'overview', null);
+    const status = r.draft.widgets.filter((w) => w.type === 'status');
+    expect(status.length).toBeGreaterThan(0);
+    expect(status[0].settings.colorRules?.map((c) => c.label)).toEqual(['Running', 'Stopped']);
+    expect(r.draft.widgets.find((w) => w.title === 'Compressors')!.settings.style).toEqual({ accentBar: '#123456' });
+    expect(overlaps(r.draft.widgets)).toBe(false);
+  });
+
+  it('does not touch a dashboard the user adds to', async () => {
+    const { ctx, ans } = await ceo();
+    const d0 = { ...store.blankDashboard(ctx, 'Mine', null as any), widgets: [widget({ id: 'a', binding: { mode: 'fixed', deviceIds: ['rc'] } })] } as any;
+    ans.ops.shift();
+    const r = await chat.chatTurn(ctx, T([ans]), d0, [], 'add a fleet table', null);
+    expect(r.fresh).toBe(false);
+    expect(r.draft.theme ?? null).toBeNull();
+    expect(r.draft.widgets.find((w) => w.id === 'a')).toMatchObject({ x: 0, y: 0, w: 3, h: 2 });
   });
 });

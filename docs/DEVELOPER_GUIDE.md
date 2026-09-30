@@ -57,7 +57,7 @@ Since we run **one ThingsBoard tenant per customer**, each tenant gets its own w
 ```bash
 git clone <repo> imex-dbb && cd imex-dbb
 npm install
-npm test               # 62 unit tests against a fake ThingsBoard / fake WebSocket
+npm test               # 81 unit tests against a fake ThingsBoard / fake WebSocket
 npm run typecheck
 npm run build:widgets  # -> widgets/dist/imex-dbb.js, glue.json, widget-types/*.json
 ```
@@ -98,8 +98,9 @@ npm run build:widgets  # -> widgets/dist/imex-dbb.js, glue.json, widget-types/*.
 
 1. In our **machine state** (or each device-type state), remove the hand-built widgets and add **iMEX Machine dashboard** filling the state. Settings: `refreshSeconds` (default 10), `chatEnabled`.
 2. In our **header state**, add **iMEX Navbar / edit menu**, a small cell with `navbar` off, so it renders only the pencil icon. The icon shows only for admins. Alternatively keep our own header button and call `window.IMEX_DBB.open({ deviceId })`; the launcher widget must still be on the page.
-3. Log in as an admin customer user, open a machine, open the pencil menu, then **Dashboard Builder** → Templates, and save. In the *Apply* dialog choose **All <type> machines**. That recreates today's "one template per type".
-4. Log in as a normal user and check the page shows no edit controls.
+3. Add a state with id **`dashboard_overview`** (name "Dashboard Overview") holding another **iMEX Machine dashboard** widget filling the state, and nothing machine-specific (D-026). The navbar's *Dashboard list* opens standalone dashboards there (state param `dbbDashboardId`). Another id works if you set it in the navbar's setting `overviewState`. Without the state, standalone dashboards open in the machine state (fallback). The pencil menu on that state offers *Edit this dashboard*, *Dashboard list* and *Dashboard Builder*, all for the shown dashboard.
+4. Log in as an admin customer user, open a machine, open the pencil menu, then **Dashboard Builder** → Templates, and save. In the *Apply* dialog choose **All <type> machines**. That recreates today's "one template per type".
+5. Log in as a normal user and check the page shows no edit controls (only the Dashboard list icon).
 
 **Tenant-admin mode:** if a tenant admin (not a customer user) needs to use the app, set the widget setting `customerId` to the customer's id (D-018).
 
@@ -179,7 +180,7 @@ About 4 of the remaining calls are tenant-admin-only (finding the customer's top
   - the current draft layout;
   - the user's message.
 
-  The model only returns layout operations (add/update/remove widget, time range, theme…). These are validated in the browser (`core/chat.ts`) before being applied as an undoable change. It never reads telemetry. An MCP server would only be needed if we wanted the chat to answer questions about the data itself.
+  The model only returns layout operations (add/update/remove widget, time range, theme…). These are validated in the browser (`core/chat.ts`) before being applied as an undoable change. It never reads telemetry. A fresh dashboard built by chat (new, replaced, or on an empty draft) then goes through a deterministic design pass (`core/design.ts`, D-026): tables sized to their rows, a gradient banner, Running/Stopped status cards, colours per machine type and a gap-free row layout. An MCP server would only be needed if we wanted the chat to answer questions about the data itself.
 - **Providers (D-021):** Claude, OpenAI and Gemini. The rule chain picks the provider from the key format (`sk-ant-` → Claude, `AIza` or `AQ.` → Gemini, other `sk-` → OpenAI) in *Build LLM request*, routes to *Call Claude* / *Call OpenAI* / *Call Gemini*, and *Parse LLM reply* reads each provider's tool-call format. The browser sends the tool in all three formats (`core/chat.ts` `PROVIDER_TOOLS`; Gemini gets a reduced schema from `geminiSchema`). Models: `dbb_llm_model_<provider>` on the config asset, defaults in `deploy-browser.js`.
 - **Where the key lives:** server attribute `dbb_llm_api_key` on the **tenant-owned** asset `DBB-LLM-CONFIG`, read server-side by the rule chain through the relation `UsesLlmConfig` from the store asset. Tenant admins can see it; customer users can't, because the asset is not assigned to their customer. Never put the key on a customer-assigned asset (the store, a site, the org root): every user of that customer can read those attributes through the REST API. The deploy script refuses to continue if the config asset is assigned to a customer.
 - There's a limit of 30 chat requests per user per hour, enforced in the browser.
@@ -207,7 +208,7 @@ node widgets/harness/shot.mjs '[{"wait":2000,"shot":"machine"}]' 'index.html'   
 # or serve widgets/harness/ with any static server and open index.html (?page=list / ?page=map / ?page=builder&dev=pc)
 ```
 
-**End-to-end test (D-023):** `npm run test:e2e` builds the harness and runs `widgets/e2e/builder.e2e.mjs`: 49 scenarios in Chromium (Playwright) covering every builder function and the machine page, about 2.5 minutes. `node widgets/e2e/builder.e2e.mjs chat save` runs only tests whose name contains a word. A failed test saves a screenshot `e2e-fail-*.png` in the system temp folder. On a new machine run `npx playwright install chromium` once. The harness stubs the chat relay (`window.__chatQueue`) and can switch the machine through the state URL only (`window.__urlSwitch('rd')`), like an app navbar. Run it before every redeploy.
+**End-to-end test (D-023):** `npm run test:e2e` builds the harness and runs `widgets/e2e/builder.e2e.mjs`: 51 scenarios in Chromium (Playwright) covering every builder function and the machine page, about 2.5 minutes. `node widgets/e2e/builder.e2e.mjs chat save` runs only tests whose name contains a word. A failed test saves a screenshot `e2e-fail-*.png` in the system temp folder. On a new machine run `npx playwright install chromium` once. The harness stubs the chat relay (`window.__chatQueue`) and can switch the machine through the state URL only (`window.__urlSwitch('rd')`), like an app navbar. Run it before every redeploy.
 
 ---
 

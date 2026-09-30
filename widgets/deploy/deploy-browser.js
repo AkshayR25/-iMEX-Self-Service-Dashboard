@@ -369,9 +369,10 @@ window.DBB_DEPLOY = async function (opts) {
           chatEnabledRoles: { title: 'Chat only for roles (comma separated, empty = all)', type: 'string', default: '' },
           hideForRoles: { title: 'Hide the edit icon for roles (comma separated)', type: 'string', default: '' },
           dashboardList: { title: 'Show "Dashboard list" (standalone dashboards) to every user', type: 'boolean', default: true },
+          overviewState: { title: 'Dashboard Overview state id (standalone dashboards)', type: 'string', default: 'dashboard_overview' },
         },
       },
-      form: ['label', 'adminOnly', 'navbar', 'appName', 'homeState', 'homeLabel', 'listingState', 'listingLabel', 'machineState', 'machineLabel', 'customerId', 'lightStyle', 'chatEnabled', 'chatEnabledRoles', 'hideForRoles', 'dashboardList'],
+      form: ['label', 'adminOnly', 'navbar', 'appName', 'homeState', 'homeLabel', 'listingState', 'listingLabel', 'machineState', 'machineLabel', 'customerId', 'lightStyle', 'chatEnabled', 'chatEnabledRoles', 'hideForRoles', 'dashboardList', 'overviewState'],
     },
     renderer: {
       schema: { type: 'object', properties: { refreshSeconds: { title: 'Refresh every (s)', type: 'number', default: 10 }, chatEnabled: { title: 'Enable chat in builder', type: 'boolean', default: true }, customerId: { title: 'Customer id for tenant admins', type: 'string', default: '' } } },
@@ -432,7 +433,7 @@ window.DBB_DEPLOY = async function (opts) {
   // Unused (fixed ids below are used instead; `void wid` silences the linter).
   const wid = (n) => `dbb-${n}-0000-0000-000000000000`.slice(0, 36);
   const W = {
-    nav: { key: 'nav', fqn: 'tenant.imex_dbb_launcher', settings: { navbar: true, appName: o.appName, label: 'Edit dashboards', adminOnly: true, homeState: 'default', homeLabel: 'Map page', listingState: 'listing', listingLabel: 'Listing page', machineState: 'machine', machineLabel: 'Machine page', customerId: cid }, bg: '#0a2458' },
+    nav: { key: 'nav', fqn: 'tenant.imex_dbb_launcher', settings: { navbar: true, appName: o.appName, label: 'Edit dashboards', adminOnly: true, homeState: 'default', homeLabel: 'Map page', listingState: 'listing', listingLabel: 'Listing page', machineState: 'machine', machineLabel: 'Machine page', overviewState: 'dashboard_overview', customerId: cid }, bg: '#0a2458' },
     map: { key: 'map', fqn: 'tenant.imex_dbb_listing', settings: { mode: 'map', title: 'Map page', buttonLabel: 'Go to machine listing', listingState: 'listing', siteProfile: 'Site', customerId: cid }, bg: '#f6f6f4' },
     list: { key: 'list', fqn: 'tenant.imex_dbb_listing', settings: { machineState: 'machine', dashboardState: '', customerId: cid }, bg: '#f6f6f4' },
     mach: { key: 'mach', fqn: 'tenant.imex_dbb_renderer', settings: { refreshSeconds: 10, customerId: cid }, bg: '#f6f6f4' },
@@ -456,12 +457,14 @@ window.DBB_DEPLOY = async function (opts) {
   // Every state: the navbar (row 0) above one full-width body widget.
   const layout = (body) => ({ main: { widgets: { [ids.nav]: { sizeX: 24, sizeY: 1, row: 0, col: 0 }, [ids[body]]: { sizeX: 24, sizeY: 14, row: 1, col: 0 } }, gridSettings: grid } });
   const configuration = {
-    description: `${MARK} Stand-in for the production app, 3 states: Map page (sites) → Listing page (hierarchy + cards) → Machine page. Navbar shows the current state and an admin-only Dashboard Builder button`,
+    description: `${MARK} Stand-in for the production app, 4 states: Map page (sites) → Listing page (hierarchy + cards) → Machine page, plus Dashboard Overview (standalone dashboards). Navbar shows the current state and an admin-only Dashboard Builder button`,
     widgets,
     states: {
       default: { name: 'Map page', root: true, layouts: layout('map') },
       listing: { name: 'Listing page', root: false, layouts: layout('list') },
       machine: { name: 'Machine page', root: false, layouts: layout('mach') },
+      // D-026: standalone dashboards (Dashboard list) open here; same machine-dashboard widget.
+      dashboard_overview: { name: 'Dashboard Overview', root: false, layouts: layout('mach') },
     },
     entityAliases: {},
     filters: {},
