@@ -110,7 +110,8 @@ export async function listDashboards(ctx: UserContext): Promise<(Dashboard & { v
   for (const k of Object.keys(attrs)) {
     if (!k.startsWith('dbb_d_')) continue;
     const p = Dashboard.safeParse(attrs[k]);
-    if (!p.success) continue;
+    // D-028: the document must be the one its key names (an id inside the JSON is not trusted on its own)
+    if (!p.success || k !== `dbb_d_${p.data.id}`) continue;
     const vis = attrs[VIS(p.data.id)] ?? 'shared';
     if (vis === 'private' && p.data.ownerId !== ctx.userId) continue;
     out.push({ ...p.data, visibility: vis });
@@ -164,7 +165,15 @@ export async function saveDashboard(
 /** Previous versions of a dashboard from `dbb_h_<id>` (newest first, at most 10); [] when none. */
 export async function versions(ctx: UserContext, id: string): Promise<{ version: number; savedAt: number; savedBy: string; doc: Dashboard }[]> {
   const a = await api.getAttrs(requireStore(ctx), [H(id)]);
-  return Array.isArray(a[H(id)]) ? a[H(id)] : [];
+  const raw: unknown[] = Array.isArray(a[H(id)]) ? a[H(id)] : [];
+  // D-028: history entries are validated like dashboards (they are rendered and can be restored)
+  const out: { version: number; savedAt: number; savedBy: string; doc: Dashboard }[] = [];
+  for (const v of raw.slice(0, 10) as any[]) {
+    const doc = Dashboard.safeParse(v?.doc);
+    if (!doc.success || !Number.isInteger(v.version) || typeof v.savedAt !== 'number') continue;
+    out.push({ version: v.version, savedAt: v.savedAt, savedBy: String(v.savedBy ?? '').slice(0, 120), doc: doc.data });
+  }
+  return out;
 }
 
 /**

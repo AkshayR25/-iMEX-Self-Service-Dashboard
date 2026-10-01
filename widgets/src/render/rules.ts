@@ -20,7 +20,7 @@
  * `key` only applies to that property; a key-less rule applies to every property of the widget.
  * Put the most specific / most severe rule first (e.g. "> 90 red" before "> 75 amber").
  */
-import type { ColorRule } from '../core/schema';
+import { COLOR_RE, type ColorRule } from '../core/schema';
 import type { KeyMeta } from '../core/types';
 
 /** The three value types a rule editor can work in. `coded` states (D-020) are numbers here. */
@@ -154,7 +154,19 @@ export function bandsToRules(bands?: { upTo: number | null; color: string }[]): 
  * @param s The widget's settings.
  */
 export function effectiveRules(s: { colorRules?: ColorRule[]; bands?: { upTo: number | null; color: string }[] }): ColorRule[] {
-  return s.colorRules?.length ? s.colorRules : bandsToRules(s.bands);
+  const r = s.colorRules?.length ? s.colorRules : bandsToRules(s.bands);
+  // D-028: every rule colour ends up in markup and CSS; a stored value that is not a plain colour becomes grey
+  return r.some((x) => !isColor(x.color)) ? r.map((x) => (isColor(x.color) ? x : { ...x, color: NEUTRAL })) : r;
+}
+
+const NEUTRAL = '#8a8983';
+/** D-028: true for #hex, rgb()/rgba() and 'transparent' only. */
+export function isColor(c: unknown): c is string {
+  return typeof c === 'string' && c.length <= 40 && COLOR_RE.test(c);
+}
+/** D-028: `c` if it is a plain colour, else neutral grey; use for every colour written into HTML or CSS. */
+export function cssColor(c: unknown, fallback = NEUTRAL): string {
+  return isColor(c) ? c : fallback;
 }
 
 /**

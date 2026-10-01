@@ -605,12 +605,30 @@ test('Open dialog: lists saved, opens one, asks before discarding changes, new b
   await t.click('.dbb-top [data-a="open"]');
   await t.page.waitForSelector('.dbb-modal [data-new]');
   await t.click('.dbb-modal [data-new]');
+  await t.page.waitForSelector('.dbb-modal :text("What is it for?")');
+  await t.modalBtn('ok');
   await t.idle(200);
   eq((await t.draft()).widgets.length, 0, 'new blank');
   await t.addWidget('gauge');
+  await seedStandalone(t, 7);
   await t.click('.dbb-top [data-a="open"]');
-  await t.page.waitForSelector(`.dbb-modal tr[data-id="${id}"]`);
-  await t.click(`.dbb-modal tr[data-id="${id}"]`);
+  await t.page.waitForSelector(`.dbb-modal .dbb-od-row[data-id="${id}"]`);
+  // D-027 look: wide, Inter everywhere, "New blank dashboard" on the right of the bar, padded columns
+  const look = await t.b(() => {
+    const box = document.querySelector('.dbb-modal-box').getBoundingClientRect();
+    const bar = document.querySelector('.dbb-od-bar').getBoundingClientRect();
+    const nb = document.querySelector('.dbb-modal [data-new]').getBoundingClientRect();
+    const row = document.querySelector('.dbb-od-body .dbb-od-row');
+    const fonts = [...document.querySelectorAll('.dbb-od *')].map((e) => getComputedStyle(e).fontFamily.split(',')[0].replace(/"/g, '').trim());
+    return { w: box.width, rightGap: Math.round(bar.right - nb.right), fonts: [...new Set(fonts)], gap: getComputedStyle(row).columnGap, pad: getComputedStyle(row).paddingLeft };
+  });
+  ok(look.w >= 1000, `dialog is wide (${look.w})`);
+  ok(look.rightGap <= 1, 'New blank dashboard is on the right');
+  eq(look.fonts, ['Inter'], 'Inter throughout');
+  eq([look.gap, look.pad], ['24px', '18px'], 'column spacing');
+  await t.page.waitForTimeout(300);
+  await t.page.screenshot({ path: join(tmpdir(), 'open-dialog.png') });
+  await t.click(`.dbb-modal .dbb-od-row[data-id="${id}"]`);
   await t.page.waitForTimeout(200);
   eq(await t.modalTitle(), 'Discard unsaved changes?', 'asks before discarding');
   await t.page.click('.dbb-modal .dbb-modal-f button.primary');
@@ -1014,6 +1032,8 @@ test('Apply: replacing an existing assignment must be ticked first', async (t) =
   // a second dashboard for the same type, applied to all -> replaces the first
   await t.click('.dbb-top [data-a="open"]');
   await t.click('.dbb-modal [data-new]');
+  await t.page.waitForSelector('.dbb-modal :text("What is it for?")');
+  await t.modalBtn('ok');
   await t.idle(200);
   await t.addWidget('gauge');
   await t.click('.dbb-top [data-a="save"]');
@@ -1044,6 +1064,282 @@ test('machine page: edit menu opens the builder on the shown dashboard; viewers 
   Object.assign(t, s);
   await t.page.waitForTimeout(1500);
   eq(await t.b(() => window.__imexDbbActions?.items ?? null), null, 'no edit actions for a viewer');
+});
+
+// ------------------------------------------------------------------ D-029
+
+/** Canvas cards whose content is cut off (the body or an inner scrolling/clipping element overflows). */
+const cutOff = (t) =>
+  t.b(() =>
+    [...document.querySelectorAll('.dbb-canvas .dbb-gbox')].flatMap((box) => {
+      const body = box.querySelector('.dbb-card-b');
+      if (!body) return [];
+      const els = [body, ...body.querySelectorAll('*')].filter((e) => e === body || /(auto|scroll|hidden)/.test(getComputedStyle(e).overflowY + getComputedStyle(e).overflowX));
+      const over = Math.max(...els.map((e) => Math.max(e.scrollHeight - e.clientHeight, e.scrollWidth - e.clientWidth)));
+      return over > 3 ? [`${box.querySelector('.dbb-card-t, .dbb-card-h')?.textContent?.trim() || box.dataset.id} (+${over}px)`] : [];
+    }),
+  );
+const noOverlap = (ws) => !ws.some((a, i) => ws.some((b, j) => i < j && a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h));
+
+test('chat-built widgets show all their content without dragging (sizes + measured fit)', async (t) => {
+  await t.click('.dbb-right .dbb-tab[data-tab="chat"]');
+  await t.b(() =>
+    window.__chatQueue.push({
+      intent: 'build',
+      reply: 'Built.',
+      ops: [
+        // deliberately too small (h 1): the builder must grow them after drawing
+        { op: 'addWidget', type: 'multivalue', title: 'All values', binding: { mode: 'current' }, keys: ['dischargePressure', 'dischargeTemp', 'powerKw', 'runStatus'], h: 1 },
+        { op: 'addWidget', type: 'text', title: 'Notes', binding: { mode: 'none' }, keys: [], h: 1, settings: { html: '<h2>Shift notes</h2><p>' + 'Check the oil level and the filters every morning before start-up. '.repeat(6) + '</p><ul><li>One</li><li>Two</li><li>Three</li></ul>' } },
+        // default sizes from the content rules
+        { op: 'addWidget', type: 'table', title: 'All compressors', binding: { mode: 'siblings', machineType: 'Compressor' }, keys: ['dischargePressure', 'dischargeTemp', 'powerKw', 'runStatus'] },
+        { op: 'addWidget', type: 'line', title: 'Trend', binding: { mode: 'siblings', machineType: 'Compressor' }, keys: ['dischargePressure', 'dischargeTemp', 'powerKw'] },
+        { op: 'addWidget', type: 'timeline', title: 'Run', binding: { mode: 'siblings', machineType: 'Compressor' }, keys: ['runStatus'] },
+        { op: 'addWidget', type: 'alarms', title: 'Alarms', binding: { mode: 'current' }, keys: [] },
+      ],
+    }),
+  );
+  await t.page.fill('.dbb-chat-in', 'add an overview of everything');
+  await t.page.keyboard.press('Enter');
+  await t.page.waitForFunction(() => window.__b.draft.widgets.length >= 6 && !window.__b.busy, null, { timeout: 8000 });
+  await t.page.waitForTimeout(3500);
+  eq(await cutOff(t), [], 'nothing cut off');
+  await t.page.screenshot({ path: join(tmpdir(), 'fit.png') });
+  const d = await t.draft();
+  ok(noOverlap(d.widgets), 'no overlaps after growing');
+  ok(d.widgets.find((w) => w.title === 'All values').h >= 3, 'multi-value card grew');
+  await t.click('.dbb-top [data-a="undo"]');
+  eq((await t.draft()).widgets.length, 0, 'one undo step removes the chat change including the fit');
+});
+
+test('chat moves, resizes and tidies widgets (x/y/w/h, arrangeLayout)', async (t) => {
+  await t.addWidget('value');
+  await t.addWidget('gauge');
+  await t.addWidget('line');
+  await t.addWidget('table');
+  const before = await t.draft();
+  await t.click('.dbb-right .dbb-tab[data-tab="chat"]');
+  // W3 = line chart: to the top, left half; W1 = value card: full width
+  await t.b(() => window.__chatQueue.push({ intent: 'build', reply: 'Moved.', ops: [{ op: 'updateWidget', widget: 'W3', x: 0, y: 0, w: '6' }, { op: 'updateWidget', widget: 'W1', w: 12, x: 0 }] }));
+  await t.page.fill('.dbb-chat-in', 'put the trend at the top left and make the first card full width');
+  await t.page.keyboard.press('Enter');
+  await t.page.waitForFunction(() => !window.__b.busy && window.__chatReqs.length === 1, null, { timeout: 8000 });
+  await t.page.waitForTimeout(300);
+  let d = await t.draft();
+  const line = d.widgets.find((w) => w.id === before.widgets[2].id);
+  eq([line.x, line.y, line.w], [0, 0, 6], 'line chart moved and resized');
+  eq(d.widgets.find((w) => w.id === before.widgets[0].id).w, 12, 'value card full width');
+  ok(noOverlap(d.widgets), 'no overlaps');
+  ok(/"x":\d+,"y":\d+,"w":\d+,"h":\d+/.test(await t.b(() => window.__chatReqs[0].body.messages.at(-1).content)), 'draft carries positions');
+  // tidy up
+  await t.b(() => window.__chatQueue.push({ intent: 'build', reply: 'Tidied.', ops: [{ op: 'arrangeLayout' }] }));
+  await t.page.fill('.dbb-chat-in', 'tidy up the layout');
+  await t.page.keyboard.press('Enter');
+  await t.page.waitForFunction(() => !window.__b.busy && window.__chatReqs.length === 2, null, { timeout: 8000 });
+  await t.page.waitForTimeout(2500);
+  d = await t.draft();
+  ok(noOverlap(d.widgets), 'no overlaps after tidy');
+  for (const y of new Set(d.widgets.map((w) => w.y))) eq(d.widgets.filter((w) => w.y === y).reduce((a, w) => a + w.w, 0), 12, `row y=${y} filled`);
+  eq(await cutOff(t), [], 'nothing cut off after tidy');
+});
+
+test('New dashboard: top-bar button and dialog (machine type or overview); navbar menu item', async (t) => {
+  await t.addWidget('value');
+  await t.click('.dbb-top [data-a="new"]');
+  await t.page.waitForSelector('.dbb-modal :text("What is it for?")');
+  await t.page.fill('.dbb-modal [data-n]', 'Plant overview');
+  await t.page.check('.dbb-modal input[value="overview"]');
+  await t.modalBtn('ok');
+  await t.page.waitForSelector('.dbb-modal :text("Discard unsaved changes?")');
+  await t.modalBtn('ok');
+  await t.idle(300);
+  let d = await t.draft();
+  eq([d.name, d.profile, d.widgets.length, d.version], ['Plant overview', null, 0, 0], 'blank overview');
+  eq(await t.page.inputValue('.dbb-top [data-a="machine"]'), '', 'no machine for an overview');
+  await t.click('.dbb-top [data-a="new"]');
+  await t.page.selectOption('.dbb-modal [data-p]', 'Dryer');
+  await t.modalBtn('ok');
+  await t.idle(300);
+  d = await t.draft();
+  eq([d.name, d.profile], ['Dryer dashboard', 'Dryer'], 'machine-type dashboard named after the type');
+  eq(await t.page.inputValue('.dbb-top [data-a="machine"]'), 'rd', 'previews on a Dryer');
+  // navbar menu: New dashboard opens the builder with the dialog
+  await t.page.close();
+  const s = await open('dev=pc');
+  Object.assign(t, s);
+  await t.page.click('.dbb-edit-ic');
+  await t.page.click('.dbb-emenu [data-m="__new"]');
+  await t.page.waitForSelector('.dbb-overlay .dbb-modal :text("What is it for?")', { timeout: 6000 });
+  // a second open does not stack another builder
+  await t.b(() => window.IMEX_DBB.open());
+  await t.page.waitForTimeout(800);
+  eq(await t.b(() => document.querySelectorAll('.dbb-overlay').length), 1, 'one builder only');
+});
+
+test('Builder from a page without a machine: start screen with New, Open and recent dashboards', async (t) => {
+  await t.page.close();
+  const s = await open('page=builder&dev=none');
+  Object.assign(t, s);
+  await seedStandalone(t, 3);
+  await t.b(() => {
+    window.__b.recent = null; // the first render already asked for the (then empty) list
+    window.__b.renderAll();
+  });
+  await t.page.waitForSelector('.dbb-empty [data-recent] .dbb-recent-r', { timeout: 5000 });
+  ok(/What would you like to do\?/.test(await t.page.textContent('.dbb-empty')), 'start screen');
+  const names = await t.b(() => [...document.querySelectorAll('.dbb-recent-r b')].map((b) => b.textContent));
+  ok(names.length >= 3, `recent dashboards listed (${names})`);
+  await t.page.locator('.dbb-recent-r').first().click();
+  await t.idle(400);
+  eq((await t.draft()).name, names[0], 'click opens it');
+});
+
+// ------------------------------------------------------------------ D-030
+
+test('builder opens below the app navbar; navigating closes it (asks first with unsaved changes)', async (t) => {
+  await t.page.close();
+  const s = await open('dev=pc');
+  Object.assign(t, s);
+  const openFromMenu = async () => {
+    await t.page.click('.dbb-edit-ic');
+    await t.page.click('.dbb-emenu [data-m="__builder"]');
+    await t.page.waitForSelector('.dbb-overlay .dbb-top select', { timeout: 6000 });
+    await t.page.waitForTimeout(400);
+  };
+  await openFromMenu();
+  const g = await t.b(() => {
+    const nav = document.querySelector('#nav').getBoundingClientRect();
+    const ov = document.querySelector('.dbb-overlay').getBoundingClientRect();
+    const hit = document.elementFromPoint(nav.left + nav.width / 2, nav.top + nav.height / 2);
+    return { navBottom: Math.round(nav.bottom), top: Math.round(ov.top), navClickable: !!hit?.closest('#nav'), z: getComputedStyle(document.querySelector('.dbb-overlay')).zIndex };
+  });
+  eq([g.top, g.navClickable, g.z], [g.navBottom, true, '999'], 'starts at the navbar bottom, navbar stays usable, app menus above it');
+  // the pencil menu still works while the builder is open
+  await t.page.click('.dbb-edit-ic');
+  ok(await t.page.isVisible('.dbb-emenu'), 'navbar menu opens over the builder');
+  await t.page.keyboard.press('Escape');
+  // no unsaved changes: navigating closes the builder
+  await t.b(() => window.__urlSwitch('rd'));
+  await t.page.waitForFunction(() => !document.querySelector('.dbb-overlay'), null, { timeout: 3000 });
+  // unsaved changes: asks; Keep editing stays, Discard and go closes
+  await openFromMenu();
+  await t.page.click('.dbb-left .dbb-pal[data-t="value"]');
+  await t.page.waitForTimeout(200);
+  await t.b(() => window.__urlSwitch('pc'));
+  await t.page.waitForSelector('.dbb-modal :text("You opened another page")', { timeout: 3000 });
+  await t.page.click('.dbb-modal [data-mb="cancel"]');
+  await t.page.waitForTimeout(700);
+  ok(await t.page.isVisible('.dbb-overlay'), 'Keep editing keeps the builder');
+  await t.b(() => window.__urlSwitch('rd'));
+  await t.page.waitForSelector('.dbb-modal :text("You opened another page")', { timeout: 3000 });
+  await t.page.click('.dbb-modal [data-mb="ok"]');
+  await t.page.waitForFunction(() => !document.querySelector('.dbb-overlay'), null, { timeout: 3000 });
+});
+
+test('builder top in a ThingsBoard-like grid: navbar band + status line, not the page below', async (t) => {
+  const r = await t.b(() => {
+    // 150-column layout, no margins (as in the iMEX app): navbar rows 1-5, status line row 6, page from row 7
+    const grid = document.createElement('gridster');
+    grid.style.cssText = 'position:fixed;left:0;top:0;width:1500px;height:900px;display:block';
+    const item = (top, h, left, w) => {
+      const it = document.createElement('gridster-item');
+      it.style.cssText = `position:absolute;display:block;top:${top}px;height:${h}px;left:${left}px;width:${w}px`;
+      grid.appendChild(it);
+      return it;
+    };
+    item(0, 50, 0, 1300); // logo + links
+    const pencilCell = item(5, 40, 1300, 200); // the cell holding the navbar widget (shorter than the band)
+    const host = document.createElement('div');
+    pencilCell.appendChild(host);
+    item(50, 10, 0, 1500); // status line (thin, full width)
+    item(60, 30, 270, 1230); // "Sort by" bar of the page: not full width -> page content
+    item(60, 800, 0, 270); // hierarchy panel
+    document.body.appendChild(grid);
+    const out = {
+      auto: window.__builderTop({ $container: [host], settings: {} }),
+      px: window.__builderTop({ $container: [host], settings: { builderTop: '64' } }),
+      full: window.__builderTop({ $container: [host], settings: { builderTop: '0' } }),
+    };
+    grid.remove();
+    return out;
+  });
+  eq(r, { auto: 60, px: 64, full: 0 }, 'auto = navbar band (50) + status line (10)');
+});
+
+// ------------------------------------------------------------------ D-028 security
+
+async function seedHostile(t) {
+  // Everything a customer user could write straight into the store attributes (D-012), with payloads in every
+  // string that reaches markup or CSS.
+  await t.b(() => {
+    const X = '"><img src=x onerror="window.__pwned=1">';
+    const now = Date.now();
+    const W = (i, type, keys, settings = {}) => ({ id: 'x' + i, type, title: X, x: 0, y: i * 2, w: 6, h: 2, binding: { mode: 'current' }, keys, settings: { footer: X, description: X + '<a href="javascript:window.__pwned=1">x</a>&#x110000;', ...settings } });
+    const doc = { schemaVersion: 1, id: 'hx', name: X, kind: 'device', profile: 'Compressor', version: 1, ownerId: 'u1', ownerName: X, updatedBy: X, updatedAt: now, timeRange: 'realtime', copiedFrom: null,
+      theme: { font: 'a\n;background:url(//evil.example/x);b:' },
+      widgets: [
+        W(0, 'multivalue', ['dischargePressure'], { unit: X, bands: [{ upTo: null, color: 'red"><img src=x onerror="window.__pwned=1">' }] }),
+        W(1, 'status', ['runStatus'], { statusMap: [{ value: 1, label: X, color: 'red;background:url(//evil.example/y)' }] }),
+        W(2, 'value', ['dischargeTemp'], { style: { titleFont: 'a\n;position:fixed;inset:0;z-index:9;b:' }, colorRules: [{ op: 'gt', value: -1e9, color: '#ff0000', label: X }] }),
+        W(3, 'table', ['dischargePressure'], { bands: [{ upTo: null, color: 'x" onmouseover="window.__pwned=1' }] }),
+        W(4, 'text', [], { html: X + '<p>{{machine}}</p><a href="https://ok.example/{{machine}}">l</a>' }),
+        W(5, 'embed', [], { url: location.origin + '/' }),
+      ] };
+    window.__tb.setAttrs('ASSET', 'store', {
+      dbb_d_hx: doc,
+      dbb_h_hx: [{ version: '1"><img src=x onerror="window.__pwned=1">', savedAt: now, savedBy: X, doc }, { version: 2, savedAt: now, savedBy: X, doc }],
+      // a document whose id is not its key, and one with a hostile id: both must be ignored
+      dbb_d_other: { ...doc, id: 'hx2' },
+      dbb_d_evil: { ...doc, id: '"><img src=x onerror="window.__pwned=1">' },
+      dbb_assign_rev: 'v' + now,
+    });
+    window.__tb.setAttrs('DEVICE', 'pc', { dbb_assign: { dashboardId: 'hx', mode: 'linked', by: 'u1', at: now } });
+  });
+}
+
+test('stored XSS: hostile dashboard documents never run script (machine page, Open dialog, history, editors)', async (t) => {
+  await t.page.close();
+  const s = await open('page=builder&dev=pc');
+  Object.assign(t, s);
+  await seedHostile(t);
+  // builder: Open dialog lists it, open it, select every widget (editors render ids and settings), version history
+  await t.click('.dbb-top [data-a="open"]');
+  await t.page.waitForSelector('.dbb-modal .dbb-od-row[data-id="hx"]');
+  const ids = await t.b(() => [...document.querySelectorAll('.dbb-od-row[data-id]')].map((r) => r.dataset.id));
+  eq(ids.filter((i) => i !== 'hx' && !i.startsWith('d')), [], 'only valid documents listed');
+  await t.click('.dbb-modal .dbb-od-row[data-id="hx"]');
+  await t.idle(600);
+  const n = await t.b(() => document.querySelectorAll('.dbb-canvas .dbb-card').length);
+  for (let i = 0; i < n; i++) {
+    await t.page.locator('.dbb-canvas .dbb-card').nth(i).click({ position: { x: 20, y: 40 }, force: true });
+    await t.page.waitForTimeout(150);
+  }
+  ok(n >= 5, `hostile widgets rendered in the builder (${n})`);
+  await t.b(() => window.__b.versionsDialog());
+  await t.page.waitForTimeout(500);
+  const css = await t.b(() => [...document.querySelectorAll('[style]')].map((e) => e.getAttribute('style')).filter((x) => /evil|inset:0|position:fixed/.test(x)));
+  eq(css, [], 'no injected CSS');
+  eq(await t.b(() => ({ pwned: window.__pwned ?? null, imgs: document.querySelectorAll('img[src="x"], [onerror], [onmouseover]').length })), { pwned: null, imgs: 0 }, 'no script in the builder');
+  await t.page.keyboard.press('Escape');
+  // machine page
+  await t.page.close();
+  const m = await open('dev=pc');
+  Object.assign(t, m);
+  await seedHostile(t);
+  await t.b(() => window.__tb.setAttrs('ASSET', 'store', { dbb_assign_rev: 'v-reload' }));
+  // reload the page so the machine page reads the hostile documents on first load
+  await t.b(() => window.__urlSwitch('rd'));
+  await t.page.waitForTimeout(1200);
+  await t.b(() => window.__urlSwitch('pc'));
+  await t.page.waitForTimeout(2500);
+  ok(/Could not|—|\d/.test(await t.page.textContent('.dbb-rbody')), 'machine page rendered');
+  const r = await t.b(() => ({
+    pwned: window.__pwned ?? null,
+    imgs: document.querySelectorAll('img[src="x"], [onerror], [onmouseover]').length,
+    js: document.querySelectorAll('a[href^="javascript"]').length,
+    frames: document.querySelectorAll('iframe').length,
+  }));
+  eq(r, { pwned: null, imgs: 0, js: 0, frames: 0 }, 'nothing injected, same-origin page not framed');
 });
 
 // ------------------------------------------------------------------ D-025
@@ -1121,7 +1417,7 @@ test('navbar: Dashboard list shows only standalone dashboards, with search, sort
   // the edit menu on that state: Edit this dashboard, Dashboard list, Dashboard Builder
   await t.page.waitForFunction(() => window.__imexDbbActions?.items?.length > 0, null, { timeout: 5000 });
   await t.page.click('#nav .dbb-launch-btn');
-  eq(await t.b(() => [...document.querySelectorAll('.dbb-emenu [data-m]')].map((b) => b.dataset.m)), ['edit', '__list', '__builder'], 'three menu items on the overview state');
+  eq(await t.b(() => [...document.querySelectorAll('.dbb-emenu [data-m]')].map((b) => b.dataset.m)), ['edit', '__list', '__new', '__builder'], 'menu items on the overview state');
   await t.page.click('.dbb-emenu [data-m="__builder"]');
   await t.page.waitForSelector('.dbb-overlay .dbb-top select');
   await t.page.waitForTimeout(500);

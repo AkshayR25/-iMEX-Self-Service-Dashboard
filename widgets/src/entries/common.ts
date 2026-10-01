@@ -245,9 +245,13 @@ export function scheduleRedraw(redraw: () => void, pollMs: () => number, minGapM
     const every = live ? 60e3 : pollMs();
     if (Date.now() - last >= every) run();
   }, 1000);
+  // D-028: hidden tabs skip redraws; bring a tab up to date as soon as it is shown again
+  const onVis = () => !document.hidden && Date.now() - last > minGapMs && run();
+  document.addEventListener('visibilitychange', onVis);
   return () => {
     off?.();
     clearInterval(tick);
     if (queued) clearTimeout(queued);
+    document.removeEventListener('visibilitychange', onVis);
   };
 }

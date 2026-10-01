@@ -57,7 +57,7 @@ Since we run **one ThingsBoard tenant per customer**, each tenant gets its own w
 ```bash
 git clone <repo> imex-dbb && cd imex-dbb
 npm install
-npm test               # 81 unit tests against a fake ThingsBoard / fake WebSocket
+npm test               # 88 unit tests against a fake ThingsBoard / fake WebSocket
 npm run typecheck
 npm run build:widgets  # -> widgets/dist/imex-dbb.js, glue.json, widget-types/*.json
 ```
@@ -97,7 +97,7 @@ npm run build:widgets  # -> widgets/dist/imex-dbb.js, glue.json, widget-types/*.
 ### Wire it into our app dashboard
 
 1. In our **machine state** (or each device-type state), remove the hand-built widgets and add **iMEX Machine dashboard** filling the state. Settings: `refreshSeconds` (default 10), `chatEnabled`.
-2. In our **header state**, add **iMEX Navbar / edit menu**, a small cell with `navbar` off, so it renders only the pencil icon. The icon shows only for admins. Alternatively keep our own header button and call `window.IMEX_DBB.open({ deviceId })`; the launcher widget must still be on the page.
+2. In our **header state**, add **iMEX Navbar / edit menu**. The Dashboard Builder opens below our navbar (setting `builderTop`, default `auto` = bottom of the navbar rows plus the status line; or a px value; `0` = full screen, D-030). Then add it as a small cell with `navbar` off, so it renders only the pencil icon. The icon shows only for admins. Alternatively keep our own header button and call `window.IMEX_DBB.open({ deviceId })`; the launcher widget must still be on the page.
 3. Add a state with id **`dashboard_overview`** (name "Dashboard Overview") holding another **iMEX Machine dashboard** widget filling the state, and nothing machine-specific (D-026). The navbar's *Dashboard list* opens standalone dashboards there (state param `dbbDashboardId`). Another id works if you set it in the navbar's setting `overviewState`. Without the state, standalone dashboards open in the machine state (fallback). The pencil menu on that state offers *Edit this dashboard*, *Dashboard list* and *Dashboard Builder*, all for the shown dashboard.
 4. Log in as an admin customer user, open a machine, open the pencil menu, then **Dashboard Builder** → Templates, and save. In the *Apply* dialog choose **All <type> machines**. That recreates today's "one template per type".
 5. Log in as a normal user and check the page shows no edit controls (only the Dashboard list icon).
@@ -208,7 +208,11 @@ node widgets/harness/shot.mjs '[{"wait":2000,"shot":"machine"}]' 'index.html'   
 # or serve widgets/harness/ with any static server and open index.html (?page=list / ?page=map / ?page=builder&dev=pc)
 ```
 
-**End-to-end test (D-023):** `npm run test:e2e` builds the harness and runs `widgets/e2e/builder.e2e.mjs`: 51 scenarios in Chromium (Playwright) covering every builder function and the machine page, about 2.5 minutes. `node widgets/e2e/builder.e2e.mjs chat save` runs only tests whose name contains a word. A failed test saves a screenshot `e2e-fail-*.png` in the system temp folder. On a new machine run `npx playwright install chromium` once. The harness stubs the chat relay (`window.__chatQueue`) and can switch the machine through the state URL only (`window.__urlSwitch('rd')`), like an app navbar. Run it before every redeploy.
+**Load test (D-028):** `node widgets/e2e/bench.mjs 5 60` opens a worst-case dashboard (10 widgets, 40 machines, every key pushed every second by a fake WebSocket) in 5 tabs for 60 s and prints per tab: main-thread busy %, long tasks, heap, DOM nodes, REST calls per minute. It fails when a tab goes over budget (25 % busy, a 200 ms task, 15 MB heap growth, 2,000 extra DOM nodes). Run it after changes to rendering or live data.
+
+**Security rules for contributors (D-028):** every stored string is untrusted (customer users can write the store attributes directly, D-012). Put values into HTML only through `esc()` or `sanitizeHtml()`; colours only through the `Color` schema or `cssColor()`; ids through the `Id` schema; font names through `fontStack()`. The E2E test "stored XSS" must keep passing.
+
+**End-to-end test (D-023):** `npm run test:e2e` builds the harness and runs `widgets/e2e/builder.e2e.mjs`: 58 scenarios in Chromium (Playwright) covering every builder function and the machine page, about 2.5 minutes. `node widgets/e2e/builder.e2e.mjs chat save` runs only tests whose name contains a word. A failed test saves a screenshot `e2e-fail-*.png` in the system temp folder. On a new machine run `npx playwright install chromium` once. The harness stubs the chat relay (`window.__chatQueue`) and can switch the machine through the state URL only (`window.__urlSwitch('rd')`), like an app navbar. Run it before every redeploy.
 
 ---
 

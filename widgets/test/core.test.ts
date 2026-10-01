@@ -590,3 +590,44 @@ describe('design pass for chat-built dashboards (D-026)', () => {
     expect(r.draft.widgets.find((w) => w.id === 'a')).toMatchObject({ x: 0, y: 0, w: 3, h: 2 });
   });
 });
+
+describe('chat layout ops (D-029)', () => {
+  const noOverlap = (ws: any[]) => !ws.some((a, i) => ws.some((b, j) => i < j && a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h));
+  async function setup() {
+    const ctx = await ctxFor('Admin', ['root']);
+    const cat = chat.buildCatalog(ctx);
+    const d0 = {
+      ...store.blankDashboard(ctx, 'x', 'Compressor'),
+      widgets: [
+        widget({ id: 'a', x: 0, y: 0, w: 3, h: 2 }),
+        widget({ id: 'b', x: 3, y: 0, w: 3, h: 2 }),
+        widget({ id: 'c', type: 'line', x: 0, y: 2, w: 12, h: 4 }),
+      ],
+    } as any;
+    return { ctx, cat, d0 };
+  }
+  it('moves and resizes with x/y/w/h; others make room; strings and out-of-range values are coerced', async () => {
+    const { ctx, cat, d0 } = await setup();
+    const out = chat.normaliseToolInput({ reply: '', ops: [{ op: 'updateWidget', widget: 'W3', x: '0', y: 0, w: 6 }, { op: 'updateWidget', widget: 'W1', w: 40, x: -3 }] });
+    expect(out.ops[1]).toMatchObject({ w: 12, x: 0 });
+    const r = chat.applyOps(ctx, d0, out, cat);
+    const c = r.draft.widgets.find((w) => w.id === 'c')!;
+    expect([c.x, c.y, c.w]).toEqual([0, 0, 6]);
+    expect(r.draft.widgets.find((w) => w.id === 'a')!.w).toBe(12);
+    expect(noOverlap(r.draft.widgets)).toBe(true);
+  });
+  it('arrangeLayout tidies the page into full rows', async () => {
+    const { ctx, cat, d0 } = await setup();
+    d0.widgets[1].y = 9;
+    const r = chat.applyOps(ctx, d0, { reply: '', ops: [{ op: 'arrangeLayout' }] }, cat);
+    expect(r.arranged).toBe(true);
+    for (const y of new Set(r.draft.widgets.map((w) => w.y))) expect(r.draft.widgets.filter((w) => w.y === y).reduce((s, w) => s + w.w, 0)).toBe(12);
+    expect(noOverlap(r.draft.widgets)).toBe(true);
+  });
+  it('new widgets are sized to their content: multi-value by its properties, table by its machines', async () => {
+    const { ctx, cat, d0 } = await setup();
+    const out = chat.normaliseToolInput({ reply: '', ops: [{ op: 'addWidget', type: 'multivalue', title: 'mv', binding: { mode: 'current' }, keys: ['dischargePressure', 'dischargeTemp', 'powerKw', 'runStatus'] }] });
+    const r = chat.applyOps(ctx, d0, out, cat);
+    expect(r.draft.widgets.find((w) => w.title === 'mv')!.h).toBeGreaterThanOrEqual(3);
+  });
+});

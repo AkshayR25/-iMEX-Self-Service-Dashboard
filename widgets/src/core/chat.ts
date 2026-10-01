@@ -21,7 +21,8 @@
 //      ("Your previous answer was invalid: ..."); a second failure throws and the draft is unchanged.
 //   5. The builder shows the reply and the changes and offers undo.
 //
-// Invariants: the model never places widgets (autoPlace does); chat never saves or applies anything
+// Invariants: new widgets are placed by autoPlace unless the user asked for a position (D-029: x/y/w/h on
+// add/updateWidget, arrangeLayout); chat never saves or applies anything
 // (setApplyTarget only proposes a target for the Save dialog); rich text from the model is sanitised.
 // The 30-requests-per-hour limit is enforced by the builder (browser-side), not here.
 //
@@ -29,7 +30,8 @@
 // and a user who can write `dbb_chat_req` directly can use the relay. The prompt treats catalogue
 // and draft text as data to limit prompt injection through entity labels.
 
-import { designPass, sizeWidget } from './design';
+import { designPass, sizeWidget, layoutPass } from './design';
+import { resolveCollisions } from '../render/grid';
 import { z } from 'zod';
 import * as api from './api';
 import type { UserContext, Node } from './scope';
@@ -122,8 +124,11 @@ const Settings = WidgetSettings;
  * as sent). The key/machine maxima here are the legacy ones; the current limits are enforced
  * afterwards by `checkDashboard`.
  */
+/** D-029: grid position and size (12 columns; rows of 64 px + 10 px gap). */
+const Pos = { x: z.number().int().min(0).max(11).optional(), y: z.number().int().min(0).max(200).optional(), w: z.number().int().min(1).max(12).optional(), h: z.number().int().min(1).max(12).optional() };
+
 export const Op = z.discriminatedUnion('op', [
-  z.object({ op: z.literal('addWidget'), type: z.enum(WIDGET_TYPES), title: z.string().max(120), binding: AliasBinding, keys: z.array(z.string()).max(10), settings: Settings.optional() }),
+  z.object({ op: z.literal('addWidget'), type: z.enum(WIDGET_TYPES), title: z.string().max(120), binding: AliasBinding, keys: z.array(z.string()).max(10), settings: Settings.optional(), ...Pos }),
   z.object({
     op: z.literal('updateWidget'),
     widget: z.string(),
@@ -132,8 +137,11 @@ export const Op = z.discriminatedUnion('op', [
     binding: AliasBinding.optional(),
     keys: z.array(z.string()).max(10).optional(),
     settings: Settings.optional(),
+    ...Pos,
   }),
   z.object({ op: z.literal('removeWidget'), widget: z.string() }),
+  // D-029: tidy the whole page (rows without gaps, lists sized to their rows); see core/design.ts layoutPass.
+  z.object({ op: z.literal('arrangeLayout') }),
   z.object({ op: z.literal('setTimeRange'), range: z.enum(TIME_RANGES) }),
   z.object({ op: z.literal('renameDashboard'), name: z.string().min(1).max(120) }),
   z.object({ op: z.literal('setMachineType'), machineType: z.string() }),
@@ -182,6 +190,8 @@ export interface ChatResult {
   intent?: LlmOutput['intent'];
   /** D-026: the answer built a fresh dashboard (new, replaced, or on an empty draft); the design pass runs on it. */
   fresh?: boolean;
+  /** D-029: the answer re-arranged the whole page (arrangeLayout); the builder fits every widget to its content. */
+  arranged?: boolean;
 }
 
 /** Draft as the LLM sees it: widget aliases W1.., bindings with catalog aliases, never raw ids. */
@@ -195,6 +205,10 @@ export function draftForPrompt(draft: Dashboard, cat: Catalog) {
       widget: `W${i + 1}`,
       type: w.type,
       title: w.title,
+      x: w.x,
+      y: w.y,
+      w: w.w,
+      h: w.h,
       keys: w.keys,
       binding: bindingToAlias(w, cat),
       settings: w.settings,
@@ -241,6 +255,11 @@ export function applyOps(
   // opts.aliases (lenient apply) is shared across calls and updated in place.
   const aliasToWidget = opts.aliases ?? new Map((opts.aliasFrom ?? draft).widgets.map((w, i) => [`W${i + 1}`, w.id]));
   let newDashboard = false;
+  // D-029: widgets the model placed or sized itself; arrangeLayout asked
+  const placedByModel = new Set<string>();
+  const sizedByModel = new Set<string>();
+  const resized = new Set<string>();
+  let arrange = false;
   const bindingSets = new Map<string, number>();
   const changed = { added: [] as string[], updated: [] as string[], removed: [] as string[] };
   let applyProposal: ApplyProposal | null = null;
@@ -343,6 +362,16 @@ export function applyOps(
       // A text widget without content would be an empty card: use its title as the heading.
       if (op.type === 'text' && !w.settings.html && op.title) w.settings.html = sanitizeHtml(`<h2>${op.title.replace(/[<>&]/g, '')}</h2>`);
       checkKeys(w, where);
+      if (op.w !== undefined) w.w = op.w;
+      if (op.h !== undefined) {
+        w.h = op.h;
+        sizedByModel.add(w.id);
+      }
+      if (op.x !== undefined || op.y !== undefined) {
+        w.x = op.x ?? 0;
+        w.y = op.y ?? 0;
+        placedByModel.add(w.id);
+      }
       d.widgets.push(w);
       changed.added.push(w.id);
       // Widgets added in this answer continue the W numbering, so a later op can refine them (small models
@@ -374,8 +403,19 @@ export function applyOps(
         const b = toBinding(op.binding, where);
         if (b) w.binding = b;
       }
+      if (op.type || op.keys || op.binding) resized.add(w.id);
       if (op.keys) w.keys = op.keys;
       if (op.settings) w.settings = cleanSettings({ ...w.settings, ...op.settings });
+      if (op.x !== undefined || op.y !== undefined || op.w !== undefined || op.h !== undefined) {
+        if (op.w !== undefined) w.w = op.w;
+        if (op.h !== undefined) {
+          w.h = op.h;
+          sizedByModel.add(w.id);
+        }
+        if (op.x !== undefined) w.x = op.x;
+        if (op.y !== undefined) w.y = op.y;
+        placedByModel.add(w.id);
+      }
       if (op.type && CONTENT_TYPES.has(op.type)) w.binding = { mode: 'none' };
       checkKeys(w, where);
       changed.updated.push(w.id);
@@ -387,6 +427,8 @@ export function applyOps(
         changed.removed.push(d.widgets[idx].title);
         d.widgets.splice(idx, 1);
       }
+    } else if (op.op === 'arrangeLayout') {
+      arrange = true;
     } else if (op.op === 'setTheme') d.theme = { ...(d.theme ?? {}), ...op.theme };
     else if (op.op === 'setTimeRange') d.timeRange = op.range;
     else if (op.op === 'renameDashboard') d.name = op.name;
@@ -410,8 +452,28 @@ export function applyOps(
     // the model must call setMachineType (this error is sent back to it on the retry)
     errs.push('The dashboard uses "this machine" bindings but has no machine type; call setMachineType.');
   }
-  for (const w of d.widgets) if (changed.added.includes(w.id)) sizeWidget(ctx, w);
-  autoPlace(d, new Set(changed.added));
+  // New widgets the model did not place go to the first free slot; widgets the model moved or resized keep
+  // their spot and the others move down to make room (D-029); arrangeLayout tidies everything at the end.
+  for (const w of d.widgets) {
+    w.w = Math.min(12, Math.max(1, w.w));
+    if (w.x + w.w > 12) w.x = 12 - w.w;
+  }
+  // content-aware sizes (D-026/D-029) for new widgets and for widgets whose content changed
+  for (const w of d.widgets) {
+    if (sizedByModel.has(w.id)) continue;
+    if (changed.added.includes(w.id)) sizeWidget(ctx, w);
+    else if (resized.has(w.id)) {
+      const h0 = w.h;
+      sizeWidget(ctx, w);
+      if (w.h !== h0) placedByModel.add(w.id);
+    }
+  }
+  autoPlace(d, new Set(changed.added.filter((id) => !placedByModel.has(id))));
+  for (const id of placedByModel) if (d.widgets.some((w) => w.id === id)) d.widgets = resolveCollisions(d.widgets, id);
+  if (arrange) {
+    for (const w of d.widgets) sizeWidget(ctx, w);
+    layoutPass(d.widgets);
+  }
   const parsed = Dashboard.safeParse(d);
   if (!parsed.success) errs.push(...parsed.error.issues.slice(0, 8).map((i) => `${i.path.join('.')}: ${i.message}`));
   else errs.push(...checkDashboard(parsed.data, metaLookup(ctx, parsed.data)));
@@ -419,7 +481,7 @@ export function applyOps(
   const fresh = opts.ignore ? errs.filter((e) => !opts.ignore!.has(e)) : errs;
   if (fresh.length) throw new OpsError(fresh);
   const isFresh = newDashboard || out.ops.some((o) => o.op === 'clearWidgets') || (draft.widgets.length === 0 && changed.added.length > 0);
-  return { draft: parsed.success ? parsed.data : d, reply: out.reply, clarification: out.clarification ?? null, applyProposal, changed, warnings, newDashboard, intent: out.intent, fresh: isFresh };
+  return { draft: parsed.success ? parsed.data : d, reply: out.reply, clarification: out.clarification ?? null, applyProposal, changed, warnings, newDashboard, intent: out.intent, fresh: isFresh, arranged: arrange };
 }
 
 /** Problems a draft already has (checkDashboard with property kinds); ignored when judging the model's ops. */
@@ -438,7 +500,7 @@ export function existingProblems(ctx: UserContext, d: Dashboard): Set<string> {
  * @returns the result with `skipped` = one plain sentence per dropped op; throws OpsError when nothing applies.
  */
 export function applyOpsLenient(ctx: UserContext, draft: Dashboard, out: LlmOutput, cat: Catalog): ChatResult {
-  const rank = (o: Op) => (o.op === 'startNewDashboard' ? 0 : ['setMachineType', 'renameDashboard', 'setTimeRange', 'setTheme', 'clearWidgets'].includes(o.op) ? 1 : 2);
+  const rank = (o: Op) => (o.op === 'startNewDashboard' ? 0 : ['setMachineType', 'renameDashboard', 'setTimeRange', 'setTheme', 'clearWidgets'].includes(o.op) ? 1 : o.op === 'arrangeLayout' ? 3 : 2);
   const ops = out.ops.map((o, i) => ({ o, i })).sort((a, b) => rank(a.o) - rank(b.o) || a.i - b.i);
   const ignore = existingProblems(ctx, draft);
   let cur = draft;
@@ -487,6 +549,7 @@ export function applyOpsLenient(ctx: UserContext, draft: Dashboard, out: LlmOutp
       acc.warnings.push(...r.warnings);
       if (r.applyProposal) acc.applyProposal = r.applyProposal;
       if (r.fresh || r.newDashboard) acc.fresh = true;
+      if (r.arranged) acc.arranged = true;
     } catch (e: any) {
       const why = e instanceof OpsError ? e.problems.map(plainProblem).join(' ') : String(e?.message ?? e);
       const what = o.op === 'addWidget' ? `“${o.title || o.type}”` : o.op === 'updateWidget' ? `the change to ${o.widget}` : o.op;
@@ -587,6 +650,12 @@ export function systemPrompt(ctx: UserContext, cat: Catalog, currentMachineAlias
     '- Where to build it. If the DRAFT already has widgets and is a machine dashboard (machineType set), and the user has not said where, do NOT build yet: set intent "clarify" and set clarification = {"question": "Where should I build it?", "options": ["Start a new dashboard", "Replace this dashboard", "Add to this dashboard"]} (the clarification object is required; the reply may repeat the question). Then, depending on the answer: new = first op startNewDashboard {name} and build with fixed / nodeQuery bindings (no "current"), replace = first op clearWidgets then build, add = only add widgets (stay within the limit). If the DRAFT is empty or already a standalone dashboard, build directly without asking.',
     '- Never answer a role request with an error or an empty reply: build the preset, or ask one clarification question.',
     '',
+    'LAYOUT (D-029): the page is a grid 12 columns wide; one row is 74 px. Every widget in the DRAFT has x (column 0-11), y (row, 0 = top), w (width 1-12 columns) and h (height in rows).',
+    '- To move or resize: updateWidget with only the fields that change. Examples: full width = x 0, w 12; left half = x 0, w 6; right half = x 6, w 6; three in a row = w 4 at x 0, 4, 8; four cards in a row = w 3 at x 0, 3, 6, 9; to the top = y 0; taller = a bigger h.',
+    '- Widgets you move keep their spot; the others move down to make room. Nothing overlaps.',
+    '- "Tidy up", "align", "arrange", "fill the gaps", "make it look neat": op arrangeLayout (rows without gaps, cards side by side, lists as tall as their rows). It can be combined with other ops and runs last.',
+    '- Swap two widgets: give each the other one\'s x and y.',
+    '',
     'MACHINES OF DIFFERENT TYPES:',
     '- One widget shows the SAME property keys for all its machines. Different machine types have different keys, so for several types either add one widget per machine type, or use a key that every chosen type has (CATALOG "sharedKeys" lists keys that several types have). Never put a key on a widget whose machines do not all have it.',
     '- A "table" with binding nodeQuery (node + machineType) lists every machine of that type under the node as rows, with the keys as columns: the best way to show many machines. A "fixed" binding holds at most ' + MAX_DEVICES + ' machines; single-machine widget types (value, kpi, gauge, progress, status, multivalue, summary) take exactly one.',
@@ -609,7 +678,7 @@ export function systemPrompt(ctx: UserContext, cat: Catalog, currentMachineAlias
     '- Value-based colours: settings.colorRules = [{op, value, value2?, color:"#hex", label?, key?}] — op gt|gte|lt|lte|between|eq|neq for numbers, isTrue|isFalse for on/off values (e.g. runStatus 1/0), eq|neq|contains for text. First match wins; put the most severe first. Use status colours: good #0ca30c, warning #fab219, serious #ec835a, critical #d03b3b, neutral #8a8983. settings.colorTarget "background"|"accent"|"value"|"icon" chooses what a card colours; charts draw number rules as threshold lines; tables colour cells (use rule.key per column).',
     `- Card look: settings.style = {bg, gradient, border none|thin|thick, borderColor, accentBar, radius 0-28, shadow none|soft|strong, padding compact|normal|roomy, hideTitle, titleColor, titleSize, titleWeight "400"-"700", titleAlign left|center|right, titlePos top|bottom, titleFont, icon (${ICONS.join('|')}), iconColor, valueSize 12-72, valueColor, valueFont, align left|center|right (values and labels), valign top|middle|bottom}. settings.description = help text (simple HTML) shown as an (i) tooltip; settings.footer = short note. Fonts: ${FONTS.join(', ')}.`,
     `- Dashboard look: op setTheme {theme:{preset ${THEME_PRESETS.join('|')}, accent, font, bg, cardBg, bgImage (https), radius, shadow, density compact|normal|roomy, titleAlign}}. Only change the theme when the user asks about look, colours, style, dark mode or fonts.`,
-    '- Do not set positions or sizes; layout is automatic.',
+    '- New widgets: leave x, y, w and h out; the app places and sizes them so their content fits. Set them only when the user asks for a position, size or arrangement (see LAYOUT).',
     `- At most ${MAX_WIDGETS} widgets per page. If asked for more, build up to the limit and say so.`,
     '- For vague requests, build a sensible overview (key values per machine, one trend chart, an alarm list) and say which choices you made.',
     '- To change an existing widget refer to it by its "widget" id from the DRAFT (W1, W2, ...). Do not re-add existing widgets.',
@@ -645,7 +714,7 @@ export const TOOL = {
         items: {
           type: 'object',
           properties: {
-            op: { type: 'string', enum: ['addWidget', 'updateWidget', 'removeWidget', 'setTimeRange', 'renameDashboard', 'setMachineType', 'setApplyTarget', 'setTheme', 'startNewDashboard', 'clearWidgets'] },
+            op: { type: 'string', enum: ['addWidget', 'updateWidget', 'removeWidget', 'setTimeRange', 'renameDashboard', 'setMachineType', 'setApplyTarget', 'setTheme', 'startNewDashboard', 'clearWidgets', 'arrangeLayout'] },
             widget: { type: 'string', description: 'W alias for updateWidget/removeWidget' },
             type: { type: 'string', enum: [...WIDGET_TYPES] },
             title: { type: 'string' },
@@ -661,6 +730,10 @@ export const TOOL = {
               required: ['mode'],
             },
             settings: { type: 'object' },
+            x: { type: 'integer', description: 'column 0-11 (addWidget/updateWidget; only to move a widget)' },
+            y: { type: 'integer', description: 'row from the top, 0 = top (only to move a widget)' },
+            w: { type: 'integer', description: 'width in columns 1-12 (12 = full width)' },
+            h: { type: 'integer', description: 'height in rows 1-12 (one row = 74 px)' },
             range: { type: 'string', enum: [...TIME_RANGES] },
             name: { type: 'string', description: 'for renameDashboard and startNewDashboard' },
             machineType: { type: 'string' },
@@ -781,11 +854,19 @@ export function normaliseToolInput(input: any): LlmOutput {
       }
     }
     if (o && o.op === 'updateWidget' && (o.widget === undefined || o.widget === null)) o.widget = '';
+    // D-029: positions as numbers; null or junk is dropped (models send "6" or null)
+    if (o && (o.op === 'addWidget' || o.op === 'updateWidget'))
+      for (const k of ['x', 'y', 'w', 'h']) {
+        const n = typeof o[k] === 'string' && o[k].trim() !== '' ? Number(o[k]) : o[k];
+        const [lo, hi] = k === 'x' ? [0, 11] : k === 'y' ? [0, 200] : [1, 12];
+        if (typeof n === 'number' && Number.isFinite(n)) o[k] = Math.min(hi, Math.max(lo, Math.round(n)));
+        else delete o[k];
+      }
     switch (o?.op) {
       case 'addWidget':
-        return { ...pick(o, ['op', 'type', 'title', 'keys', 'settings']), binding: bind(o.binding ?? { mode: CONTENT_TYPES.has(o.type) ? 'none' : 'current' }), keys: o.keys ?? [], title: o.title ?? '' };
+        return { ...pick(o, ['op', 'type', 'title', 'keys', 'settings', 'x', 'y', 'w', 'h']), binding: bind(o.binding ?? { mode: CONTENT_TYPES.has(o.type) ? 'none' : 'current' }), keys: o.keys ?? [], title: o.title ?? '' };
       case 'updateWidget':
-        return { ...pick(o, ['op', 'widget', 'title', 'type', 'keys', 'settings']), ...(o.binding ? { binding: bind(o.binding) } : {}) };
+        return { ...pick(o, ['op', 'widget', 'title', 'type', 'keys', 'settings', 'x', 'y', 'w', 'h']), ...(o.binding ? { binding: bind(o.binding) } : {}) };
       case 'removeWidget':
         return pick(o, ['op', 'widget']);
       case 'setTimeRange':
@@ -801,6 +882,7 @@ export function normaliseToolInput(input: any): LlmOutput {
       case 'startNewDashboard':
         return { op: o.op, name: o.name || o.title || 'New dashboard' };
       case 'clearWidgets':
+      case 'arrangeLayout':
         return { op: o.op };
       default:
         return o;

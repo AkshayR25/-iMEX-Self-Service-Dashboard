@@ -1,0 +1,29 @@
+var p = metadata.provider;
+var tool = null;
+var toolJson = "";
+var usage = null;
+var i = 0;
+if (p == "openai") {
+  if (msg.choices != null && msg.choices.size() > 0 && msg.choices[0].message != null) {
+    var tc = msg.choices[0].message.tool_calls;
+    if (tc != null && tc.size() > 0) { toolJson = "" + tc[0]["function"]["arguments"]; }
+  }
+  usage = msg.usage;
+} else if (p == "gemini") {
+  if (msg.candidates != null && msg.candidates.size() > 0 && msg.candidates[0].content != null) {
+    var parts = msg.candidates[0].content.parts;
+    if (parts != null) { for (i = 0; i < parts.size(); i++) { if (parts[i].functionCall != null) { tool = parts[i].functionCall.args; } } }
+  }
+  usage = msg.usageMetadata;
+} else {
+  if (msg.content != null) { for (i = 0; i < msg.content.size(); i++) { var c = msg.content[i]; if (c.type == "tool_use") { tool = c.input; } } }
+  usage = msg.usage;
+}
+var ok = tool != null || toolJson != "";
+var errText = "";
+if (!ok) { errText = "The model returned no dashboard operations."; }
+var resp = {reqId: metadata.reqId, ok: ok, provider: p, toolInput: tool, toolInputJson: toolJson, usage: usage, error: errText};
+var out = {};
+out["dbb_chat_resp_" + metadata.userId] = resp;
+var md = {reqId: "" + metadata.reqId, userId: "" + metadata.userId};
+return {msg: out, metadata: md, msgType: "POST_ATTRIBUTES_REQUEST"};

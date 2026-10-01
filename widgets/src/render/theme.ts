@@ -117,7 +117,9 @@ export const INTER_STACK = 'Inter,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-
 export function fontStack(name?: string | null): string {
   if (!name) return INTER_STACK;
   const generic = /mono/i.test(name) ? 'monospace' : /serif/i.test(name) && !/sans/i.test(name) ? 'serif' : 'sans-serif';
-  return `"${name.replace(/"/g, '')}",${generic}`;
+  // D-028: only letters, digits and spaces reach CSS (a quote or newline could end the declaration)
+  const safe = name.replace(/[^A-Za-z0-9 ]/g, '').trim();
+  return safe ? `"${safe}",${generic}` : INTER_STACK;
 }
 
 /**

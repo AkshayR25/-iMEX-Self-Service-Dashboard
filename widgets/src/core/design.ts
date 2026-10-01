@@ -87,13 +87,59 @@ function keyIcon(ctx: UserContext, profile: string | null, key: string | undefin
   return 'chart';
 }
 
-/** Tables as tall as their rows (header + one line per machine), text widgets at least 2 rows. Mutates `w`. */
+/** Rows needed for `px` pixels of card content (title bar ~40 px + content), at least `min`. */
+const rowsFor = (px: number, min: number) => Math.max(min, Math.ceil((px + 40 + 10) / UNIT));
+
+/**
+ * Content-aware size for a widget chat adds (D-026, extended D-029), so nothing is cut off by default:
+ * tables as tall as their rows, multi-value cards one line per property, charts tall enough for their
+ * legend, timelines and heatmaps one lane per machine, text by its length. Lists are sized exactly, other types only grow; never above 10 rows.
+ * The builder then measures the drawn cards and grows any that still overflow (Builder.fitToContent).
+ * Mutates `w`.
+ */
 export function sizeWidget(ctx: UserContext, w: Widget) {
-  if (w.type === 'table') {
-    const n = devicesOf(ctx, w).length || 3;
-    w.h = Math.max(2, Math.min(8, Math.ceil((84 + n * 36) / UNIT)));
+  const devs = devicesOf(ctx, w).length || (w.binding.mode === 'siblings' ? scope.allDevices(ctx, w.binding.profile).length : 1) || 1;
+  const keys = Math.max(1, w.keys.length);
+  let h = w.h;
+  switch (w.type) {
+    case 'table':
+      h = rowsFor(34 + Math.min(devs, 12) * 36, 2);
+      break;
+    case 'multivalue':
+      h = rowsFor(keys * 32, 2);
+      break;
+    case 'line':
+    case 'area': {
+      const series = Math.min(8, devs * keys);
+      // legend wraps at about 3 entries per row on a half-width card, 5 on a full-width one
+      const legendRows = Math.ceil(series / (w.w >= 12 ? 5 : 3));
+      h = rowsFor(200 + legendRows * 18, 3);
+      break;
+    }
+    case 'timeline':
+    case 'heatmap':
+      h = rowsFor(Math.min(devs, 10) * 40 + 50, 3);
+      break;
+    case 'bar':
+    case 'donut':
+      h = Math.max(h, 3);
+      break;
+    case 'alarms':
+      h = Math.max(h, 4);
+      break;
+    case 'gauge':
+      h = Math.max(h, 3);
+      break;
+    case 'text': {
+      const len = textOf(w.settings.html ?? '').length;
+      const lines = Math.ceil(len / Math.max(20, w.w * 9)) + ((w.settings.html ?? '').match(/<(h[1-3]|p|li|div)\b/g)?.length ?? 1);
+      h = rowsFor(lines * 22, 2);
+      break;
+    }
   }
-  if (w.type === 'text') w.h = Math.max(w.h, 2);
+  // rows of a list are known exactly: those fit their content (also smaller than the default); others only grow
+  const exact = ['table', 'multivalue', 'timeline', 'heatmap'].includes(w.type);
+  w.h = Math.min(10, exact ? h : Math.max(w.h, h));
 }
 
 /** Plain text of a small HTML fragment. */
@@ -154,14 +200,30 @@ export function designPass(ctx: UserContext, d0: Dashboard): Dashboard {
   }
 
   // 5. layout
+  layoutPass(d.widgets);
+
+  const p = Dashboard.safeParse(d);
+  if (!p.success) return d0;
+  const before = new Set(checkDashboard(d0, metaLookup(ctx, d0)));
+  const now = checkDashboard(p.data, metaLookup(ctx, p.data)).filter((e) => !before.has(e));
+  return now.length ? d0 : p.data;
+}
+
+/**
+ * Arranges widgets in rows without gaps (D-026; also the chat op arrangeLayout, D-029): text first, small
+ * cards in rows of up to 4 (the last row split evenly), wide charts full width, bar/donut in pairs, tables in
+ * pairs (an odd table next to the alarm list), alarm lists, then the rest in pairs. Mutates x/y/w (and h to
+ * even out a row) and sorts `ws` by position.
+ */
+export function layoutPass(ws: Widget[]): Widget[] {
   const place = (w: Widget, x: number, y: number, wd: number) => Object.assign(w, { x, y, w: wd });
   let y = 0;
-  const texts = d.widgets.filter((w) => w.type === 'text');
-  const smalls = d.widgets.filter((w) => CARD.has(w.type));
-  const charts = d.widgets.filter((w) => CHART.has(w.type));
-  const tables = d.widgets.filter((w) => w.type === 'table');
-  const alarms = d.widgets.filter((w) => w.type === 'alarms');
-  const rest = d.widgets.filter((w) => !texts.includes(w) && !smalls.includes(w) && !charts.includes(w) && !tables.includes(w) && !alarms.includes(w));
+  const texts = ws.filter((w) => w.type === 'text');
+  const smalls = ws.filter((w) => CARD.has(w.type));
+  const charts = ws.filter((w) => CHART.has(w.type));
+  const tables = ws.filter((w) => w.type === 'table');
+  const alarms = ws.filter((w) => w.type === 'alarms');
+  const rest = ws.filter((w) => !texts.includes(w) && !smalls.includes(w) && !charts.includes(w) && !tables.includes(w) && !alarms.includes(w));
   for (const w of texts) {
     place(w, 0, y, 12);
     y += w.h;
@@ -223,12 +285,6 @@ export function designPass(ctx: UserContext, d0: Dashboard): Dashboard {
     if (b) place(b, 6, y, 6);
     y += Math.max(a.h, b?.h ?? 0);
   }
-  // keep the original order for the rest of the app (W aliases), but by position
-  d.widgets.sort((a, b) => a.y - b.y || a.x - b.x);
-
-  const p = Dashboard.safeParse(d);
-  if (!p.success) return d0;
-  const before = new Set(checkDashboard(d0, metaLookup(ctx, d0)));
-  const now = checkDashboard(p.data, metaLookup(ctx, p.data)).filter((e) => !before.has(e));
-  return now.length ? d0 : p.data;
+  ws.sort((a, b) => a.y - b.y || a.x - b.x);
+  return ws;
 }

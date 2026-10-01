@@ -34,13 +34,14 @@ export interface ModalHandle {
  * @param html Body markup, inserted as-is: the CALLER must escape any user or telemetry data.
  * @param buttons Footer buttons as `[key, label, extraClass?]`, e.g. `['ok', 'Save', 'primary']`.
  *   Labels are escaped; the key is what `result` resolves with.
+ * @param boxClass Extra class on the dialog box, e.g. 'wide' (D-027).
  * @returns A handle; the dialog stays open until a button, Escape, a backdrop click or `close()`.
  * Side effects: adds a capture-phase keydown listener on `document`, removed on close.
  */
-export function modal(root: HTMLElement, title: string, html: string, buttons: [string, string, string?][]): ModalHandle {
+export function modal(root: HTMLElement, title: string, html: string, buttons: [string, string, string?][], boxClass = ''): ModalHandle {
   const wrap = document.createElement('div');
   wrap.className = 'dbb-modal';
-  wrap.innerHTML = `<div class="dbb-modal-box" role="dialog" aria-modal="true" aria-label="${esc(title)}">
+  wrap.innerHTML = `<div class="dbb-modal-box ${boxClass}" role="dialog" aria-modal="true" aria-label="${esc(title)}">
     <div class="dbb-modal-h">${esc(title)}</div><div class="dbb-modal-b">${html}</div>
     <div class="dbb-modal-f">${buttons.map(([k, l, c]) => `<button class="dbb-btn ${c ?? ''}" data-mb="${k}">${esc(l)}</button>`).join('')}</div></div>`;
   root.appendChild(wrap);

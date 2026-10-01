@@ -30,6 +30,84 @@ tb.telemetry.set('rc', { dischargePressure: gen(7, 0.4), dischargeTemp: gen(85, 
 tb.telemetry.set('pc', { dischargePressure: gen(6.9, 0.4, 3), dischargeTemp: gen(84, 7, 3), powerKw: gen(52, 9, 3), runStatus: run() });
 tb.telemetry.set('rd', { dewPoint: gen(3, 0.5) });
 tb.telemetry.set('pw', { temperature: gen(29, 4) });
+// ---------- ?bench=1: worst-case load test (D-028) ----------
+// 40 compressors (the 2 real ones + 38 more), a 10-widget standalone dashboard where every widget shows the
+// maximum (4 machines x up to 4 properties, 40 machines in total), and a fake ThingsBoard WebSocket that pushes
+// a new value for EVERY subscribed key of EVERY machine once per second. widgets/e2e/bench.mjs opens it in 5 tabs.
+const BENCH = new URLSearchParams(location.search).has('bench');
+if (BENCH) {
+  const KEYS = ['dischargePressure', 'dischargeTemp', 'powerKw', 'runStatus'];
+  const devs = ['rc', 'pc'];
+  for (let i = 1; i <= 38; i++) {
+    const id = `b${String(i).padStart(2, '0')}`;
+    devs.push(id);
+    tb.add({ id, entityType: 'DEVICE', name: `BENCH-COMP-${i}`, label: `Compressor ${i + 2}`, type: 'Compressor' }, i % 2 ? 'ric' : 'pun');
+    tb.telemetry.set(id, { dischargePressure: gen(7, 0.4, i), dischargeTemp: gen(85, 6, i), powerKw: gen(60, 8, i), runStatus: run() });
+  }
+  const g = (i: number) => devs.slice(i * 4, i * 4 + 4);
+  const W = (i: number, type: string, keys: string[], x: number, y: number, w: number, h: number, settings: any = {}) => ({ id: `bw${i}`, type, title: `${type} ${i}`, x, y, w, h, binding: { mode: 'fixed', deviceIds: ['kpi', 'gauge', 'value', 'multivalue'].includes(type) ? g(i).slice(0, 1) : g(i) }, keys, settings });
+  const widgets = [
+    W(0, 'line', ['dischargePressure', 'dischargeTemp'], 0, 0, 6, 4),
+    W(1, 'area', ['dischargePressure', 'powerKw'], 6, 0, 6, 4),
+    W(2, 'table', KEYS, 0, 4, 6, 4),
+    W(3, 'bar', ['powerKw'], 6, 4, 6, 4),
+    W(4, 'heatmap', ['dischargeTemp'], 0, 8, 6, 4),
+    W(5, 'timeline', ['runStatus'], 6, 8, 6, 4),
+    W(6, 'kpi', ['powerKw'], 0, 12, 3, 2, { sparkline: true }),
+    W(7, 'gauge', ['dischargePressure'], 3, 12, 3, 2),
+    W(8, 'multivalue', KEYS, 6, 12, 3, 2),
+    W(9, 'donut', ['powerKw'], 9, 12, 3, 2),
+  ];
+  tb.setAttrs('ASSET', 'store', { dbb_d_bench: { schemaVersion: 1, id: 'bench', name: 'Worst case', kind: 'standalone', profile: null, timeRange: 'realtime', widgets, ownerId: 'u1', ownerName: 'Asha', version: 1, updatedAt: now, updatedBy: 'Asha', copiedFrom: null } });
+  // Fake ThingsBoard WebSocket (v2 protocol, see core/live.ts): initial value on subscribe, then 1 push/s per device.
+  const bstats = ((window as any).__bench = { pushes: 0, values: 0, subs: 0 });
+  class FakeWs {
+    readyState = 0;
+    onopen: any = null;
+    onmessage: any = null;
+    onclose: any = null;
+    onerror: any = null;
+    subs = new Map<number, { dev: string; keys: string[] }>();
+    timer: any;
+    constructor() {
+      setTimeout(() => {
+        this.readyState = 1;
+        this.onopen?.({});
+        this.timer = setInterval(() => this.tick(), 1000);
+      }, 20);
+    }
+    val(k: string) {
+      return k === 'runStatus' ? (Math.random() < 0.9 ? '1' : '0') : String(+(50 + Math.random() * 40).toFixed(2));
+    }
+    reply(cmdId: number, keys: string[]) {
+      const ts = Date.now();
+      const data: any = {};
+      for (const k of keys) data[k] = [[ts, this.val(k)]];
+      bstats.values += keys.length;
+      this.onmessage?.({ data: JSON.stringify({ subscriptionId: cmdId, errorCode: 0, data }) });
+    }
+    send(raw: string) {
+      const m = JSON.parse(raw);
+      for (const c of m.cmds ?? []) {
+        if (c.unsubscribe) this.subs.delete(c.cmdId);
+        else {
+          this.subs.set(c.cmdId, { dev: c.entityId, keys: String(c.keys).split(',') });
+          bstats.subs = this.subs.size;
+          setTimeout(() => this.reply(c.cmdId, String(c.keys).split(',')), 5);
+        }
+      }
+    }
+    tick() {
+      bstats.pushes++;
+      for (const [cmdId, s] of this.subs) this.reply(cmdId, s.keys);
+    }
+    close() {
+      clearInterval(this.timer);
+      this.readyState = 3;
+    }
+  }
+  (window as any).WebSocket = FakeWs;
+}
 const role = new URLSearchParams(location.search).get('role') ?? 'Admin';
 asUser(tb, 'u1', role, [role === 'Viewer' ? 'pun' : role === 'Manager' ? 'ric' : 'root']);
 localStorage.setItem('jwt_token', 'x');
@@ -52,8 +130,9 @@ const baseFetch = tb.fetch;
   return r;
 };
 (window as any).__tb = tb;
+(window as any).__builderTop = launcher.builderTop; // E2E: navbar-bottom measurement (D-030)
 
-let state: any = { entityId: { id: new URLSearchParams(location.search).get('dev') ?? 'pc', entityType: 'DEVICE' } };
+let state: any = BENCH ? { dbbDashboardId: 'bench' } : { entityId: { id: new URLSearchParams(location.search).get('dev') ?? 'pc', entityType: 'DEVICE' } };
 // Simulates an app navbar that switches the machine by rewriting the state URL only (no onStateChanged,
 // state controller unchanged): the case reported on 28 Sep 2026.
 (window as any).__urlSwitch = (dev: string) => {

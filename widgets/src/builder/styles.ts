@@ -190,6 +190,39 @@ export const BUILDER_CSS = `
 .dbb-modal-b{padding:6px 18px;overflow:auto;font-size:13px;line-height:1.45}
 .dbb-modal-f{display:flex;justify-content:flex-end;gap:8px;padding:12px 18px 16px}
 .dbb-preview{display:flex;flex-direction:column;gap:6px;margin-top:6px}
+.dbb-nd{min-width:min(480px,86vw);display:flex;flex-direction:column;gap:12px}
+.dbb-nd .dbb-field input{width:100%}
+.dbb-nd-opt{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid #e6e8ec;border-radius:10px;margin-top:6px;cursor:pointer}
+.dbb-nd-opt:has(input:checked){border-color:#2a78d6;background:#f3f8fe}
+.dbb-nd-opt input{margin-top:3px}
+.dbb-nd-opt span{display:flex;flex-direction:column;gap:3px;font-size:13px}
+.dbb-nd-opt small{color:#6b7380;font-size:12px}
+.dbb-nd-opt select{margin-top:4px;max-width:260px}
+.dbb-recent{margin-top:14px;text-align:left;display:flex;flex-direction:column;gap:4px}
+.dbb-recent-h{font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#6b7380;margin-bottom:2px}
+.dbb-recent-r{all:unset;box-sizing:border-box;display:flex;flex-direction:column;gap:2px;padding:8px 12px;border:1px solid #e6e8ec;border-radius:8px;cursor:pointer;font-size:13px}
+.dbb-recent-r:hover,.dbb-recent-r:focus-visible{background:#f3f8fe;border-color:#b9d3f3}
+.dbb-recent-r span{color:#6b7380;font-size:12px}
+.dbb-modal-box.wide{width:min(1040px,94vw);max-width:min(1040px,94vw)}
+/* D-027: Open dashboard dialog. Divs + grid (not <table>) so ThingsBoard's table styles can't change font or size. */
+.dbb-od,.dbb-od *{font-family:Inter,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;box-sizing:border-box}
+.dbb-od-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:2px 0 12px}
+.dbb-od-count{font-size:13px;color:#5c6470}
+.dbb-od-list{border:1px solid #e6e8ec;border-radius:10px;overflow:auto;max-height:56vh}
+.dbb-od-row{display:grid;grid-template-columns:minmax(220px,2.2fr) minmax(130px,1.2fr) 80px minmax(130px,1.3fr) minmax(170px,1.4fr);column-gap:24px;align-items:center;padding:11px 18px;border-bottom:1px solid #eef0f3;font-size:13.5px;color:#1f2933;line-height:1.35}
+.dbb-od-row:last-child{border-bottom:none}
+.dbb-od-head{position:sticky;top:0;z-index:1;background:#f7f8fa;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#6b7380;padding-top:10px;padding-bottom:10px}
+.dbb-od-body .dbb-od-row{cursor:pointer;transition:background .12s}
+.dbb-od-body .dbb-od-row:hover,.dbb-od-body .dbb-od-row:focus-visible{background:#f1f6fd;outline:none}
+.dbb-od-name{font-weight:600;color:#111827;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dbb-od-name .dbb-od-sub{font-weight:400;color:#8a919c;margin-left:6px;font-size:12px}
+.dbb-od-type{justify-self:start;display:inline-block;font-size:12px;font-weight:500;padding:3px 10px;border-radius:999px;background:#eaf2fd;color:#1d5fb8;white-space:nowrap}
+.dbb-od-type.sa{background:#f1eefd;color:#5b3fc4}
+.dbb-od-num{text-align:right;font-variant-numeric:tabular-nums}
+.dbb-od-muted{color:#5c6470;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dbb-od-muted small{color:#8a919c;font-size:12px}
+.dbb-od-empty{padding:28px;text-align:center;color:#6b7380;font-size:13px}
+@media (max-width:760px){.dbb-od-row{grid-template-columns:1fr auto;row-gap:4px}.dbb-od-row>:nth-child(n+3){display:none}}
 .dbb-pick tbody tr{cursor:pointer}
 .dbb-pick tbody tr:hover{background:#f3f8fe}
 .dbb-toasts{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);display:flex;flex-direction:column;gap:6px;z-index:40}

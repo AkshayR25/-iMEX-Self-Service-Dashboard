@@ -225,7 +225,7 @@ export function init(tbCtx: any) {
     const { values: lv, lastTs: ts, offline, running } = m;
     const al = { length: m.alarms };
     const [st, col] = offline ? ['Offline', STATUS.neutral] : running ? ['Running', STATUS.good] : ['Stopped', STATUS.warning];
-    return `<div class="dbb-mc" data-dev="${d.id}" style="--st:${col}"><div class="dbb-mc-h"><span class="dbb-mc-ic">${ICON_SVG.cpu}</span><div><div class="dbb-mc-t">${esc(d.label)}</div><div class="dbb-mc-s">${esc(d.profile)}</div></div><span class="dbb-stp"><i></i>${st}</span></div>
+    return `<div class="dbb-mc" data-dev="${esc(d.id)}" style="--st:${col}"><div class="dbb-mc-h"><span class="dbb-mc-ic">${ICON_SVG.cpu}</span><div><div class="dbb-mc-t">${esc(d.label)}</div><div class="dbb-mc-s">${esc(d.profile)}</div></div><span class="dbb-stp"><i></i>${st}</span></div>
       <div class="dbb-kv">${metas
         .map((m) => `<div><span>${esc(m.displayName)}</span><b>${lv[m.key] ? `${fmtNum(lv[m.key]!.value, m.decimals)}<small>${esc(m.unit)}</small>` : '—'}</b></div>`)
         .join('')}</div>
@@ -260,7 +260,7 @@ export function init(tbCtx: any) {
         const ds = (await store.listDashboards(ctx)).filter((d) => d.kind === 'standalone');
         if (ds.length)
           dashList = `<div class="dbb-h2">Dashboards</div><div class="dbb-cgrid">${ds
-            .map((d) => `<div class="dbb-mc" data-dash="${d.id}" data-name="${esc(d.name)}"><div class="dbb-mc-t">${esc(d.name)}</div><div class="dbb-muted">${d.widgets.length} widgets · by ${esc(d.ownerName)}</div></div>`)
+            .map((d) => `<div class="dbb-mc" data-dash="${esc(d.id)}" data-name="${esc(d.name)}"><div class="dbb-mc-t">${esc(d.name)}</div><div class="dbb-muted">${d.widgets.length} widgets · by ${esc(d.ownerName)}</div></div>`)
             .join('')}</div>`;
       } catch {
         /* no store */

@@ -70,6 +70,18 @@ export interface BuilderOptions {
   dashboardId?: string | null;
   /** Show the Chat tab and "Describe it in chat" button. Defaults to true (only `false` hides it). */
   chatEnabled?: boolean;
+  /** D-029: open the "New dashboard" dialog right away (navbar menu item "New dashboard"). */
+  startNew?: boolean;
+  /**
+   * D-030: where the builder starts, in px from the top of the window (the bottom of the app's navbar), so the
+   * navbar stays visible and usable. Called on open and on every window resize. Absent or 0 = full screen.
+   */
+  topOffset?: () => number;
+  /**
+   * D-030: key of the page the app shows (state id + params). With the navbar visible the user can navigate
+   * while the builder is open; when the key changes the builder closes, after asking if there are unsaved changes.
+   */
+  pageKey?: () => string;
   /** Called after the overlay is removed. `changed` is true if anything was saved, applied or deleted. */
   onClose?(changed: boolean): void;
 }
@@ -122,10 +134,20 @@ export function openBuilder(o: BuilderOptions) {
   ensureCss('dbb-css-grid', GRID_CSS);
   ensureCss('dbb-css-builder', BUILDER_CSS);
   loadFont('Inter'); // builder chrome font (user decision 28 Sep 2026)
+  // D-029: one builder at a time (a second click on the menu, or the browser's Back button while it is open,
+  // must not stack a second overlay over the first); the open one is brought back instead.
+  if (openNow?.root?.isConnected) {
+    if (o.startNew) void openNow.newDashboardDialog();
+    return openNow;
+  }
+  // D-029: nothing from an earlier visit: cached data series and REST answers are dropped, so previews load fresh.
+  api.clearCaches();
   const b = new Builder(o);
+  openNow = b;
   b.mount();
   return b;
 }
+let openNow: Builder | null = null;
 
 /**
  * The builder overlay: holds the draft, undo/redo stacks and UI state, and renders every region.
@@ -183,6 +205,49 @@ class Builder {
   usageInfo: { devices: string[]; customised: string[] } | null = null;
   // Kept as fields so the same function references can be removed in close().
   keyHandler = (e: KeyboardEvent) => this.onKey(e);
+  resizeHandler = () => this.placeBelowNavbar();
+  private navKey = '';
+  private navWatch: ReturnType<typeof setInterval> | null = null;
+  private navAsking = false;
+
+  /** D-030: top of the overlay = bottom of the app navbar (options.topOffset); full screen when 0. */
+  placeBelowNavbar() {
+    if (!this.root) return;
+    const top = Math.max(0, Math.round(this.o.topOffset?.() ?? 0));
+    // never more than 40 % of the window (a wrong measurement must not hide the builder)
+    const px = top > window.innerHeight * 0.4 ? 0 : top;
+    this.root.style.top = px ? `${px}px` : '';
+    // below the navbar, the app's own menus (Angular Material overlays, z-index 1000) must open above the builder
+    this.root.style.zIndex = px ? '999' : '';
+    this.root.classList.toggle('dbb-below-nav', !!px);
+  }
+
+  /**
+   * D-030: the user navigated in the app (navbar link, machine switch, Back) while the builder is open.
+   * No unsaved changes: the builder closes and the new page shows. Unsaved changes: ask; "Keep editing" keeps the
+   * builder open over the new page, "Discard" closes it.
+   */
+  async checkNavigation() {
+    if (!this.o.pageKey || this.navAsking || !this.root?.isConnected) return;
+    const k = this.o.pageKey();
+    if (k === this.navKey) return;
+    this.navKey = k;
+    if (!this.dirty()) return void this.close();
+    this.navAsking = true;
+    try {
+      const m = modal(this.root, 'You opened another page', '<div>The dashboard you are editing has changes that are not saved. Keep editing to save them first, or discard them and go to the page.</div>', [
+        ['cancel', 'Keep editing'],
+        ['ok', 'Discard and go', 'primary danger-fill'],
+      ]);
+      const leave = (await m.result) === 'ok';
+      if (leave) {
+        this.baseline = JSON.stringify(this.draft);
+        void this.close();
+      }
+    } finally {
+      this.navAsking = false;
+    }
+  }
   unloadHandler = (e: BeforeUnloadEvent) => {
     if (this.dirty()) {
       e.preventDefault();
@@ -210,10 +275,18 @@ class Builder {
     document.body.appendChild(this.root);
     document.addEventListener('keydown', this.keyHandler);
     window.addEventListener('beforeunload', this.unloadHandler);
+    // D-030: below the app navbar (it stays visible and clickable) instead of over the whole window
+    this.placeBelowNavbar();
+    window.addEventListener('resize', this.resizeHandler);
+    if (this.o.pageKey) {
+      this.navKey = this.o.pageKey();
+      this.navWatch = setInterval(() => void this.checkNavigation(), 500);
+    }
     this.renderShell();
     if (this.o.dashboardId) void this.openDashboard(this.o.dashboardId);
     else if (this.deviceId) void this.selectMachine(this.deviceId);
     else this.renderAll();
+    if (this.o.startNew) void this.newDashboardDialog();
   }
 
   /**
@@ -224,8 +297,11 @@ class Builder {
     if (this.dirty() && !(await confirmModal(this.root, 'Discard unsaved changes?', 'You have changes that are not saved.', 'Discard', true))) return;
     document.removeEventListener('keydown', this.keyHandler);
     window.removeEventListener('beforeunload', this.unloadHandler);
+    window.removeEventListener('resize', this.resizeHandler);
+    if (this.navWatch) clearInterval(this.navWatch);
     this.grid?.destroy();
     this.root.remove();
+    if (openNow === this) openNow = null;
     this.o.onClose?.(this.savedAnything);
   }
 
@@ -257,6 +333,53 @@ class Builder {
     const d: Dashboard = JSON.parse(JSON.stringify(this.draft));
     fn(d);
     this.commit(d);
+  }
+
+  /**
+   * D-029: grows widgets whose drawn content does not fit their card (cut-off rows, legends, text), so
+   * chat-built widgets show everything without dragging. Measures each card after it has drawn (data loads
+   * first), adds the missing rows (and columns when content is wider), moves the widgets below down
+   * (resolveCollisions), and keeps it in the same undo step as the change that added them. Up to 3 passes.
+   * Stops if the user changes the draft meanwhile.
+   */
+  async fitToContent(ids: Iterable<string>) {
+    const want = new Set(ids);
+    for (let pass = 0; pass < 3 && want.size; pass++) {
+      const before = this.draft;
+      await new Promise((r) => setTimeout(r, pass ? 500 : 1100));
+      if (this.draft !== before || !this.root?.isConnected || this.preview) return;
+      const grow = new Map<string, { dh: number; dw: number }>();
+      for (const id of want) {
+        const box = this.root.querySelector<HTMLElement>(`.dbb-canvas .dbb-gbox[data-id="${window.CSS.escape(id)}"]`);
+        const body = box?.querySelector<HTMLElement>('.dbb-card-b');
+        if (!body) continue;
+        let dh = 0;
+        let dw = 0;
+        // the card body itself, and any inner element that scrolls or clips (tables, multi-value lists, text)
+        for (const e of [body, ...Array.from(body.querySelectorAll<HTMLElement>('*'))].slice(0, 400)) {
+          if (e !== body) {
+            const ov = getComputedStyle(e);
+            if (!/(auto|scroll|hidden)/.test(ov.overflowY + ov.overflowX)) continue;
+          }
+          dh = Math.max(dh, e.scrollHeight - e.clientHeight);
+          dw = Math.max(dw, e.scrollWidth - e.clientWidth);
+        }
+        if (dh > 3 || dw > 3) grow.set(id, { dh: dh > 3 ? Math.ceil(dh / 74) : 0, dw: dw > 3 ? Math.ceil(dw / ((box!.parentElement?.clientWidth ?? 1200) / 12)) : 0 });
+      }
+      if (!grow.size) return;
+      let ws = this.draft.widgets.map((w) => {
+        const g = grow.get(w.id);
+        if (!g) return w;
+        const nw = Math.min(12, w.w + g.dw);
+        return { ...w, h: Math.min(12, w.h + g.dh), w: nw, x: Math.min(w.x, 12 - nw) };
+      });
+      for (const id of grow.keys()) ws = resolveCollisions(ws, id);
+      // only widgets already at the limit stop being retried
+      for (const w of ws) if (grow.has(w.id) && w.h >= 12 && w.w >= 12) want.delete(w.id);
+      this.draft = { ...this.draft, widgets: ws };
+      this.renderCanvas();
+      this.renderTop();
+    }
   }
 
   /** Restores the previous snapshot (Ctrl+Z, toolbar, or "undo" in chat). No-op when the stack is empty. */
@@ -645,6 +768,7 @@ class Builder {
         <button data-rng="hist" class="${d.timeRange !== 'realtime' ? 'on' : ''}" title="A fixed window ending now: 1 to 8 hours">Historic</button></div>
         ${d.timeRange !== 'realtime' ? `<select data-a="range" aria-label="Historic duration">${HISTORIC_RANGES.map((r) => `<option value="${r}" ${r === d.timeRange ? 'selected' : ''}>Last ${r.replace('h', ' h')}</option>`).join('')}</select>` : ''}</div></div>
       <div class="dbb-tools">
+        <button class="dbb-btn" data-a="new" title="Create a new dashboard">${U('<path d="M12 5v14M5 12h14"/>')}New</button>
         <button class="dbb-btn" data-a="open" title="Open an existing dashboard">${U('<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>')}Open</button>
         <button class="dbb-btn" data-a="templates" title="Start from a template">${U('<path d="M12 3l2.4 5 5.6.8-4 3.9 1 5.5L12 15.6 7 18.2l1-5.5-4-3.9 5.6-.8z"/>')}Templates</button>
         <span class="dbb-vsep"></span>
@@ -676,6 +800,7 @@ class Builder {
       this.selected = null;
       this.renderAll();
     };
+    q('new').onclick = () => void this.newDashboardDialog();
     q('open').onclick = () => void this.openDialog();
     q('templates').onclick = () => void this.templatesDialog();
     q('save').onclick = () => void this.save(false);
@@ -777,8 +902,9 @@ class Builder {
       const n = this.deviceId ? this.ctx.nodes.get(this.deviceId) : null;
       const tpls = n ? TEMPLATES.slice(0, 4) : [];
       empty.innerHTML = `<div class="dbb-empty-card">
-        <div class="dbb-empty-t">${n ? `Design a dashboard for ${esc(n.label)}` : 'Start a dashboard'}</div>
-        <div class="dbb-empty-s">${n ? `Widgets set to <b>This machine</b> follow whichever ${esc(n.profile)} the dashboard is opened for.` : 'Pick a machine at the top to build a reusable machine dashboard, or build a standalone one from specific machines.'}</div>
+        <div class="dbb-empty-t">${n ? `Design a dashboard for ${esc(n.label)}` : 'What would you like to do?'}</div>
+        <div class="dbb-empty-s">${n ? `Widgets set to <b>This machine</b> follow whichever ${esc(n.profile)} the dashboard is opened for.` : 'Create a new dashboard, or open one you or your team already made.'}</div>
+        ${n ? '' : `<div class="dbb-empty-a"><button class="dbb-btn primary" data-a="new">+ New dashboard</button><button class="dbb-btn" data-a="open">Open a dashboard</button></div><div class="dbb-recent" data-recent></div>`}
         ${tpls.length ? `<div class="dbb-tpl-grid mini">${tpls.map((t) => this.tplCard(t)).join('')}</div>` : ''}
         <div class="dbb-empty-a">
           ${n ? `<button class="dbb-btn" data-a="default">Simple default layout</button><button class="dbb-btn" data-a="alltpl">All templates…</button>` : ''}
@@ -793,6 +919,9 @@ class Builder {
         });
       });
       empty.querySelector<HTMLElement>('[data-a="alltpl"]')?.addEventListener('click', () => void this.templatesDialog());
+      empty.querySelector<HTMLElement>('[data-a="new"]')?.addEventListener('click', () => void this.newDashboardDialog());
+      empty.querySelector<HTMLElement>('[data-a="open"]')?.addEventListener('click', () => void this.openDialog());
+      if (!n) void this.renderRecent(empty.querySelector<HTMLElement>('[data-recent]')!);
       empty.querySelectorAll<HTMLElement>('[data-tpl]').forEach((b) => b.addEventListener('click', () => this.useTemplate(b.dataset.tpl!)));
       empty.querySelector<HTMLElement>('[data-a="chat"]')?.addEventListener('click', () => {
         this.tab = 'chat';
@@ -1075,7 +1204,7 @@ class Builder {
         const on = w.keys.includes(m.key);
         const off = !on && (!c.ok || full);
         const why = !c.ok ? c.reason! : full ? `At most ${cap.keys[1]} properties per widget (keeps the dashboard fast). Untick one first.` : '';
-        return `<label class="dbb-check ${off ? 'off' : ''} ${!c.ok ? 'bad' : ''}" ${why ? `title="${esc(why)}"` : ''}><input type="${multi ? 'checkbox' : 'radio'}" name="k-${w.id}" value="${esc(m.key)}" ${on ? 'checked' : ''} ${off ? 'disabled' : ''}/> ${esc(m.displayName)}${m.unit ? ` <span class="dbb-muted">(${esc(m.unit)})</span>` : ''}${!c.ok ? ` <span class="dbb-na">${esc(this.kindWord(m))}</span>` : ''}</label>`;
+        return `<label class="dbb-check ${off ? 'off' : ''} ${!c.ok ? 'bad' : ''}" ${why ? `title="${esc(why)}"` : ''}><input type="${multi ? 'checkbox' : 'radio'}" name="k-${esc(w.id)}" value="${esc(m.key)}" ${on ? 'checked' : ''} ${off ? 'disabled' : ''}/> ${esc(m.displayName)}${m.unit ? ` <span class="dbb-muted">(${esc(m.unit)})</span>` : ''}${!c.ok ? ` <span class="dbb-na">${esc(this.kindWord(m))}</span>` : ''}</label>`;
       });
       const bad = metas.filter((m) => !this.fits(w.type, m, w).ok).length;
       return `<div class="dbb-keys">${rows.join('')}</div>${
@@ -1084,7 +1213,7 @@ class Builder {
     })();
 
     const srcOpt = (mode: string, label: string, allowed = true) =>
-      allowed ? `<label class="dbb-check"><input type="radio" name="src-${w.id}" value="${mode}" ${b.mode === mode ? 'checked' : ''}/> <span>${label}</span></label>` : '';
+      allowed ? `<label class="dbb-check"><input type="radio" name="src-${esc(w.id)}" value="${mode}" ${b.mode === mode ? 'checked' : ''}/> <span>${label}</span></label>` : '';
     // The alarm list may cover every machine type under a location (profile '' = all types, D-024).
     const profSel = (cur: string | undefined, a: string) =>
       `<select data-s="${a}">${w.type === 'alarms' && a === 'sprof' && b.mode === 'nodeQuery' ? `<option value="" ${cur === '' ? 'selected' : ''}>All machine types</option>` : ''}${allProfiles.map((p) => `<option ${p === cur ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select>`;
@@ -1180,7 +1309,7 @@ class Builder {
       }),
     );
     // Data source radio: build a default binding for the chosen mode.
-    on(`input[name="src-${w.id}"]`, 'change', (e) =>
+    on(`input[name="src-${esc(w.id)}"]`, 'change', (e) =>
       this.updateWidget(w.id, (x) => {
         const mode = e.target.value;
         const curProf = this.deviceId ? this.ctx.nodes.get(this.deviceId)!.profile : allProfiles[0];
@@ -1210,9 +1339,9 @@ class Builder {
       }),
     );
     on('[data-s="node"]', 'change', (e) => this.updateWidget(w.id, (x) => x.binding.mode === 'nodeQuery' && (x.binding.nodeId = e.target.value)));
-    on(`input[name="k-${w.id}"]`, 'change', () =>
+    on(`input[name="k-${esc(w.id)}"]`, 'change', () =>
       this.updateWidget(w.id, (x) => {
-        const ks = [...panel.querySelectorAll<HTMLInputElement>(`input[name="k-${w.id}"]:checked`)].map((i) => i.value).slice(0, Math.min(MAX_KEYS, WIDGET_CAPS[x.type].keys[1]));
+        const ks = [...panel.querySelectorAll<HTMLInputElement>(`input[name="k-${esc(w.id)}"]:checked`)].map((i) => i.value).slice(0, Math.min(MAX_KEYS, WIDGET_CAPS[x.type].keys[1]));
         // Only retitle if the title was still automatic (empty, the type label, or the old property name).
         const wasAuto = !x.title || x.title === WIDGET_LABELS[x.type] || profiles.some((p) => x.keys[0] && x.title.startsWith(keyMeta(this.ctx, p, x.keys[0]).displayName));
         x.keys = ks;
@@ -1616,6 +1745,8 @@ class Builder {
         if (changedCount || JSON.stringify(res.draft) !== before) {
           if (!this.preChat) this.preChat = before;
           this.commit(res.draft);
+          // D-029: make sure what chat added or changed shows fully (all widgets after an arrangeLayout)
+          void this.fitToContent(res.arranged || res.fresh ? res.draft.widgets.map((w) => w.id) : [...res.changed.added, ...res.changed.updated]);
           // A new dashboard is not what the open machine shows, and has no usage yet.
           if (res.newDashboard) {
             this.usageInfo = null;
@@ -1850,6 +1981,63 @@ class Builder {
   // ---------- open / history / delete dialogs ----------
 
   /**
+   * D-029 start screen: the 5 most recently updated dashboards the user can see, one click to open.
+   * Loaded once per builder session (store.listDashboards).
+   */
+  private recent: Promise<Awaited<ReturnType<typeof store.listDashboards>>> | null = null;
+  async renderRecent(host: HTMLElement) {
+    this.recent ??= store.listDashboards(this.ctx).catch(() => []);
+    const list = (await this.recent).slice(0, 5);
+    if (!host.isConnected || !list.length) return;
+    host.innerHTML = `<div class="dbb-recent-h">Recently updated</div>${list
+      .map((d) => `<button class="dbb-recent-r" data-id="${esc(d.id)}"><b>${esc(d.name)}</b><span>${esc(d.profile ?? 'Overview')} · ${d.widgets.length} widgets · ${esc(d.ownerName)}</span></button>`)
+      .join('')}`;
+    host.querySelectorAll<HTMLElement>('[data-id]').forEach((b) => b.addEventListener('click', () => void this.openDashboard(b.dataset.id!)));
+  }
+
+  /**
+   * D-029 "New dashboard" dialog (top bar New, Open dialog, start screen, navbar menu): name, and what it is for:
+   * one machine type (reused by every machine of that type; the preview uses the open machine if it has that
+   * type, else the first one in scope) or an overview not tied to one machine (opens from the Dashboard list).
+   * Asks before dropping unsaved changes. Creates an unsaved blank draft; nothing is written until Save.
+   */
+  async newDashboardDialog() {
+    const types = [...new Set([...this.ctx.nodes.values()].filter((n) => n.entityType === 'DEVICE').map((n) => n.profile))].sort();
+    const cur = this.deviceId ? this.ctx.nodes.get(this.deviceId)?.profile ?? null : null;
+    const m = modal(
+      this.root,
+      'New dashboard',
+      `<div class="dbb-nd">
+        <label class="dbb-field"><span>Name</span><input data-n maxlength="120" placeholder="e.g. Compressor overview" /></label>
+        <div class="dbb-field"><span>What is it for?</span>
+          <label class="dbb-nd-opt"><input type="radio" name="dbb-nd-k" value="type" ${types.length ? 'checked' : 'disabled'}/><span><b>One machine type</b><small>Shown on the machine page; reused by every machine of the type you pick.</small>
+            <select data-p ${types.length ? '' : 'disabled'}>${types.map((t) => `<option ${t === cur ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></span></label>
+          <label class="dbb-nd-opt"><input type="radio" name="dbb-nd-k" value="overview" ${types.length ? '' : 'checked'}/><span><b>Overview</b><small>Several machines or locations, not tied to one machine. Opens from the Dashboard list.</small></span></label>
+        </div>
+      </div>`,
+      [
+        ['cancel', 'Cancel'],
+        ['ok', 'Create', 'primary'],
+      ],
+    );
+    const name = m.body.querySelector<HTMLInputElement>('[data-n]')!;
+    const sel = m.body.querySelector<HTMLSelectElement>('[data-p]');
+    sel?.addEventListener('change', () => ((m.body.querySelector('input[value="type"]') as HTMLInputElement).checked = true));
+    name.addEventListener('keydown', (e) => e.key === 'Enter' && m.button('ok').click());
+    setTimeout(() => name.focus(), 50);
+    if ((await m.result) !== 'ok') return;
+    const kind = (m.body.querySelector('input[name="dbb-nd-k"]:checked') as HTMLInputElement | null)?.value ?? 'overview';
+    const prof = kind === 'type' && sel ? sel.value : null;
+    if (this.dirty() && !(await confirmModal(this.root, 'Discard unsaved changes?', 'The current dashboard has changes that are not saved.', 'Discard', true))) return;
+    // preview machine: the open one if it has that type, else the first of that type; none for an overview
+    this.deviceId = prof ? (cur === prof ? this.deviceId : scope.allDevices(this.ctx, prof)[0]?.id ?? null) : null;
+    this.source = null;
+    this.usageInfo = null;
+    this.loadDraft(store.blankDashboard(this.ctx, name.value.trim() || (prof ? `${prof} dashboard` : 'Overview'), prof));
+    toast(this.root, prof ? `New ${prof} dashboard. Add widgets from the left or describe it in chat.` : 'New overview. Add widgets from the left or describe it in chat.', 'ok');
+  }
+
+  /**
    * "Open dashboard" modal: lists saved dashboards from the store asset (store.listDashboards)
    * and offers "New blank dashboard". Asks before replacing a draft with unsaved changes.
    */
@@ -1862,33 +2050,45 @@ class Builder {
       toast(this.root, e.message, 'err');
     }
     this.setBusy(false);
+    // D-027: wider dialog, Inter throughout, "New blank dashboard" on the right, roomier columns.
+    const fmt = (t: number) => new Date(t).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
     const rows = list
       .map(
-        (d) => `<tr data-id="${d.id}"><td><b>${esc(d.name)}</b>${d.copiedFrom ? ' <span class="dbb-muted">(copy)</span>' : ''}</td><td>${esc(d.profile ?? 'standalone')}</td><td>${d.widgets.length}</td><td>${esc(
-          d.ownerName,
-        )}${d.visibility === 'private' ? ' · private' : ''}</td><td>${esc(new Date(d.updatedAt).toLocaleString())}</td></tr>`,
+        (d) => `<div class="dbb-od-row" role="button" tabindex="0" data-id="${esc(d.id)}">
+          <div class="dbb-od-name" title="${esc(d.name)}">${esc(d.name)}${d.copiedFrom ? '<span class="dbb-od-sub">(copy)</span>' : ''}</div>
+          <div><span class="dbb-od-type ${d.profile ? '' : 'sa'}">${esc(d.profile ?? 'Standalone')}</span></div>
+          <div class="dbb-od-num">${d.widgets.length}</div>
+          <div class="dbb-od-muted" title="${esc(d.ownerName)}">${esc(d.ownerName)}${d.visibility === 'private' ? ' <small>· private</small>' : ''}</div>
+          <div class="dbb-od-muted">${esc(fmt(d.updatedAt))}</div>
+        </div>`,
       )
       .join('');
     const m = modal(
       this.root,
       'Open dashboard',
-      `<div class="dbb-row" style="margin-bottom:8px"><button class="dbb-btn" data-new>New blank dashboard</button></div>
-       ${list.length ? `<div class="dbb-scroll" style="max-height:50vh"><table class="dbb-table dbb-pick"><thead><tr><th>Name</th><th>Machine type</th><th>Widgets</th><th>Owner</th><th>Updated</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<div class="dbb-hint">No saved dashboards yet.</div>'}`,
+      `<div class="dbb-od">
+        <div class="dbb-od-bar"><span class="dbb-od-count">${list.length ? `${list.length} saved dashboard${list.length === 1 ? '' : 's'}` : ''}</span><button class="dbb-btn primary" data-new>+ New dashboard</button></div>
+        ${
+          list.length
+            ? `<div class="dbb-od-list"><div class="dbb-od-row dbb-od-head"><div>Name</div><div>Machine type</div><div class="dbb-od-num">Widgets</div><div>Owner</div><div>Updated</div></div><div class="dbb-od-body">${rows}</div></div>`
+            : '<div class="dbb-od-list"><div class="dbb-od-empty">No saved dashboards yet.</div></div>'
+        }
+      </div>`,
       [['cancel', 'Close']],
+      'wide',
     );
-    m.body.querySelector('[data-new]')?.addEventListener('click', async () => {
+    m.body.querySelector('[data-new]')?.addEventListener('click', () => {
       m.close('new');
-      if (this.dirty() && !(await confirmModal(this.root, 'Discard unsaved changes?', 'The current dashboard has changes that are not saved.', 'Discard', true))) return;
-      const prof = this.deviceId ? this.ctx.nodes.get(this.deviceId)!.profile : null;
-      this.loadDraft(store.blankDashboard(this.ctx, prof ? `${prof} dashboard` : 'Untitled dashboard', prof));
+      void this.newDashboardDialog();
     });
-    m.body.querySelectorAll<HTMLElement>('tr[data-id]').forEach((tr) =>
+    m.body.querySelectorAll<HTMLElement>('.dbb-od-row[data-id]').forEach((tr) => {
+      tr.addEventListener('keydown', (e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), tr.click()));
       tr.addEventListener('click', async () => {
         m.close('open');
         if (this.dirty() && !(await confirmModal(this.root, 'Discard unsaved changes?', 'The current dashboard has changes that are not saved.', 'Discard', true))) return;
         void this.openDashboard(tr.dataset.id!);
-      }),
-    );
+      });
+    });
   }
 
   /**
@@ -1905,7 +2105,7 @@ class Builder {
         ? `<table class="dbb-table"><thead><tr><th>Version</th><th>Saved</th><th>By</th><th></th></tr></thead><tbody>${vs
             .map(
               (v) =>
-                `<tr><td>${v.version}</td><td>${esc(new Date(v.savedAt).toLocaleString())}</td><td>${esc(v.savedBy)}</td><td><button class="dbb-btn sm" data-v="${v.version}">Restore</button></td></tr>`,
+                `<tr><td>${Number(v.version)}</td><td>${esc(new Date(v.savedAt).toLocaleString())}</td><td>${esc(v.savedBy)}</td><td><button class="dbb-btn sm" data-v="${Number(v.version)}">Restore</button></td></tr>`,
             )
             .join('')}</tbody></table><div class="dbb-hint">The last 10 versions are kept. Restoring saves a new version.</div>`
         : '<div class="dbb-hint">No earlier versions.</div>',

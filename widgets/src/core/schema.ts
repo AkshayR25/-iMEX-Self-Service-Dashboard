@@ -145,27 +145,34 @@ export const CONTENT_TYPES = new Set<WidgetType>(['text', 'image', 'link', 'embe
  * the dashboard a 'device' dashboard (see RELATIVE_MODES / dashboardKind). Resolution against the
  * hierarchy happens in the renderer using core/scope.ts helpers.
  */
+/** D-028: ids end up in HTML attributes and attribute keys: letters, digits, '_' and '-' only. */
+export const Id = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/, 'invalid id');
 export const Binding = z.discriminatedUnion('mode', [
   /** The machine the dashboard is opened for. */
   z.object({ mode: z.literal('current') }),
   /** Specific machines. */
-  z.object({ mode: z.literal('fixed'), deviceIds: z.array(z.string()).min(1).max(LEGACY_MAX_KEYS) }),
+  z.object({ mode: z.literal('fixed'), deviceIds: z.array(Id).min(1).max(LEGACY_MAX_KEYS) }),
   /** Machines of a profile under the same parent as the current machine (includes current). */
   z.object({ mode: z.literal('siblings'), profile: z.string() }),
   /** Closest machine of a profile found walking up from the current machine. */
   z.object({ mode: z.literal('nearest'), profile: z.string() }),
   /** All machines of a profile under a node (future machines included). */
-  z.object({ mode: z.literal('nodeQuery'), nodeId: z.string(), profile: z.string() }),
+  z.object({ mode: z.literal('nodeQuery'), nodeId: Id, profile: z.string() }),
   /** Text widgets. */
   z.object({ mode: z.literal('none') }),
 ]);
 export type Binding = z.infer<typeof Binding>;
 
-// legacy colour bands; render/rules.ts converts them to colour rules at draw time (D-019)
-const Band = z.object({ upTo: z.number().nullable(), color: z.string() });
-
 // only #hex, rgb()/rgba() or 'transparent' -- keeps user/chat input out of CSS injection territory
-const Color = z.string().max(40).regex(/^(#[0-9a-fA-F]{3,8}|rgba?\([\d\s.,%]+\)|transparent)$/, 'colour must be #hex or rgb()');
+export const COLOR_RE = /^(#[0-9a-fA-F]{3,8}|rgba?\([\d\s.,%]+\)|transparent)$/;
+const Color = z.string().max(40).regex(COLOR_RE, 'colour must be #hex or rgb()');
+/** D-028: a colour from older documents; anything that is not a safe colour becomes neutral grey instead of failing the load. */
+const LegacyColor = z.preprocess((v) => (typeof v === 'string' && v.length <= 40 && COLOR_RE.test(v) ? v : '#8a8983'), Color);
+/** D-028: font family names end up in CSS: letters, digits and spaces only; anything else is dropped. */
+const FontName = z.preprocess((v) => (typeof v === 'string' && /^[A-Za-z0-9 ]{1,40}$/.test(v) ? v : undefined), z.string().optional());
+
+// legacy colour bands; render/rules.ts converts them to colour rules at draw time (D-019)
+const Band = z.object({ upTo: z.number().nullable(), color: LegacyColor });
 
 /** Colour-rule operators; the builder offers a subset depending on the property kind (D-019). */
 export const RULE_OPS = ['gt', 'gte', 'lt', 'lte', 'between', 'eq', 'neq', 'contains', 'isTrue', 'isFalse'] as const;
@@ -217,12 +224,12 @@ export const CardStyle = z
     titleSize: z.number().int().min(10).max(28).optional(),
     titleWeight: z.enum(['400', '500', '600', '700']).optional(),
     titleAlign: z.enum(['left', 'center', 'right']).optional(),
-    titleFont: z.string().max(40).optional(),
+    titleFont: FontName,
     icon: z.enum(ICONS).optional(),
     iconColor: Color.optional(),
     valueSize: z.number().int().min(12).max(72).optional(),
     valueColor: Color.optional(),
-    valueFont: z.string().max(40).optional(),
+    valueFont: FontName,
     /** Horizontal alignment of values and labels. */
     align: z.enum(['left', 'center', 'right']).optional(),
     /** Vertical alignment of values and labels. */
@@ -249,7 +256,7 @@ export const WidgetSettings = z
     /** Colour bands, ascending; last band has upTo = null. */
     bands: z.array(Band).max(6).optional(),
     /** Status mapping value -> label/colour. */
-    statusMap: z.array(z.object({ value: z.union([z.number(), z.string()]), label: z.string(), color: z.string() })).max(8).optional(),
+    statusMap: z.array(z.object({ value: z.union([z.number(), z.string()]), label: z.string().max(60), color: LegacyColor })).max(8).optional(),
     agg: z.enum(['NONE', 'AVG', 'MIN', 'MAX', 'SUM']).optional(),
     /** 'day' is legacy (drawn per hour). */
     groupBy: z.enum(['15m', 'hour', 'day', 'device']).optional(),
@@ -303,7 +310,7 @@ export type WidgetSettings = z.infer<typeof WidgetSettings>;
 
 /** One widget on the grid. `keys` are telemetry keys of the bound machines. */
 export const Widget = z.object({
-  id: z.string(),
+  id: Id,
   type: z.enum(WIDGET_TYPES),
   title: z.string().max(120),
   x: z.number().int().min(0).max(GRID_COLS - 1),
@@ -350,7 +357,7 @@ export const DashboardTheme = z
   .object({
     preset: z.enum(THEME_PRESETS).optional(),
     accent: Color.optional(),
-    font: z.string().max(40).optional(),
+    font: FontName,
     bg: Color.optional(),
     bgImage: z.string().max(2000).optional(),
     cardBg: Color.optional(),
@@ -370,7 +377,7 @@ export type DashboardTheme = z.infer<typeof DashboardTheme>;
  */
 export const Dashboard = z.object({
   schemaVersion: z.literal(1),
-  id: z.string(),
+  id: Id,
   name: z.string().min(1).max(120),
   /** 'device' when any widget uses a current-device-relative binding; needs a target profile. */
   kind: z.enum(['device', 'standalone']),

@@ -217,6 +217,101 @@ User decisions (29 Sep): role / fleet requests on an open machine dashboard **as
 - **Design pass for chat-built dashboards** (core/design.ts). Models pick sensible widgets but lay them out poorly (a one-row text header that cut off its heading, one-machine tables four rows tall stacked on the left, half the page empty) and leave everything grey. Now, deterministically after the model's ops: every table chat adds is sized to its rows (header + one line per machine) and text is at least 2 rows. For a **fresh** dashboard (new, replaced, or built on an empty draft; never when adding to an existing one): ocean theme if none; the short header becomes a gradient banner with the name, machine and location count and live date/time (a banner is created on fleet dashboards without one); Running/Stopped status cards per machine for fleet dashboards without cards (≤ 8 machines, within the 10-widget limit); per machine type an accent bar, icon and icon colour; Running/Stopped colours on run-state columns; KPI sparklines; rows without gaps (banner, cards split evenly, wide charts, bar/donut in pairs, tables in pairs with an odd table next to the alarm list, alarms). Nothing the model styled explicitly is overwritten; if the polished result would fail the dashboard checks, the unpolished one is kept. The executive preset in the prompt now asks for 2–4 headline KPI cards as well.
 - Tests: 81 unit tests (3 new), 51 E2E scenarios (navbar/list tests rewritten, 1 new CEO-layout test with screenshot).
 
+### D-027 Builder "Open dashboard" dialog redesign, 30 Sep 2026 (user request)
+- The builder's *Open* dialog looked cramped and did not use Inter: it was a plain `<table>`, and ThingsBoard's own table styles overrode our font and size inside the app. It is now built from divs in a CSS grid (`.dbb-od`), with Inter set on every element, so the host page's styles can't change it.
+- Wider (up to 1040 px, was 820 px); "+ New blank dashboard" moved to the right, with the count of saved dashboards on the left; 24 px between columns and 18 px row padding; header row sticky; machine type as a pill (standalone in purple); widget count right-aligned; shorter dates ("Sep 30, 2026, 6:12 PM"); rows keyboard-focusable (Enter opens). `modal()` takes an optional box class (`wide`).
+- The navbar's *Dashboard list* was already redesigned in D-026 (not yet deployed on iserv-demov2 at the time of the screenshot).
+- Tests: the Open-dialog E2E scenario also checks width, Inter on every element, button position and column spacing, and saves a screenshot.
+
+### D-028 Security and performance review, 30 Sep 2026 (user request: no loopholes, 20–25 users, 30–40 machines, 5 tabs)
+A full read-only security review of widgets/src and the chat relay, then fixes, then a worst-case load test.
+
+**Security: found and fixed**
+- **Stored XSS (high).** Any customer user can write the store attributes directly (known limitation D-012), so every stored string is untrusted. Four paths could run script in another user's browser (including an admin's) and read the ThingsBoard token:
+  1. Legacy colour fields `bands[].color` and `statusMap[].color` were plain strings and went into HTML and SVG. They now must be plain colours; an older document with a bad value loads with grey instead of failing (`LegacyColor`). Every rule colour is also checked again when drawn (`cssColor`, `isColor` in render/rules.ts).
+  2. Dashboard, widget, device and node ids were free strings and went into HTML attributes (Listing page, Open dialog, builder editors). They are now restricted to letters, digits, `_` and `-` (`Id` in schema.ts) and escaped where used. A dashboard is only listed if its attribute key matches its id.
+  3. Version history entries (`dbb_h_<id>`) were used without validation. They are now validated like dashboards.
+  4. Chat answers can set the same fields, so the same checks cover the LLM and a forged chat reply.
+- **CSS injection (medium).** `titleFont`, `valueFont` and the theme font accepted any text, which went into a style attribute; a newline could add any CSS (full-page overlay, tracking image). Font names are now letters, digits and spaces only, both in the schema and in `fontStack()`.
+- **Chat relay (medium).**
+  - The reply now goes to the user ThingsBoard reports as the writer (`metadata.userId`), not to an id from the request. A mismatch is refused.
+  - The relay only forwards the builder's own tool (`dashboard_ops`) with a fixed tool choice, and refuses oversized requests (system prompt or a message over 60,000 characters, more than 24 messages), so it can't be used as a general LLM proxy on the tenant's key.
+  - Tested with ThingsBoard's TBEL test endpoint on the demo (Claude / OpenAI / Gemini bodies, mismatch, bad tool, too big). **Not yet deployed to the live relay.** If ThingsBoard does not put `userId` in the metadata, the relay falls back to the request's id (same as before).
+- **Low.**
+  - An entity such as `&#x110000;` crashed the rich-text sanitizer and blanked the page; it now decodes to �.
+  - The sanitizer is now linear on input with many `<`, and caches its results.
+  - `{{placeholders}}` are no longer filled inside HTML attributes.
+  - Pages from the ThingsBoard server itself are not framed by the embed widget (the sandbox would not protect them).
+  - A telemetry key in one URL is now encoded.
+- **Remaining, accepted:**
+  - D-012: store attributes are writable by customer users. They can still spoil or delete dashboards, but can no longer run script.
+  - Chat requests and replies on the store asset are readable by all customer users of that customer.
+  - No server-side chat rate limit: the builder limits each user to 30 requests per hour in the browser. Set a spending limit on the provider key.
+  - The legacy WebSocket fallback puts the token in the URL (only used on ThingsBoard versions before 3.6).
+- Regression test: E2E "stored XSS" seeds hostile documents (script in every stored string, bad colours, CSS in fonts, bad ids, bad history, a same-origin embed) and checks that nothing runs in the builder (Open dialog, every widget editor, history) or on the machine page. It fails on the D-027 code.
+
+**Performance: measured and improved**
+- **Worst-case load test:** `node widgets/e2e/bench.mjs [tabs] [seconds]` (harness `?bench=1`).
+  - Setup: 40 machines, a 10-widget dashboard where every widget shows its maximum (4 machines × up to 4 properties, 40 machines on the page), and a fake WebSocket pushing a new value for every subscribed key of every machine every second. The same dashboard is open in 5 tabs, all visible (worse than a real browser, which pauses hidden tabs).
+  - Result per tab over 60 s:
+    - 5.5–6.7 % main-thread busy;
+    - no long task (> 50 ms) after the first load;
+    - the first load's longest task is 230–340 ms;
+    - heap about 18 MB and flat;
+    - no DOM growth;
+    - 16 REST calls per minute (heatmap, bar, timeline and aggregate widgets re-read at most every 60 s; everything else comes over the WebSocket).
+- **Changes:**
+  - Identical GETs in flight are shared (`api.get`).
+  - A widget never runs two refreshes at once: a refresh requested while one is running runs once afterwards, so a slow server doesn't pile up requests.
+  - Live history is trimmed in batches.
+  - A tab that becomes visible again redraws at once (hidden tabs skip redraws).
+- **Server estimate for 25 users with 2 tabs each (50 tabs), worst-case dashboards:** 50 WebSocket sessions, at most 40 subscriptions each, and about 800 REST calls per minute (about 13/s). Dashboards of value cards, gauges, tables and charts use almost no REST in steady state. The same dashboard in 5 tabs costs 5×; sharing one connection across tabs (BroadcastChannel) is possible later if needed.
+- Tests: 85 unit tests (4 new), 52 E2E scenarios (1 new), plus the load test.
+
+### D-029 Content-fitting chat widgets, New dashboard, chat layout control, start screen, 1 Oct 2026 (user request)
+- **Nothing cut off.**
+  - Problem: widgets added by chat used fixed default sizes, so tables with many machines, multi-value cards with 4 properties, long text and chart legends were cut off until the user dragged them bigger.
+  - Two layers fix it:
+    1. `sizeWidget` (core/design.ts) sizes every widget chat adds or changes from its content: tables by machines, multi-value cards by properties, timelines and heatmaps by machines, line/area charts by legend lines, text by length, minimums for gauges, bars, donuts and alarm lists. Lists are sized exactly; other types only grow.
+    2. After drawing, the builder measures each new or changed card and grows any whose content still overflows, in height and if needed width, moving the widgets below down (`Builder.fitToContent`). This is part of the same undo step.
+- **New dashboard.**
+  - There is a **New** button in the builder's top bar, a **New dashboard** item in the navbar's pencil menu (editors), and "+ New dashboard" in the Open dialog and on the start screen.
+  - The dialog asks for a name and what the dashboard is for:
+    - **One machine type:** shown on the machine page and reused by every machine of that type. The preview uses the open machine if it has that type, else the first one.
+    - **Overview:** several machines or locations, not tied to one machine; opens from the Dashboard list.
+  - It asks before dropping unsaved changes, and nothing is saved until Save.
+- **Chat can arrange the page.**
+  - The draft sent to the model now includes each widget's position and size: x is a column (0–11), y a row, w a width (1–12), h a height in rows of 74 px.
+  - `addWidget` and `updateWidget` accept x/y/w/h. Values sent as strings are converted, and out-of-range values are clamped. Moved widgets keep their spot and the others move down (`resolveCollisions`).
+  - New op `arrangeLayout` tidies the whole page: rows without gaps, cards side by side, lists as tall as their rows (`layoutPass`, the layout step of the D-026 design pass). Afterwards every widget is fitted to its content.
+  - The prompt explains the grid with examples: full width, halves, three or four in a row, to the top, swap.
+  - New widgets are still placed automatically unless the user asks for a position.
+- **What the builder opens on** (`launcher.open`):
+  - **Machine page:** that machine, and the dashboard it shows now (personal → machine → location → customer-wide; a blank draft for its type if it only shows the default layout).
+  - **Dashboard Overview state:** the overview dashboard shown there.
+  - **Any other page** (Map, Listing, …): a start screen with "What would you like to do?", **+ New dashboard**, **Open a dashboard**, chat, and the 5 most recently updated dashboards (one click opens one).
+  - **Navbar → New dashboard:** the builder plus the New dashboard dialog.
+- **Nothing from an earlier visit.**
+  - Only one builder can be open: a second menu click, or Back while it is open, brings back the open one instead of stacking a second overlay.
+  - Cached data series and REST answers are cleared when the builder opens, so previews load fresh.
+  - The user context is reloaded (as before), and each opening starts with empty chat, undo and selection.
+  - After re-importing the widget types, pages that were already open keep the old code until reloaded; the builder shows its "reload" banner when the library version differs (D-022).
+- Tests: 88 unit tests (3 new), 56 E2E scenarios (4 new): nothing cut off after a chat build, including deliberately undersized widgets (measured in the browser); chat move, resize and tidy; New dashboard (button, dialog, both kinds, navbar item, single builder); start screen with recent dashboards.
+
+### D-030 Dashboard Builder opens below the app navbar, 1 Oct 2026 (user decision)
+- User decision (1 Oct): the builder must start below the iMEX navbar, like the pages do. The app dashboard uses a 150-column layout with no margins; grid rows 1–6 are the navbar and the status line, and pages start at row 7. Before this, the builder covered the whole window (position fixed, inset 0, z-index 10000).
+- **New navbar widget setting `builderTop`** ("Dashboard Builder starts below"):
+  - `auto` (default) measures the bottom of the navbar: the lowest bottom edge of the dashboard widgets in the same band as the navbar widget, plus a thin (≤ 24 px), full-width strip directly under it (the status line). A widget that is narrower or taller, such as the listing page's sort bar or the hierarchy panel, is page content and stays covered.
+  - A number (e.g. `64`) sets the offset in px; `0` or `full` gives full screen as before.
+  - The offset is measured when the builder opens and again on every window resize, and is ignored if it is more than 40 % of the window.
+- **Below the navbar the builder uses z-index 999**, so the app's own menus (Angular Material overlays, z-index 1000), such as the equipment dropdown, open above it.
+- **The navbar stays usable, so the builder follows navigation.** It watches the page (state and its parameters, every 500 ms):
+  - With no unsaved changes, it closes and the new page shows.
+  - With unsaved changes, it asks "You opened another page": **Keep editing** leaves the builder open (save, then close it), **Discard and go** closes it.
+  - Reloading or closing the browser tab still asks first (beforeunload).
+- The builder opened directly (harness, `IMEX_DBB.open` without a navbar widget) stays full screen.
+- Tests: 58 E2E scenarios (2 new): the builder starts at the navbar bottom, the navbar stays clickable, the pencil menu opens over the builder, navigation closes it or asks, Keep editing and Discard both work; the offset is measured correctly in a ThingsBoard-like grid (navbar band + status line, not the page's sort bar or side panel; px and full-screen settings).
+
 ## ThingsBoard quirks found
 
 - `GET /api/plugins/telemetry/.../values/timeseries` returns **at most 100 points** when `limit` is omitted and `agg` is NONE. The service must always pass `limit` (checked: 2,016 stored, 100 returned without a limit).

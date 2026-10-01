@@ -1,0 +1,55 @@
+var req = msg.dbb_chat_req;
+var b = req.body;
+var i = 0;
+var uid = metadata.userId;
+if (uid == null || uid == "") { uid = "" + req.userId; }
+var md = {reqId: "" + req.reqId, userId: "" + uid};
+if (req.userId != null && ("" + req.userId) != ("" + uid)) { md.error = "USER_MISMATCH"; }
+if (md.error == null) {
+  if (b.system == null || b.messages == null || ("" + b.system).length() > 60000 || b.messages.size() > 24) { md.error = "TOO_BIG"; }
+  else { for (i = 0; i < b.messages.size(); i++) { if (("" + b.messages[i].content).length() > 60000) { md.error = "TOO_BIG"; } } }
+}
+if (md.error == null && (b.tools == null || b.tools.size() != 1 || b.tools[0].name != "dashboard_ops")) { md.error = "BAD_TOOL"; }
+var key = metadata.llmKey;
+if (key == null) { key = ""; }
+key = key.trim();
+var provider = "none";
+if (key.startsWith("sk-ant-")) { provider = "anthropic"; } else if (key.startsWith("AIza") || key.startsWith("AQ.")) { provider = "gemini"; } else if (key.startsWith("sk-")) { provider = "openai"; }
+if ((provider == "openai" && b.openai == null) || (provider == "gemini" && b.gemini == null)) { provider = "none"; md.error = "OLD_CLIENT"; }
+if (md.error != null) { provider = "none"; }
+md.provider = provider;
+md.llmKey = key;
+var model = "";
+var body = {};
+if (provider == "anthropic") {
+  model = metadata.llmModelAnthropic;
+  if (model == null || model == "") { model = "claude-sonnet-5"; }
+  body = {model: model, max_tokens: 2048, system: b.system, messages: b.messages, tools: [b.tools[0]], tool_choice: {type: "tool", name: "dashboard_ops"}};
+} else if (provider == "openai") {
+  model = metadata.llmModelOpenai;
+  if (model == null || model == "") { model = "chat-latest"; }
+  var msgs = [{role: "system", content: b.system}];
+  for (i = 0; i < b.messages.size(); i++) { msgs.add(b.messages[i]); }
+  var oTool = b.openai.tools[0];
+  oTool["function"]["name"] = "dashboard_ops";
+  var oChoice = {type: "function"};
+  oChoice["function"] = {name: "dashboard_ops"};
+  body = {model: model, max_completion_tokens: 2048, messages: msgs, tools: [oTool], tool_choice: oChoice};
+} else if (provider == "gemini") {
+  model = metadata.llmModelGemini;
+  if (model == null || model == "") { model = "gemini-flash-latest"; }
+  var contents = [];
+  for (i = 0; i < b.messages.size(); i++) {
+    var m = b.messages[i];
+    var role = "user";
+    if (m.role == "assistant") { role = "model"; }
+    contents.add({role: role, parts: [{text: m.content}]});
+  }
+  var gDecl = b.gemini.tools[0].functionDeclarations[0];
+  gDecl.name = "dashboard_ops";
+  body = {systemInstruction: {parts: [{text: b.system}]}, contents: contents, tools: [{functionDeclarations: [gDecl]}], toolConfig: {functionCallingConfig: {mode: "ANY", allowedFunctionNames: ["dashboard_ops"]}}, generationConfig: {maxOutputTokens: 2048}};
+} else {
+  if (md.error == null) { md.error = "NO_KEY"; }
+}
+md.llmModel = model;
+return {msg: body, metadata: md, msgType: msgType};

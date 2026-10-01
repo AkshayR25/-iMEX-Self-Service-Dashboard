@@ -132,7 +132,18 @@ export async function request<T = any>(method: string, path: string, body?: unkn
 }
 
 /** GET shorthand for `request()`. */
-export const get = <T = any>(p: string) => request<T>('GET', p);
+/**
+ * GET with in-flight de-duplication (D-028): identical GETs that overlap (two widgets asking for the same
+ * series, or a refresh started while the previous one is still waiting on a slow server) share one request.
+ */
+export const get = <T = any>(p: string): Promise<T> => {
+  const cur = inflight.get(p);
+  if (cur) return cur as Promise<T>;
+  const req = request<T>('GET', p).finally(() => inflight.delete(p));
+  inflight.set(p, req);
+  return req;
+};
+const inflight = new Map<string, Promise<unknown>>();
 /** POST shorthand for `request()`. */
 export const post = <T = any>(p: string, b?: unknown) => request<T>('POST', p, b);
 

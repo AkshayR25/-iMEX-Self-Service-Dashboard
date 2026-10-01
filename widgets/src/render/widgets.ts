@@ -85,7 +85,7 @@ import { Widget, Binding, WIDGET_CAPS, WIDGET_LABELS, CONTENT_TYPES, MAX_SERIES,
 import { compatible } from '../core/compat';
 import { SERIES, SERIES_DARK, STATUS, SEVERITY_COLOR, RAMP_BLUE, RAMP_ORANGE, esc, fmtNum, ago, miniMarkdown, fontStack, loadFont, safeUrl } from './theme';
 import { lineChart, barChart, gauge, sparkline, donut, stateTimeline, heatmap, Slice, TimelineRow, HeatRow } from './charts';
-import { effectiveRules, matchRule, thresholdLines, stateLabel, valueType, asBool } from './rules';
+import { effectiveRules, matchRule, thresholdLines, stateLabel, valueType, asBool, cssColor } from './rules';
 import { sanitizeHtml, fillPlaceholders, placeholderKeys } from './rich';
 import { icon, ICON_SVG } from './icons';
 
@@ -265,6 +265,15 @@ export function cardVars(st: CardStyle | undefined): string {
 
 const INFO = ICON_SVG.info;
 
+/** True when `url` is on the page's own origin (D-028). */
+function sameOrigin(url: string): boolean {
+  try {
+    return new URL(url).origin === location.origin;
+  } catch {
+    return true;
+  }
+}
+
 /**
  * Applies the matched colour rule to the card according to settings.colorTarget:
  * 'background' (default) = accent bar + 13% tint over the card background, 'accent' = bar only,
@@ -337,7 +346,23 @@ export function renderWidget(container: HTMLElement, w: Widget, env: RenderEnv, 
   // (the fade on every refresh was the flicker seen when new values arrived).
   body.classList.add('dbb-first');
   let drawn = false;
-  const refresh = async () => {
+  // D-028: one draw at a time per widget; a refresh asked for while one is running runs once afterwards
+  // (on a slow server, overlapping refreshes would otherwise pile up requests).
+  let running: Promise<void> | null = null;
+  let again = false;
+  const refresh = async (): Promise<void> => {
+    if (running) {
+      again = true;
+      return running;
+    }
+    running = drawOnce().finally(() => (running = null));
+    await running;
+    if (again && alive) {
+      again = false;
+      return refresh();
+    }
+  };
+  const drawOnce = async () => {
     if (!alive) return;
     try {
       const rule = await draw(body, w, env);
@@ -461,8 +486,10 @@ async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<Color
   }
   if (w.type === 'embed') {
     // safeUrl also allows data:image URIs; only https pages may be framed (sandboxed, no referrer).
-    const u = safeUrl(s.url);
-    setStatic(body, u && u.startsWith('https://')
+    const u0 = safeUrl(s.url);
+    // D-028: a page from this ThingsBoard server would run with our origin despite the sandbox; not framed.
+    const u = u0 && u0.startsWith('https://') && !sameOrigin(u0) ? u0 : null;
+    setStatic(body, u
       ? `<iframe class="dbb-frame" src="${esc(u)}" sandbox="allow-scripts allow-same-origin allow-forms allow-popups" referrerpolicy="no-referrer" loading="lazy" title="${esc(w.title || 'Embedded page')}"></iframe>`
       : `<div class="dbb-ph">Add a page address (https://…) in the widget settings. Some sites refuse to be embedded.</div>`);
     return undefined;
@@ -568,7 +595,7 @@ async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<Color
           ];
       const hit = map.find((m) => String(m.value) === String(lv.value) || Number(m.value) === v);
       label = hit?.label ?? String(lv.value);
-      color = hit?.color ?? STATUS.neutral;
+      color = cssColor(hit?.color ?? STATUS.neutral);
     }
     if (offline) {
       label = 'Offline';
@@ -668,7 +695,7 @@ async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<Color
       const step = group === '15m' ? 15 * 60e3 : 3600e3;
       const r = await api.getCached<any>(
         `bar|${d0.id}|${key}|${agg}|${step}|${Math.round((endTs - startTs) / 60e3)}`,
-        `/api/plugins/telemetry/DEVICE/${d0.id}/values/timeseries?keys=${key}&startTs=${startTs}&endTs=${endTs}&agg=${agg}&interval=${step}&limit=1000&orderBy=ASC`,
+        `/api/plugins/telemetry/DEVICE/${d0.id}/values/timeseries?keys=${encodeURIComponent(key)}&startTs=${startTs}&endTs=${endTs}&agg=${agg}&interval=${step}&limit=1000&orderBy=ASC`,
         60e3,
       );
       const pts: { ts: number; value: string }[] = r?.[key] ?? [];

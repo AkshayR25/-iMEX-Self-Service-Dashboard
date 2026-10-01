@@ -232,3 +232,38 @@ describe('27 Sep changes: limits, time ranges, property/widget compatibility', (
     expect(ws.filter((x) => x.type === 'line').every((x) => x.keys.every((k) => k !== 'runStatus'))).toBe(true);
   });
 });
+
+describe('D-028 hardening', () => {
+  const base = { schemaVersion: 1, id: 'd1', name: 'n', kind: 'standalone', profile: null, timeRange: 'realtime', ownerId: 'u', ownerName: 'u', version: 1, updatedAt: 1, updatedBy: 'u', copiedFrom: null };
+  const w = (settings: any, over: any = {}) => ({ id: 'w1', type: 'value', title: 't', x: 0, y: 0, w: 3, h: 2, binding: { mode: 'fixed', deviceIds: ['pc'] }, keys: ['k'], settings, ...over });
+
+  it('ids must be plain (they end up in HTML attributes and attribute keys)', () => {
+    expect(Dashboard.safeParse({ ...base, widgets: [w({})] }).success).toBe(true);
+    expect(Dashboard.safeParse({ ...base, id: '"><img>', widgets: [] }).success).toBe(false);
+    expect(Dashboard.safeParse({ ...base, widgets: [w({}, { id: 'a"b' })] }).success).toBe(false);
+    expect(Dashboard.safeParse({ ...base, widgets: [w({}, { binding: { mode: 'fixed', deviceIds: ['x" y'] } })] }).success).toBe(false);
+  });
+
+  it('legacy band and status colours that are not plain colours become grey; bad font names are dropped', () => {
+    const p = Dashboard.parse({ ...base, theme: { font: 'a\n;x:y' }, widgets: [w({ bands: [{ upTo: null, color: 'red"><img>' }], statusMap: [{ value: 1, label: 'x', color: 'red;background:url(x)' }], style: { titleFont: 'a\n;position:fixed', valueFont: 'Inter' } })] });
+    expect(p.widgets[0].settings.bands![0].color).toBe('#8a8983');
+    expect(p.widgets[0].settings.statusMap![0].color).toBe('#8a8983');
+    expect(p.widgets[0].settings.style!.titleFont).toBeUndefined();
+    expect(p.widgets[0].settings.style!.valueFont).toBe('Inter');
+    expect(p.theme!.font).toBeUndefined();
+  });
+
+  it('sanitizer: out-of-range entities do not throw; many "<" stay fast; results are cached', () => {
+    expect(() => sanitizeHtml('<a href="https://x/&#x110000;&#99999999999;">a</a>')).not.toThrow();
+    const nasty = '<a'.repeat(6000);
+    const t = performance.now();
+    sanitizeHtml(nasty);
+    expect(performance.now() - t).toBeLessThan(200);
+    expect(sanitizeHtml(nasty)).toBe(sanitizeHtml(nasty));
+  });
+
+  it('placeholders are filled in text only, never inside attributes', () => {
+    const out = fillPlaceholders('<a href="https://x/{{machine}}">{{machine}}</a>', { machine: 'M1' });
+    expect(out).toBe('<a href="https://x/{{machine}}"><span class="dbb-ph-v">M1</span></a>');
+  });
+});

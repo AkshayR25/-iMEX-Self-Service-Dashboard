@@ -74,11 +74,14 @@ function parseAttrs(src: string): Record<string, string> {
   return out;
 }
 
+/** D-028: out-of-range code points (e.g. `&#x110000;`) would throw a RangeError and break the whole page. */
+const codePoint = (n: number) => (Number.isInteger(n) && n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : '\uFFFD');
+
 /** Decodes numeric entities and the common named ones. `&amp;` is decoded last so `&amp;lt;` stays `&lt;`. */
 function decodeEntities(s: string): string {
   return s
-    .replace(/&#x([0-9a-f]+);?/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
-    .replace(/&#(\d+);?/g, (_, d) => String.fromCodePoint(Number(d)))
+    .replace(/&#x([0-9a-f]+);?/gi, (_, h) => codePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);?/g, (_, d) => codePoint(Number(d)))
     .replace(/&quot;/g, '"')
     .replace(/&apos;/g, "'")
     .replace(/&lt;/g, '<')
@@ -125,11 +128,23 @@ function safeHref(h: string): string | null {
  */
 export function sanitizeHtml(input: string): string {
   const src = String(input ?? '');
+  // D-028: the same text is sanitised on every refresh of every card; keep the last results.
+  const hit = SANITIZED.get(src);
+  if (hit !== undefined) return hit;
+  const res = sanitizeUncached(src);
+  if (SANITIZED.size >= 200) SANITIZED.delete(SANITIZED.keys().next().value!);
+  SANITIZED.set(src, res);
+  return res;
+}
+const SANITIZED = new Map<string, string>();
+
+function sanitizeUncached(src: string): string {
   let out = '';
   // Output tag names still open, innermost last.
   const stack: string[] = [];
   // While > 0 we are inside a DROP_WITH_CONTENT element; only nesting of the same tag is counted.
   let dropDepth = 0;
+  let nextGt = -1;
   let dropTag = '';
   let i = 0;
   while (i < src.length) {
@@ -141,7 +156,12 @@ export function sanitizeHtml(input: string): string {
     }
     if (src[i] === '<') {
       // A `>` inside a quoted attribute ends the match early; the remainder is then escaped as text.
-      const m = /^<(\/?)([a-zA-Z][a-zA-Z0-9]*)([^>]*)>/.exec(src.slice(i));
+      // D-028: look only up to the next '>' (found once and reused), so input with many '<' stays linear.
+      if (nextGt < i) {
+        const g = src.indexOf('>', i);
+        nextGt = g < 0 ? src.length : g;
+      }
+      const m = nextGt >= src.length ? null : /^<(\/?)([a-zA-Z][a-zA-Z0-9]*)([^>]*)>/.exec(src.slice(i, nextGt + 1));
       // Not a tag (e.g. "a < b"): emit an escaped `<`.
       if (!m) {
         if (!dropDepth) out += '&lt;';
@@ -245,5 +265,9 @@ export function placeholderKeys(html: string): string[] {
  *   They are HTML-escaped here, so pass plain text. Missing keys become an em dash.
  */
 export function fillPlaceholders(html: string, values: Record<string, string>): string {
-  return String(html ?? '').replace(PLACEHOLDER_RE, (_, k) => `<span class="dbb-ph-v">${escText(values[k] ?? '—')}</span>`);
+  // D-028: only in text between tags; a {{key}} inside an attribute (e.g. a link) stays as it is
+  return String(html ?? '')
+    .split(/(<[^>]*>)/)
+    .map((part, i) => (i % 2 ? part : part.replace(PLACEHOLDER_RE, (_, k) => `<span class="dbb-ph-v">${escText(values[k] ?? '—')}</span>`)))
+    .join('');
 }

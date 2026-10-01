@@ -321,7 +321,8 @@ export class Live {
         let h = hist.get(k);
         if (!h) hist.set(k, (h = []));
         if (!h.length || p.ts > h[h.length - 1].ts) h.push(p);
-        if (h.length > HISTORY_CAP) h.splice(0, h.length - HISTORY_CAP);
+        // D-028: trim in batches (not one element per push): amortised O(1) per point
+        if (h.length > HISTORY_CAP * 1.25) h.splice(0, h.length - HISTORY_CAP);
       }
     }
     this.emit([dev]);

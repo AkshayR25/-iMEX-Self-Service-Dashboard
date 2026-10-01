@@ -44,6 +44,7 @@ const MENU_ICONS: Record<string, string> = {
   eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
   check: '<path d="M5 12l5 5L20 7"/>',
   list: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9h10M7 13h10M7 17h6"/>',
+  plus: '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M12 8v8M8 12h8"/>',
 };
 const svg = (p: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
 
@@ -109,11 +110,14 @@ function roleList(s: string | undefined): string[] {
  * When the builder closes with changes, fires CHANGED_EVENT so renderer and listing reload.
  *
  * @param tbCtx ThingsBoard widget context of the launcher (its settings drive adminOnly/chat).
- * @param opts.deviceId Machine to open; `opts.dashboardId` a stored dashboard to open directly.
+ * @param opts.deviceId Machine to open; `opts.dashboardId` a stored dashboard to open directly;
+ *   `opts.startNew` opens the "New dashboard" dialog (menu item New dashboard, D-029).
+ * What loads (D-029): on a machine page that machine and the dashboard it shows; on the Dashboard Overview state
+ * the overview shown there; on any other page (Map, Listing, ...) the start screen (New / Open / recent).
  * @throws Error('Only admins can build dashboards.') when adminOnly is on and the user isn't an admin
  *   (UI-only check, D-012), or when the user context can't be loaded.
  */
-export async function open(tbCtx: any, opts: { deviceId?: string | null; dashboardId?: string | null } = {}) {
+export async function open(tbCtx: any, opts: { deviceId?: string | null; dashboardId?: string | null; startNew?: boolean } = {}) {
   const ctx = await userContext(tbCtx, true);
   const settings = tbCtx?.settings ?? {};
   if (settings.adminOnly !== false && !ctx.isAdmin) throw new Error('Only admins can build dashboards.');
@@ -128,8 +132,55 @@ export async function open(tbCtx: any, opts: { deviceId?: string | null; dashboa
     deviceId: opts.deviceId ?? (ent?.entityType === 'DEVICE' ? ent.id : null),
     dashboardId: opts.dashboardId ?? shown,
     chatEnabled,
+    startNew: opts.startNew,
+    // D-030: start below the app navbar and close when the user navigates with it
+    topOffset: () => builderTop(tbCtx),
+    pageKey: () => `${location.pathname}|${JSON.stringify(currentState(tbCtx))}`,
     onClose: (changed) => changed && notifyChanged(),
   });
+}
+
+/**
+ * D-030: where the builder starts (px from the top of the window). Setting `builderTop`:
+ *   'auto' (default)  the bottom of the app navbar: the lowest bottom edge among the dashboard widgets that sit in
+ *                     the same band as this navbar widget, plus a thin full-width strip directly under it (the iMEX
+ *                     status line), i.e. grid rows 1-6 of the iMEX app; the page content (row 7 on) stays covered;
+ *   a number          that many px (e.g. 64);
+ *   '0' / 'full'      full screen (the builder covers the navbar, as before D-030).
+ */
+export function builderTop(tbCtx: any): number {
+  const v = String(tbCtx?.settings?.builderTop ?? 'auto').trim().toLowerCase();
+  if (v === '0' || v === 'full' || v === 'none') return 0;
+  if (/^\d+(px)?$/.test(v)) return parseInt(v, 10);
+  const host: HTMLElement | undefined = tbCtx?.$container?.[0];
+  if (!host?.getBoundingClientRect) return 0;
+  // the ThingsBoard widget box this navbar widget lives in (gridster item), else its own element
+  const box = (host.closest('gridster-item, .tb-widget-container') as HTMLElement | null) ?? host;
+  const r = box.getBoundingClientRect();
+  let bottom = r.bottom;
+  const grid = box.closest('gridster, .tb-dashboard-layout, tb-dashboard-layout');
+  if (grid)
+    for (const it of Array.from(grid.querySelectorAll<HTMLElement>('gridster-item'))) {
+      const q = it.getBoundingClientRect();
+      // same band: starts above the navbar widget's bottom and ends below its top (status line above is excluded,
+      // page widgets that start below the navbar are excluded)
+      if (q.height > 0 && q.top < r.bottom - 1 && q.bottom > r.top + 1) bottom = Math.max(bottom, q.bottom);
+    }
+  // a thin full-width strip right under the navbar (the iMEX status line, row 6) belongs to the header too
+  if (grid) {
+    const gw = (grid as HTMLElement).getBoundingClientRect().width;
+    for (let more = true; more; ) {
+      more = false;
+      for (const it of Array.from(grid.querySelectorAll<HTMLElement>('gridster-item'))) {
+        const q = it.getBoundingClientRect();
+        if (Math.abs(q.top - bottom) <= 2 && q.height > 0 && q.height <= 24 && q.width >= gw * 0.95 && q.bottom > bottom) {
+          bottom = q.bottom;
+          more = true;
+        }
+      }
+    }
+  }
+  return Math.max(0, Math.round(bottom));
 }
 
 /**
@@ -233,10 +284,10 @@ export function init(tbCtx: any) {
     })
     .catch(() => btn.remove());
   // Errors (e.g. non-admin) are shown as a temporary toast at the top of the page.
-  const openBuilderFromMenu = async () => {
+  const openBuilderFromMenu = async (startNew = false) => {
     btn.disabled = true;
     try {
-      await open(tbCtx);
+      await open(tbCtx, { startNew });
     } catch (e: any) {
       alertInline(host, `Could not open the builder: ${e.message ?? e}`);
     } finally {
@@ -284,6 +335,7 @@ export function init(tbCtx: any) {
       ${sw.length ? `<div class="dbb-emenu-sec">Show dashboard</div>${sw.map(item).join('')}` : ''}
       ${main.length || sw.length ? '<hr/>' : ''}
       ${s.dashboardList !== false ? item({ id: '__list', label: 'Dashboard list', hint: 'Dashboards not tied to one machine', icon: 'list' }) : ''}
+      ${editor ? item({ id: '__new', label: 'New dashboard', hint: 'For a machine type, or an overview of several machines', icon: 'plus' }) : ''}
       ${editor ? item({ id: '__builder', label: 'Dashboard Builder', hint: acts ? 'All dashboards, templates and machines' : 'Build or change dashboards', icon: 'builder' }) : ''}`;
     document.body.appendChild(menu);
     const r = btn.getBoundingClientRect();
@@ -296,6 +348,7 @@ export function init(tbCtx: any) {
         const id = b.dataset.m!;
         closeMenu();
         if (id === '__builder') void openBuilderFromMenu();
+        else if (id === '__new') void openBuilderFromMenu(true);
         else if (id === '__list') void dashboardList(tbCtx, editor).catch((e) => alertInline(host, `Could not load the dashboards: ${e.message ?? e}`));
         else currentActions()?.run(id);
       }),
