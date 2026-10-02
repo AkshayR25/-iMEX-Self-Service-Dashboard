@@ -102,3 +102,38 @@ export function toast(root: HTMLElement, text: string, kind: 'ok' | 'warn' | 'er
   host.appendChild(t);
   setTimeout(() => t.remove(), kind === 'err' ? 8000 : 4000);
 }
+
+// ---------- D-032 start screen helpers ----------
+
+/** "just now", "5 min ago", "3 h ago", "yesterday", "4 days ago", else the date. */
+export function relTime(ts: number): string {
+  const s = (Date.now() - ts) / 1000;
+  if (s < 60) return 'just now';
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
+  if (s < 172800) return 'yesterday';
+  if (s < 30 * 86400) return `${Math.floor(s / 86400)} days ago`;
+  return new Date(ts).toLocaleDateString();
+}
+
+/** Up to two initials of a name ("Blower Overview" -> "BO"). */
+export const initials = (n: string) =>
+  n
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0]!.toUpperCase())
+    .join('') || '?';
+
+const AV = ['linear-gradient(135deg,#2a78d6,#5b9cf0)', 'linear-gradient(135deg,#6d4ce0,#9b7cf5)', 'linear-gradient(135deg,#0f9d8f,#35c2b2)', 'linear-gradient(135deg,#e8590c,#f59f4c)', 'linear-gradient(135deg,#c2185b,#e5578e)', 'linear-gradient(135deg,#3f51b5,#7986cb)'];
+/** Stable avatar gradient for a name. */
+export const avatarColor = (s: string) => AV[[...s].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % AV.length];
+
+const sv = (p: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
+/** Icons of the start screen. */
+export const ST_ICON = {
+  plus: sv('<path d="M12 5v14M5 12h14"/>'),
+  folder: sv('<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>'),
+  chat: sv('<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/><path d="M8.5 11h.01M12 11h.01M15.5 11h.01"/>'),
+  chev: sv('<path d="M9 18l6-6-6-6"/>'),
+};

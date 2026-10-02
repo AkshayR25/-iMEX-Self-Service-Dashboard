@@ -312,6 +312,73 @@ A full read-only security review of widgets/src and the chat relay, then fixes, 
 - The builder opened directly (harness, `IMEX_DBB.open` without a navbar widget) stays full screen.
 - Tests: 58 E2E scenarios (2 new): the builder starts at the navbar bottom, the navbar stays clickable, the pencil menu opens over the builder, navigation closes it or asks, Keep editing and Discard both work; the offset is measured correctly in a ThingsBoard-like grid (navbar band + status line, not the page's sort bar or side panel; px and full-screen settings).
 
+### D-031 New dashboard dialog readability; stale builder styles replaced, 1 Oct 2026 (user feedback)
+- On iserv-demov2 the "New dashboard" dialog looked crowded: titles, descriptions and the type picker ran together on one line with no spacing. The dialog's styles were not applied. The builder's style element (`dbb-css-builder`) from an earlier build was still on the page, and `ensureCss` kept any existing element with the same id, so new rules from a newer build never arrived until a full reload.
+- **Fix 1:** `ensureCss` (render/theme.ts) now replaces the content of an existing style element when it differs. This covers widgets re-imported without a full reload, and another widget type still on an older build.
+- **Fix 2:** the dialog is rebuilt with its own self-contained styles (`.dbb-nd-*`, Inter on every element, no reliance on `.dbb-field`):
+  - "Name" and "What is it for?" labels above full-width inputs (38 px);
+  - two option cards with 14–16 px padding, each with a 14 px semibold title and a 13 px description underneath (line height 1.5);
+  - the machine-type picker on its own line inside the first card ("Machine type ▾");
+  - the selected card is highlighted in blue;
+  - the dialog is 560 px wide.
+- Tests: 59 E2E scenarios (1 new). It checks that a stale style element is replaced, that title, description and picker are stacked, the font sizes and padding, and Inter; it saves a screenshot.
+
+### D-032 Modern start screen in the builder, 1 Oct 2026 (user feedback)
+- The start screen (builder opened from a page without a machine) looked unstyled on iserv-demov2: centred plain buttons, and recent dashboards as bordered text runs with name and details run together. The D-029 build there had a stale builder stylesheet (fixed by D-031), and the layout itself was minimal.
+- New self-contained component (`startScreenHtml()`, `.dbb-st-*` styles with Inter on every element; buttons reset with `all: unset`, then styled with stronger selectors):
+  - header "Start a dashboard" with a one-line subtitle;
+  - three action tiles with an icon, title and description: **New dashboard** (primary, blue), **Open a dashboard**, **Describe it in chat**;
+  - "Recently updated" as a list card. Each row has:
+    - a coloured initials avatar;
+    - the name on its own line;
+    - underneath it, a type tag (machine type in blue, Overview in purple), the widget count and the owner;
+    - "Updated x ago" and a chevron on the right.
+  - The list has hover and focus states and loading placeholders, and shows "No saved dashboards yet" when empty.
+  - A hint underneath: "…or drag widgets from the left onto the page".
+- Tests: the start-screen E2E checks the three tiles, the stacked rows, the row height and Inter, and saves a screenshot. 59 E2E.
+
+### D-033 Builder panel, list, dialogs and header polish after the live test, 2 Oct 2026 (user feedback, 10 items)
+- **Right panel sections:** the Widget, Style and Dashboard tabs are split into section cards (Widget / 1 Data source / 2 Properties / 3 Options; Title / Layout / Card / Value / Help text; Theme / Background / Cards). A click on a section header collapses or expands it. The state is kept per tab and section title while the page is open, so it survives the redraw after every edit. Built by `sectionize()` in the new `builder/controls.ts`, which wraps each `.dbb-sec` header and the fields after it. Duplicate / Remove, "Copy style to all" and "Reset theme" stay outside the sections (`data-nosec`).
+- **Searchable dropdowns instead of radio lists:** properties and specific machines use `picker()` (builder/controls.ts):
+  - the closed control shows the choice, or chips with ✕ for several;
+  - the list has a search box when there are more than 4 entries; every word must match, so "pune 1" finds "Pune Compressor 1", and machine types match too;
+  - custom checkboxes or radio dots (real elements, not `::before`/`::after`);
+  - greyed rows give the reason in a tooltip (not suitable for this widget type, or the cap of 4 is reached);
+  - "n of 4 selected", Clear and Done.
+  - With several choices, ticks apply once, when the list closes (Done, a click outside, Escape or Tab). That gives one undo step and one redraw. A single choice applies at once.
+  - The data source is a dropdown ("Show data from") with a one-line explanation under it, and the type / location pickers below it as labelled fields.
+- **New dashboard dialog (broken on the customer's app):** the host page CSS put the native radio in its own wide column and added diamond markers before the captions. The dialog now has:
+  - no `<label>`, native radio or native select;
+  - option cards that are `role="radio"` divs with a span dot (arrow keys and Space/Enter work);
+  - the machine type as a picker shown under the cards only for "One machine type", opening in the flow (`inline`);
+  - `::before`/`::after` switched off inside the dialog and on the modal chrome.
+  The E2E test injects hostile host CSS (label grid, wide radios, decorated `::before`) and checks the layout.
+- **Background image:** it worked with a valid https address, but nothing told the user why other addresses showed nothing. `background-attachment: fixed` also sized the image to the browser window, so a widget showed only a slice, and it is ignored under transformed parents.
+  - Now the Background section has:
+    - page colour;
+    - image address or **Upload image…** (data URI up to 150 KB, like the image widget; schema `bgImage` up to 210 000 characters for `data:image/` only, web addresses still at most 2000);
+    - a status line: ✓ loaded with size; "must start with https://"; or "couldn't load an image from this address";
+    - **Image fit** Fill / Fit / Tile (`bgFit`);
+    - remove.
+  - `applyTheme` uses a centred, scrolling image (no fixed attachment). Chat's setTheme accepts `bgFit`.
+- **Builder top bar:** the "Dashboard Builder" logo and title are removed; the machine picker is the first item.
+- **Dashboard list over the builder:** the list was hidden because the customer navbar raises the builder overlay to z-index 300000. The list and the navbar menu now take a z-index above any open builder overlay (`aboveBuilder()`, at least 10040 / 10050). Edit from the list while the builder is open loads that dashboard into it (asking about unsaved changes) instead of being ignored.
+- **Machine-type dashboards in the Dashboard list (editors):** a dashboard saved with "Don't apply now" could only be found in the builder's Open dialog. Editors now get All / Overviews / Machine types filters.
+  - Machine-type rows show the type as a badge, and "Not applied" when no assignment (machine, location, customer or personal) names them. This is read from the cached assignment snapshot.
+  - Their action is **Open in builder**, previewed on the open machine if it has that type, else the first machine of the type.
+  - Viewers still see overviews only. Search also matches the machine type.
+- **Table alignment:** numeric columns (every shown value is a number) are centred, header included; text columns stay right-aligned.
+- **Navbar menu restyled like the app's dropdowns:** plain text rows (no icons, no taglines; the old tagline is the tooltip), light cyan hover with a 1 px lift and shadow, and a dark bar on the left of the selected row (the dashboard currently shown, in "Show dashboard").
+- **Machine page header:**
+  - The range chip is replaced by "**Time window**  Last 8 hours" (or "Live · last hour", with a pulsing dot).
+  - On the right of the same row is "● **Updated** 2 seconds ago". This comes from the newest data-point timestamp the widgets received: a data clock in core/api.ts, fed by `latest`, `latestMany` and `series`, reset when another dashboard loads. The header's own status read (`lastTelemetry`) is excluded (`latest(..., quiet)`).
+  - The text ticks every second. The dot is green under 2 min and amber over 15 min. The tooltip has the exact time.
+  - The status pill no longer repeats "· x ago" (that is its tooltip now).
+- **Fixes from the live test:**
+  - **(a)** The machine page's Edit / Customise opened the builder full screen. The launcher now registers its placement (`setBuilderPlacement`, also on `window.__imexDbbPlacement` for the other library copies), and `openBuilder` uses it when the caller gives none.
+  - **(b)** `currentState()` failed on a state parameter that was percent-encoded twice (`%3D` left after URLSearchParams). The new `decodeStateParam()` decodes up to 3 times, restores `+` and base64 padding, and returns null instead of throwing.
+- Tests: 93 unit tests (5 new: state decoding, the data clock and quiet reads, wording, theme schema) and 65 E2E scenarios (6 new: section cards and the removed brand; background image status / upload / fit; table alignment; machine-type dashboards in the list; list and menu above a raised builder; machine page Edit placement). The New dashboard, Widget tab, caps, header and list tests were updated for the new controls.
+
 ## ThingsBoard quirks found
 
 - `GET /api/plugins/telemetry/.../values/timeseries` returns **at most 100 points** when `limit` is omitted and `agg` is NONE. The service must always pass `limit` (checked: 2,016 stored, 100 returned without a limit).

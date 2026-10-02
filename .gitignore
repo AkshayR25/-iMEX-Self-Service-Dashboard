@@ -5,3 +5,4 @@ scripts/output/*
 *.db
 widgets/dist/*.gz.b64
 widgets/harness/harness.js
+scratch/

@@ -55,7 +55,8 @@ import { WIDGET_ICON } from '../render/icons';
 import { TEMPLATES } from '../render/templates';
 import { richEditor, ruleEditor, styleEditor, themeEditor, initialRules } from './editors';
 import { BUILDER_CSS } from './styles';
-import { modal, confirmModal, toast } from './ui';
+import { modal, confirmModal, toast, relTime, initials, avatarColor, ST_ICON } from './ui';
+import { picker, sectionize } from './controls';
 import { audit } from '../core/audit';
 import { compatible, metaLookup, propKind } from '../core/compat';
 import type { KeyMeta } from '../core/types';
@@ -84,6 +85,22 @@ export interface BuilderOptions {
   pageKey?: () => string;
   /** Called after the overlay is removed. `changed` is true if anything was saved, applied or deleted. */
   onClose?(changed: boolean): void;
+}
+
+/** D-033: page placement registered by the navbar launcher (see setBuilderPlacement). */
+let placement: { topOffset: () => number; pageKey: () => string } | null = null;
+/**
+ * Registers where builders opened without `topOffset` / `pageKey` go (the launcher calls this on init), so
+ * every entry point (navbar menu, machine page Edit / Customise, Dashboard list) opens below the app navbar.
+ * Stored on window too, because each ThingsBoard widget type runs its own copy of this library.
+ */
+export function setBuilderPlacement(p: { topOffset: () => number; pageKey: () => string } | null) {
+  placement = p;
+  try {
+    (window as any).__imexDbbPlacement = p;
+  } catch {
+    /* ignore */
+  }
 }
 
 /** Palette icons (SVG markup) per widget type. */
@@ -137,9 +154,20 @@ export function openBuilder(o: BuilderOptions) {
   // D-029: one builder at a time (a second click on the menu, or the browser's Back button while it is open,
   // must not stack a second overlay over the first); the open one is brought back instead.
   if (openNow?.root?.isConnected) {
-    if (o.startNew) void openNow.newDashboardDialog();
-    return openNow;
+    const cur = openNow;
+    if (o.startNew) void cur.newDashboardDialog();
+    // D-033: Edit from the Dashboard list while the builder is open loads that dashboard (asking first about unsaved changes).
+    else if (o.dashboardId && o.dashboardId !== cur.draft.id)
+      void (async () => {
+        if (cur.dirty() && !(await confirmModal(cur.root, 'Discard unsaved changes?', 'The current dashboard has changes that are not saved.', 'Discard', true))) return;
+        void cur.openDashboard(o.dashboardId!);
+      })();
+    return cur;
   }
+  // D-033: callers that don't say where the builder goes (renderer Edit / Customise, Dashboard list Edit)
+  // use the placement the navbar launcher registered, so the builder still starts below the app navbar.
+  const pl = placement ?? ((window as any).__imexDbbPlacement as typeof placement) ?? null;
+  if (!o.topOffset && pl) o = { ...o, topOffset: pl.topOffset, pageKey: o.pageKey ?? pl.pageKey };
   // D-029: nothing from an earlier visit: cached data series and REST answers are dropped, so previews load fresh.
   api.clearCaches();
   const b = new Builder(o);
@@ -760,7 +788,6 @@ class Builder {
     // Wraps SVG path markup in a 24x24 stroke icon.
     const U = (p: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
     top.innerHTML = `
-      <div class="dbb-brand"><span class="dbb-logo">${U('<rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="5" rx="2"/><rect x="13" y="10" width="8" height="11" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/>')}</span><span>Dashboard Builder</span></div>
       <label class="dbb-field"><span>Machine</span><select data-a="machine">${this.machineOptions()}</select></label>
       <label class="dbb-field grow"><span>Dashboard name</span><input data-a="name" maxlength="120" value="${esc(d.name)}"/></label>
       <div class="dbb-field"><span>Time range</span><div class="dbb-range"><div class="dbb-seg sm" role="radiogroup" aria-label="Time range">
@@ -901,10 +928,11 @@ class Builder {
     if (!this.draft.widgets.length) {
       const n = this.deviceId ? this.ctx.nodes.get(this.deviceId) : null;
       const tpls = n ? TEMPLATES.slice(0, 4) : [];
-      empty.innerHTML = `<div class="dbb-empty-card">
-        <div class="dbb-empty-t">${n ? `Design a dashboard for ${esc(n.label)}` : 'What would you like to do?'}</div>
-        <div class="dbb-empty-s">${n ? `Widgets set to <b>This machine</b> follow whichever ${esc(n.profile)} the dashboard is opened for.` : 'Create a new dashboard, or open one you or your team already made.'}</div>
-        ${n ? '' : `<div class="dbb-empty-a"><button class="dbb-btn primary" data-a="new">+ New dashboard</button><button class="dbb-btn" data-a="open">Open a dashboard</button></div><div class="dbb-recent" data-recent></div>`}
+      empty.innerHTML = !n
+        ? this.startScreenHtml()
+        : `<div class="dbb-empty-card">
+        <div class="dbb-empty-t">Design a dashboard for ${esc(n.label)}</div>
+        <div class="dbb-empty-s">Widgets set to <b>This machine</b> follow whichever ${esc(n.profile)} the dashboard is opened for.</div>
         ${tpls.length ? `<div class="dbb-tpl-grid mini">${tpls.map((t) => this.tplCard(t)).join('')}</div>` : ''}
         <div class="dbb-empty-a">
           ${n ? `<button class="dbb-btn" data-a="default">Simple default layout</button><button class="dbb-btn" data-a="alltpl">All templates…</button>` : ''}
@@ -1193,27 +1221,30 @@ class Builder {
     const devices = scope.allDevices(this.ctx);
     const b = w.binding;
     const metas = this.metasFor(w);
-    // Property list: radios for single-key widgets, checkboxes (capped at cap.keys[1]) otherwise.
-    const keyRows = (() => {
-      if (cap.keys[1] === 0) return '';
-      if (!metas.length) return `<div class="dbb-hint">Choose a data source first.</div>`;
-      const multi = cap.keys[1] > 1;
-      const full = multi && w.keys.length >= cap.keys[1];
-      const rows = metas.map((m) => {
-        const c = this.fits(w.type, m, w);
-        const on = w.keys.includes(m.key);
-        const off = !on && (!c.ok || full);
-        const why = !c.ok ? c.reason! : full ? `At most ${cap.keys[1]} properties per widget (keeps the dashboard fast). Untick one first.` : '';
-        return `<label class="dbb-check ${off ? 'off' : ''} ${!c.ok ? 'bad' : ''}" ${why ? `title="${esc(why)}"` : ''}><input type="${multi ? 'checkbox' : 'radio'}" name="k-${esc(w.id)}" value="${esc(m.key)}" ${on ? 'checked' : ''} ${off ? 'disabled' : ''}/> ${esc(m.displayName)}${m.unit ? ` <span class="dbb-muted">(${esc(m.unit)})</span>` : ''}${!c.ok ? ` <span class="dbb-na">${esc(this.kindWord(m))}</span>` : ''}</label>`;
-      });
-      const bad = metas.filter((m) => !this.fits(w.type, m, w).ok).length;
-      return `<div class="dbb-keys">${rows.join('')}</div>${
-        multi ? `<div class="dbb-hint">${w.keys.length} of ${cap.keys[1]} selected · at most ${cap.keys[1]} per widget.</div>` : ''
-      }${bad ? `<div class="dbb-hint">Greyed out: can't be shown as ${esc(WIDGET_LABELS[w.type].toLowerCase())}. Hover for why.</div>` : ''}`;
-    })();
+    // Properties: a searchable dropdown (D-033), checkboxes capped at cap.keys[1] or a single choice.
+    const multiKey = cap.keys[1] > 1;
+    const badKeys = metas.filter((m) => !this.fits(w.type, m, w).ok).length;
+    const keyRows =
+      cap.keys[1] === 0
+        ? ''
+        : !metas.length
+          ? `<div class="dbb-hint">Choose a data source first.</div>`
+          : `<div data-pick="keys"></div>${multiKey ? `<div class="dbb-hint">At most ${cap.keys[1]} per widget (keeps the dashboard fast).</div>` : ''}${
+              badKeys ? `<div class="dbb-hint">Greyed out in the list: can't be shown as ${esc(WIDGET_LABELS[w.type].toLowerCase())}. Hover for why.</div>` : ''
+            }`;
 
-    const srcOpt = (mode: string, label: string, allowed = true) =>
-      allowed ? `<label class="dbb-check"><input type="radio" name="src-${esc(w.id)}" value="${mode}" ${b.mode === mode ? 'checked' : ''}/> <span>${label}</span></label>` : '';
+    // Data source modes this widget type offers (D-033: a dropdown instead of radios).
+    const SRC: [string, string, string, boolean][] = [
+      ['current', 'This machine', 'Whichever machine the dashboard is opened for.', !!(this.deviceId || this.draft.profile)],
+      ['fixed', 'Specific machines', cap.multiDevice ? `Pick up to ${MAX_DEVICES} machines.` : 'Pick one machine.', true],
+      ['siblings', "Same-type machines at this machine's location", 'Machines of a type at the location of the machine the dashboard is opened for.', cap.multiDevice && !!this.deviceId],
+      ['nearest', 'Nearest machine of a type', 'E.g. the site weather station.', !cap.multiDevice && !!this.deviceId],
+      ['nodeQuery', 'All machines of a type under a location', 'Includes machines added later.', cap.multiDevice],
+    ];
+    const srcList = SRC.filter((x) => x[3] || x[0] === b.mode);
+    const srcSel = `<label class="dbb-field"><span>Show data from</span><select data-s="src">${srcList.some((x) => x[0] === b.mode) ? '' : '<option value="" selected disabled>Choose where the data comes from…</option>'}${srcList.map(([m, l]) => `<option value="${m}" ${b.mode === m ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>${
+      SRC.find((x) => x[0] === b.mode) ? `<div class="dbb-hint">${esc(SRC.find((x) => x[0] === b.mode)![2])}</div>` : ''
+    }`;
     // The alarm list may cover every machine type under a location (profile '' = all types, D-024).
     const profSel = (cur: string | undefined, a: string) =>
       `<select data-s="${a}">${w.type === 'alarms' && a === 'sprof' && b.mode === 'nodeQuery' ? `<option value="" ${cur === '' ? 'selected' : ''}>All machine types</option>` : ''}${allProfiles.map((p) => `<option ${p === cur ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select>`;
@@ -1230,6 +1261,7 @@ class Builder {
 
     panel.innerHTML = `
       <div class="dbb-form">
+        <div class="dbb-sec">Widget</div>
         <label class="dbb-field"><span>${w.type === 'link' ? 'Button label' : 'Title'}</span><input data-s="title" value="${esc(w.title)}" maxlength="120" placeholder="${w.type === 'text' || w.type === 'image' || w.type === 'embed' ? 'Optional' : ''}"/></label>
         <label class="dbb-field"><span>Widget type</span><select data-s="type">${typeOpts}</select></label>
         ${
@@ -1237,25 +1269,20 @@ class Builder {
             ? `<div class="dbb-sec">Content</div>${this.contentFields(w)}`
             : `<div class="dbb-sec">1 · Data source</div>
         <div class="dbb-src">
-          ${srcOpt('current', 'This machine <span class="dbb-muted">(whichever machine the dashboard is opened for)</span>', !!(this.deviceId || this.draft.profile))}
-          ${srcOpt('fixed', 'Specific machines')}
-          ${b.mode === 'fixed' ? `<div class="dbb-sub"><div class="dbb-keys">${devices
-            .map((d) => {
-              const on = b.deviceIds.includes(d.id);
-              const off = cap.multiDevice && !on && b.deviceIds.length >= MAX_DEVICES;
-              return `<label class="dbb-check ${off ? 'off' : ''}" ${off ? `title="At most ${MAX_DEVICES} machines per widget"` : ''}><input type="${cap.multiDevice ? 'checkbox' : 'radio'}" data-s="dev" value="${d.id}" ${on ? 'checked' : ''} ${off ? 'disabled' : ''}/> ${esc(d.label)} <span class="dbb-muted">${esc(d.profile)}</span></label>`;
-            })
-            .join('')}</div>${cap.multiDevice ? `<div class="dbb-hint">At most ${MAX_DEVICES} machines.</div>` : ''}${b.deviceIds.some((id) => !this.ctx.nodes.has(id)) ? `<div class="dbb-hint">Includes machines outside your access (kept).</div>` : ''}</div>` : ''}
-          ${cap.multiDevice ? srcOpt('siblings', "Same-type machines at this machine's location", !!this.deviceId) : ''}
-          ${b.mode === 'siblings' ? `<div class="dbb-sub">Type ${profSel(b.profile, 'sprof')}</div>` : ''}
-          ${!cap.multiDevice ? srcOpt('nearest', 'Nearest machine of a type (e.g. the site weather station)', !!this.deviceId) : ''}
-          ${b.mode === 'nearest' ? `<div class="dbb-sub">Type ${profSel(b.profile, 'sprof')}</div>` : ''}
-          ${cap.multiDevice ? srcOpt('nodeQuery', 'All machines of a type under a location <span class="dbb-muted">(includes machines added later)</span>') : ''}
+          ${srcSel}
+          ${
+            b.mode === 'fixed'
+              ? `<div class="dbb-field"><span>${cap.multiDevice ? 'Machines' : 'Machine'}</span><div data-pick="dev"></div></div>${
+                  b.deviceIds.some((id) => !this.ctx.nodes.has(id)) ? `<div class="dbb-hint">Includes machines outside your access (kept).</div>` : ''
+                }`
+              : ''
+          }
+          ${b.mode === 'siblings' || b.mode === 'nearest' ? `<label class="dbb-field"><span>Machine type</span>${profSel(b.profile, 'sprof')}</label>` : ''}
           ${
             b.mode === 'nodeQuery'
-              ? `<div class="dbb-sub">Type ${profSel(b.profile, 'sprof')} under <select data-s="node">${nodes
+              ? `<label class="dbb-field"><span>Machine type</span>${profSel(b.profile, 'sprof')}</label><label class="dbb-field"><span>Under location</span><select data-s="node">${nodes
                   .map((n) => `<option value="${n.id}" ${n.id === b.nodeId ? 'selected' : ''}>${esc(scope.pathLabel(this.ctx, n.id))}</option>`)
-                  .join('')}</select></div>`
+                  .join('')}</select></label>`
               : ''
           }
         </div>
@@ -1264,7 +1291,7 @@ class Builder {
         ${this.appearanceFields(w)}
         ${w.type !== 'alarms' ? `<div class="dbb-tip-row">Colours by value are in the <a href="#" data-go="rules">Colours</a> tab; fonts, icons and card look in <a href="#" data-go="style">Style</a>.</div>` : ''}`
         }
-        <div class="dbb-row" style="margin-top:14px">
+        <div class="dbb-row" data-nosec style="margin-top:14px">
           <button class="dbb-btn" data-s="dup">Duplicate</button>
           <button class="dbb-btn danger" data-s="del">Remove widget</button>
         </div>
@@ -1308,8 +1335,8 @@ class Builder {
         x.h = Math.max(x.h, size.h);
       }),
     );
-    // Data source radio: build a default binding for the chosen mode.
-    on(`input[name="src-${esc(w.id)}"]`, 'change', (e) =>
+    // Data source: build a default binding for the chosen mode.
+    on('[data-s="src"]', 'change', (e) =>
       this.updateWidget(w.id, (x) => {
         const mode = e.target.value;
         const curProf = this.deviceId ? this.ctx.nodes.get(this.deviceId)!.profile : allProfiles[0];
@@ -1322,16 +1349,26 @@ class Builder {
         this.fixKeys(x);
       }),
     );
-    on('[data-s="dev"]', 'change', () =>
-      this.updateWidget(w.id, (x) => {
-        const ids = [...panel.querySelectorAll<HTMLInputElement>('[data-s="dev"]:checked')].map((i) => i.value).slice(0, WIDGET_CAPS[x.type].multiDevice ? MAX_DEVICES : 1);
-        // Machines outside this user's scope aren't listed but are kept (another admin chose them).
-        // Unticking everything leaves the binding unchanged.
-        const hidden = x.binding.mode === 'fixed' ? x.binding.deviceIds.filter((id) => !this.ctx.nodes.has(id)) : [];
-        if (ids.length || hidden.length) x.binding = { mode: 'fixed', deviceIds: [...hidden, ...ids] };
-        this.fixKeys(x);
-      }),
-    );
+    const devHost = panel.querySelector<HTMLElement>('[data-pick="dev"]');
+    if (devHost && b.mode === 'fixed')
+      picker(devHost, {
+        name: 'dev',
+        items: devices.map((d) => ({ value: d.id, label: d.label, sub: d.profile })),
+        selected: b.deviceIds.filter((id) => this.ctx.nodes.has(id)),
+        multi: cap.multiDevice,
+        max: cap.multiDevice ? MAX_DEVICES : 1,
+        placeholder: cap.multiDevice ? 'Choose machines…' : 'Choose a machine…',
+        noun: ['machine', 'machines'],
+        onChange: (picked) =>
+          this.updateWidget(w.id, (x) => {
+            const ids = picked.slice(0, WIDGET_CAPS[x.type].multiDevice ? MAX_DEVICES : 1);
+            // Machines outside this user's scope aren't listed but are kept (another admin chose them).
+            // Removing everything leaves the binding unchanged.
+            const hidden = x.binding.mode === 'fixed' ? x.binding.deviceIds.filter((id) => !this.ctx.nodes.has(id)) : [];
+            if (ids.length || hidden.length) x.binding = { mode: 'fixed', deviceIds: [...hidden, ...ids] };
+            this.fixKeys(x);
+          }),
+      });
     on('[data-s="sprof"]', 'change', (e) =>
       this.updateWidget(w.id, (x) => {
         if ('profile' in x.binding) (x.binding as any).profile = e.target.value;
@@ -1339,19 +1376,33 @@ class Builder {
       }),
     );
     on('[data-s="node"]', 'change', (e) => this.updateWidget(w.id, (x) => x.binding.mode === 'nodeQuery' && (x.binding.nodeId = e.target.value)));
-    on(`input[name="k-${esc(w.id)}"]`, 'change', () =>
-      this.updateWidget(w.id, (x) => {
-        const ks = [...panel.querySelectorAll<HTMLInputElement>(`input[name="k-${esc(w.id)}"]:checked`)].map((i) => i.value).slice(0, Math.min(MAX_KEYS, WIDGET_CAPS[x.type].keys[1]));
-        // Only retitle if the title was still automatic (empty, the type label, or the old property name).
-        const wasAuto = !x.title || x.title === WIDGET_LABELS[x.type] || profiles.some((p) => x.keys[0] && x.title.startsWith(keyMeta(this.ctx, p, x.keys[0]).displayName));
-        x.keys = ks;
-        if (wasAuto && ks.length === 1 && profiles[0]) x.title = keyMeta(this.ctx, profiles[0], ks[0]).displayName;
-      }),
-    );
+    const keyHost = panel.querySelector<HTMLElement>('[data-pick="keys"]');
+    if (keyHost)
+      picker(keyHost, {
+        name: 'keys',
+        items: metas.map((m) => {
+          const c = this.fits(w.type, m, w);
+          return { value: m.key, label: m.displayName, sub: m.unit || undefined, disabled: !c.ok, why: c.reason, tag: c.ok ? undefined : this.kindWord(m) };
+        }),
+        selected: w.keys.filter((k) => metas.some((m) => m.key === k)),
+        multi: multiKey,
+        max: multiKey ? Math.min(MAX_KEYS, cap.keys[1]) : 1,
+        placeholder: multiKey ? 'Choose properties…' : 'Choose a property…',
+        noun: ['property', 'properties'],
+        onChange: (picked) =>
+          this.updateWidget(w.id, (x) => {
+            const ks = picked.slice(0, Math.min(MAX_KEYS, WIDGET_CAPS[x.type].keys[1]));
+            // Only retitle if the title was still automatic (empty, the type label, or the old property name).
+            const wasAuto = !x.title || x.title === WIDGET_LABELS[x.type] || profiles.some((p) => x.keys[0] && x.title.startsWith(keyMeta(this.ctx, p, x.keys[0]).displayName));
+            x.keys = ks;
+            if (wasAuto && ks.length === 1 && profiles[0]) x.title = keyMeta(this.ctx, profiles[0], ks[0]).displayName;
+          }),
+      });
     this.wireAppearance(panel, w);
     this.wireContent(panel, w);
     on('[data-s="del"]', 'click', () => this.removeWidget(w.id));
     on('[data-s="dup"]', 'click', () => this.duplicate(w.id));
+    sectionize(panel.querySelector('.dbb-form') as HTMLElement, 'widget');
   }
 
   /**
@@ -1988,11 +2039,44 @@ class Builder {
   async renderRecent(host: HTMLElement) {
     this.recent ??= store.listDashboards(this.ctx).catch(() => []);
     const list = (await this.recent).slice(0, 5);
-    if (!host.isConnected || !list.length) return;
-    host.innerHTML = `<div class="dbb-recent-h">Recently updated</div>${list
-      .map((d) => `<button class="dbb-recent-r" data-id="${esc(d.id)}"><b>${esc(d.name)}</b><span>${esc(d.profile ?? 'Overview')} · ${d.widgets.length} widgets · ${esc(d.ownerName)}</span></button>`)
-      .join('')}`;
+    if (!host.isConnected) return;
+    if (!list.length) {
+      host.innerHTML = `<div class="dbb-st-none">No saved dashboards yet. Create the first one.</div>`;
+      return;
+    }
+    host.innerHTML = list
+      .map(
+        (d) => `<button type="button" class="dbb-st-row" data-id="${esc(d.id)}" title="Open “${esc(d.name)}”">
+          <span class="dbb-st-av" style="background:${avatarColor(d.name)}">${esc(initials(d.name))}</span>
+          <span class="dbb-st-main"><span class="dbb-st-name">${esc(d.name)}</span>
+            <span class="dbb-st-meta"><span class="dbb-st-tag ${d.profile ? '' : 'ov'}">${esc(d.profile ?? 'Overview')}</span>${d.widgets.length} widget${d.widgets.length === 1 ? "" : "s"} · ${esc(d.ownerName)}</span></span>
+          <span class="dbb-st-time">${esc(relTime(d.updatedAt))}</span>
+          <span class="dbb-st-chev" aria-hidden="true">${ST_ICON.chev}</span>
+        </button>`,
+      )
+      .join('');
     host.querySelectorAll<HTMLElement>('[data-id]').forEach((b) => b.addEventListener('click', () => void this.openDashboard(b.dataset.id!)));
+  }
+
+  /**
+   * D-032 start screen (builder opened from a page without a machine or dashboard): three action tiles (New,
+   * Open, Describe in chat) and the 5 most recently updated dashboards (renderRecent). Self-contained styles
+   * (`.dbb-st-*`, builder/styles.ts) so the host page can't change it.
+   */
+  startScreenHtml(): string {
+    const tile = (a: string, icon: string, title: string, desc: string, primary = false) =>
+      `<button type="button" class="dbb-st-tile ${primary ? 'primary' : ''}" data-a="${a}"><span class="dbb-st-ic">${icon}</span><span class="dbb-st-tt">${title}</span><span class="dbb-st-td">${desc}</span></button>`;
+    return `<div class="dbb-st" role="region" aria-label="Start">
+      <div class="dbb-st-head"><div class="dbb-st-h1">Start a dashboard</div><div class="dbb-st-sub">Create a new one, open one you or your team made, or describe what you need.</div></div>
+      <div class="dbb-st-tiles">
+        ${tile('new', ST_ICON.plus, 'New dashboard', 'For a machine type, or an overview of several machines', true)}
+        ${tile('open', ST_ICON.folder, 'Open a dashboard', 'Browse every saved dashboard')}
+        ${this.o.chatEnabled !== false ? tile('chat', ST_ICON.chat, 'Describe it in chat', 'The assistant builds it for you') : ''}
+      </div>
+      <div class="dbb-st-sec"><div class="dbb-st-sh">Recently updated</div>
+        <div class="dbb-st-list" data-recent><div class="dbb-st-skel"></div><div class="dbb-st-skel"></div><div class="dbb-st-skel"></div></div></div>
+      <div class="dbb-st-foot">…or drag widgets from the left onto the page.</div>
+    </div>`;
   }
 
   /**
@@ -2007,12 +2091,36 @@ class Builder {
     const m = modal(
       this.root,
       'New dashboard',
+      // D-033: no native <label>/<input type=radio>/<select> and no ::before/::after decoration inside,
+      // so host page CSS (seen on a customer app: a radio in its own wide column, diamond markers
+      // on the captions) can't restyle it. Choice cards are role="radio" divs with a span dot.
       `<div class="dbb-nd">
-        <label class="dbb-field"><span>Name</span><input data-n maxlength="120" placeholder="e.g. Compressor overview" /></label>
-        <div class="dbb-field"><span>What is it for?</span>
-          <label class="dbb-nd-opt"><input type="radio" name="dbb-nd-k" value="type" ${types.length ? 'checked' : 'disabled'}/><span><b>One machine type</b><small>Shown on the machine page; reused by every machine of the type you pick.</small>
-            <select data-p ${types.length ? '' : 'disabled'}>${types.map((t) => `<option ${t === cur ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></span></label>
-          <label class="dbb-nd-opt"><input type="radio" name="dbb-nd-k" value="overview" ${types.length ? '' : 'checked'}/><span><b>Overview</b><small>Several machines or locations, not tied to one machine. Opens from the Dashboard list.</small></span></label>
+        <div class="dbb-nd-sec">
+          <div class="dbb-nd-cap" id="dbb-nd-cap-n">Name</div>
+          <input class="dbb-nd-in" type="text" data-n maxlength="120" placeholder="e.g. Compressor overview" aria-labelledby="dbb-nd-cap-n" />
+        </div>
+        <div class="dbb-nd-sec">
+          <div class="dbb-nd-cap" id="dbb-nd-cap-k">What is it for?</div>
+          <div class="dbb-nd-cards" role="radiogroup" aria-labelledby="dbb-nd-cap-k">
+            <div class="dbb-nd-opt ${types.length ? '' : 'off'}" role="radio" tabindex="0" data-k="type" aria-checked="false" aria-disabled="${!types.length}">
+              <span class="dbb-nd-dot"><span></span></span>
+              <div class="dbb-nd-txt">
+                <div class="dbb-nd-t">One machine type</div>
+                <div class="dbb-nd-d">Shown on the machine page and reused by every machine of the type you pick.</div>
+              </div>
+            </div>
+            <div class="dbb-nd-opt" role="radio" tabindex="0" data-k="overview" aria-checked="false">
+              <span class="dbb-nd-dot"><span></span></span>
+              <div class="dbb-nd-txt">
+                <div class="dbb-nd-t">Overview</div>
+                <div class="dbb-nd-d">Several machines or locations, not tied to one machine. Opens from the Dashboard list.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="dbb-nd-sec" data-typesec>
+          <div class="dbb-nd-cap">Machine type</div>
+          <div data-p></div>
         </div>
       </div>`,
       [
@@ -2021,13 +2129,47 @@ class Builder {
       ],
     );
     const name = m.body.querySelector<HTMLInputElement>('[data-n]')!;
-    const sel = m.body.querySelector<HTMLSelectElement>('[data-p]');
-    sel?.addEventListener('change', () => ((m.body.querySelector('input[value="type"]') as HTMLInputElement).checked = true));
+    let kind = types.length ? 'type' : 'overview';
+    let prof: string | null = cur && types.includes(cur) ? cur : types[0] ?? null;
+    const typeSec = m.body.querySelector('[data-typesec]') as HTMLElement;
+    const setKind = (k: string) => {
+      if (k === 'type' && !types.length) return;
+      kind = k;
+      m.body.querySelectorAll<HTMLElement>('.dbb-nd-opt').forEach((o) => {
+        const on = o.dataset.k === k;
+        o.classList.toggle('on', on);
+        o.setAttribute('aria-checked', String(on));
+      });
+      typeSec.hidden = k !== 'type';
+    };
+    m.body.querySelectorAll<HTMLElement>('.dbb-nd-opt').forEach((o) => {
+      o.onclick = () => setKind(o.dataset.k!);
+      o.onkeydown = (e) => {
+        if (e.key === ' ' || e.key === 'Enter') (e.preventDefault(), setKind(o.dataset.k!));
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          e.preventDefault();
+          const next = o.dataset.k === 'type' ? 'overview' : 'type';
+          setKind(next);
+          (m.body.querySelector(`.dbb-nd-opt[data-k="${next}"]`) as HTMLElement)?.focus();
+        }
+      };
+    });
+    if (types.length)
+      picker(m.body.querySelector('[data-p]') as HTMLElement, {
+        name: 'ndtype',
+        items: types.map((t) => ({ value: t, label: t, sub: t === cur ? 'this machine' : undefined })),
+        selected: prof ? [prof] : [],
+        multi: false,
+        inline: true,
+        placeholder: 'Choose a machine type…',
+        noun: ['machine type', 'machine types'],
+        onChange: (v) => (prof = v[0] ?? prof),
+      });
+    setKind(kind);
     name.addEventListener('keydown', (e) => e.key === 'Enter' && m.button('ok').click());
     setTimeout(() => name.focus(), 50);
     if ((await m.result) !== 'ok') return;
-    const kind = (m.body.querySelector('input[name="dbb-nd-k"]:checked') as HTMLInputElement | null)?.value ?? 'overview';
-    const prof = kind === 'type' && sel ? sel.value : null;
+    if (kind !== 'type') prof = null;
     if (this.dirty() && !(await confirmModal(this.root, 'Discard unsaved changes?', 'The current dashboard has changes that are not saved.', 'Discard', true))) return;
     // preview machine: the open one if it has that type, else the first of that type; none for an overview
     this.deviceId = prof ? (cur === prof ? this.deviceId : scope.allDevices(this.ctx, prof)[0]?.id ?? null) : null;

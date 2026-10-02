@@ -29,7 +29,7 @@
 //
 // Admin checks here (icon visibility, open()) are UI-only; a customer user can still write attributes
 // through the REST API (D-012).
-import { openBuilder } from '../builder/builder';
+import { openBuilder, setBuilderPlacement } from '../builder/builder';
 import * as store from '../core/store';
 import { CSS, ensureCss, esc, loadFont } from '../render/theme';
 import { userContext, stateEntity, notifyChanged, currentState, currentActions, ACTIONS_EVENT, EditAction, RSTATE_KEY } from './common';
@@ -49,23 +49,24 @@ const MENU_ICONS: Record<string, string> = {
 const svg = (p: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
 
 // The menu is appended to <body> (the navbar widget's own box clips overflow).
+// D-033: styled like the app's own dropdowns (alerts menu): plain text rows, light cyan hover with a tiny lift,
+// a dark bar on the left of the selected row; no taglines.
 const MENU_CSS = `
-.dbb-emenu{position:fixed;z-index:10050;min-width:280px;max-width:360px;background:#fff;color:#0b0b0b;border:1px solid #e3e2dd;border-radius:14px;box-shadow:0 12px 32px rgba(16,24,40,.18),0 2px 6px rgba(16,24,40,.08);padding:6px;font:13px Inter,"Segoe UI",Roboto,Arial,sans-serif;animation:dbb-menu-in .12s ease-out}
+.dbb-emenu{position:fixed;z-index:10050;min-width:230px;max-width:320px;background:#fff;color:#1d2939;border:1px solid #e4e7ec;border-radius:10px;box-shadow:0 10px 28px rgba(16,24,40,.16),0 2px 6px rgba(16,24,40,.06);padding:6px 0;font:14px Inter,"Segoe UI",Roboto,Arial,sans-serif;animation:dbb-menu-in .12s ease-out}
+.dbb-emenu,.dbb-emenu *{box-sizing:border-box}
+.dbb-emenu *::before,.dbb-emenu *::after{content:none}
 @keyframes dbb-menu-in{from{opacity:0;transform:translateY(-4px)}}
-.dbb-emenu-h{padding:9px 11px 8px;border-bottom:1px solid #eeede8;margin-bottom:4px}
-.dbb-emenu-h b{display:block;font-size:13.5px}
-.dbb-emenu-h span{font-size:11.5px;color:#6e6d68}
-.dbb-emenu-sec{font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#8a8983;padding:8px 11px 3px}
-.dbb-emenu button{display:flex;align-items:flex-start;gap:10px;width:100%;border:0;background:none;text-align:left;font:inherit;color:inherit;padding:8px 11px;border-radius:9px;cursor:pointer}
-.dbb-emenu button:hover,.dbb-emenu button:focus-visible{background:#f1f5fb;outline:none}
+.dbb-emenu-h{padding:6px 16px 8px;border-bottom:1px solid #eef0f3;margin-bottom:4px}
+.dbb-emenu-h b{display:block;font-size:13px;font-weight:600;color:#101828;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dbb-emenu-h span{display:block;font-size:11.5px;color:#667085;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dbb-emenu-sec{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:#98a2b3;padding:8px 16px 4px}
+.dbb-emenu button{all:unset;box-sizing:border-box;position:relative;display:flex;align-items:center;gap:10px;width:100%;padding:10px 16px 10px 19px;font:inherit;font-size:14px;line-height:1.3;color:#1d2939;cursor:pointer;border-left:3px solid transparent;transition:background .12s,transform .12s,box-shadow .12s}
+.dbb-emenu button:hover,.dbb-emenu button:focus-visible{background:#e3f6fa;transform:translateY(-1px);box-shadow:0 2px 6px rgba(16,24,40,.08);outline:none;z-index:1}
+.dbb-emenu button.sel{background:#e9f7fb;border-left-color:#0b2f4f;font-weight:600}
 .dbb-emenu button.danger{color:#b42323}
 .dbb-emenu button.danger:hover{background:#fdf0f0}
-.dbb-emenu button svg{width:17px;height:17px;flex:none;margin-top:1px;color:#2a78d6}
-.dbb-emenu button.danger svg{color:#d03b3b}
-.dbb-emenu button .t{display:flex;flex-direction:column;gap:1px;min-width:0}
-.dbb-emenu button .t small{font-size:11.5px;color:#6e6d68;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.dbb-emenu button .ck{margin-left:auto;width:16px;height:16px;color:#0ca30c}
-.dbb-emenu hr{border:0;border-top:1px solid #eeede8;margin:4px 0}
+.dbb-emenu button .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dbb-emenu hr{border:0;border-top:1px solid #eef0f3;margin:5px 0}
 `;
 
 const BTN_CSS = `
@@ -93,6 +94,20 @@ const BTN_CSS = `
 .dbb-launch button.dbb-edit-ic{width:38px;height:38px;padding:0;justify-content:center;border-radius:11px}
 .dbb-launch button.dbb-edit-ic[aria-expanded="true"]{background:#fff;color:#123a7a}
 `;
+
+/**
+ * D-033: a z-index above any open Dashboard Builder overlay (and at least `min`). The builder normally sits at
+ * 999 below the navbar, but host apps may raise it (one customer navbar set 300000), which hid the Dashboard
+ * list and the menu behind it.
+ */
+export function aboveBuilder(min: number): number {
+  let z = min;
+  document.querySelectorAll<HTMLElement>('.dbb-overlay').forEach((o) => {
+    const v = parseInt(getComputedStyle(o).zIndex, 10);
+    if (Number.isFinite(v)) z = Math.max(z, v + 20);
+  });
+  return z;
+}
 
 /** Splits a comma-separated role list into trimmed, lower-cased names (empty string -> []). */
 function roleList(s: string | undefined): string[] {
@@ -318,8 +333,9 @@ export function init(tbCtx: any) {
       items[(i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus();
     }
   };
+  // D-033: text-only rows; the hint (tagline) becomes the tooltip; a checked item is the selected row.
   const item = (a: Pick<EditAction, 'id' | 'label' | 'hint' | 'danger' | 'checked'> & { icon?: string }) =>
-    `<button role="menuitem" data-m="${esc(a.id)}" class="${a.danger ? 'danger' : ''}">${svg(MENU_ICONS[a.icon ?? 'edit'] ?? MENU_ICONS.edit)}<span class="t"><span>${esc(a.label)}</span>${a.hint ? `<small title="${esc(a.hint)}">${esc(a.hint)}</small>` : ''}</span>${a.checked ? `<span class="ck">${svg(MENU_ICONS.check)}</span>` : ''}</button>`;
+    `<button role="${a.checked !== undefined ? 'menuitemradio' : 'menuitem'}" data-m="${esc(a.id)}" class="${a.danger ? 'danger' : ''}${a.checked ? ' sel' : ''}" ${a.hint ? `title="${esc(a.hint)}"` : ''} ${a.checked !== undefined ? `aria-checked="${!!a.checked}"` : ''}><span class="t">${esc(a.label)}</span></button>`;
   // Builds the menu from the renderer's published actions (if any) plus the fixed "Dashboard Builder"
   // item, positions it under the icon (clamped to the viewport) and focuses the first item.
   const openMenu = () => {
@@ -330,6 +346,7 @@ export function init(tbCtx: any) {
     menu = document.createElement('div');
     menu.className = 'dbb-emenu';
     menu.setAttribute('role', 'menu');
+    menu.style.zIndex = String(aboveBuilder(10050));
     menu.innerHTML = `${acts ? `<div class="dbb-emenu-h"><b>${esc(acts.title)}</b>${acts.subtitle ? `<span>${esc(acts.subtitle)}</span>` : ''}</div>` : ''}
       ${main.map(item).join('')}
       ${sw.length ? `<div class="dbb-emenu-sec">Show dashboard</div>${sw.map(item).join('')}` : ''}
@@ -371,6 +388,8 @@ export function init(tbCtx: any) {
     window.removeEventListener(ACTIONS_EVENT, onActs);
   };
   (window as any).IMEX_DBB = { open: (o?: any) => open(tbCtx, o) };
+  // D-033: builders opened elsewhere (machine page Edit / Customise, Dashboard list) start below this navbar too.
+  setBuilderPlacement({ topOffset: () => builderTop(tbCtx), pageKey: () => `${location.pathname}|${JSON.stringify(currentState(tbCtx))}` });
 }
 
 /** Rows per page in the Dashboard list. */
@@ -415,8 +434,14 @@ const DL_CSS = `
 .dbb-dl .nm{display:flex;align-items:center;gap:8px;font-size:14.5px;font-weight:600;color:#0f1a2a}
 .dbb-dl .nm span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dbb-dl .nm mark{all:unset;background:#fff3c4;border-radius:3px}
-.dbb-dl .badge{flex:none;font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;background:#f2f4f7;color:#475467}
+.dbb-dl .badge{flex:none;font-style:normal;font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;background:#f2f4f7;color:#475467}
 .dbb-dl .badge.priv{background:#fef0c7;color:#93370d}
+.dbb-dl .badge.type{background:#eaf2fd;color:#1f66bd}
+.dbb-dl .badge.na{background:#fff4e5;color:#b54708}
+.dbb-dl .kinds{display:flex;gap:4px;padding:0 22px 10px}
+.dbb-dl .kinds button{padding:6px 12px;border-radius:999px;font-size:12.5px;font-weight:500;color:#475467;border:1px solid #e4e7ec;background:#fff}
+.dbb-dl .kinds button:hover{background:#f9fafb}
+.dbb-dl .kinds button.on{background:#0f1a2a;border-color:#0f1a2a;color:#fff}
 .dbb-dl .meta{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;margin-top:4px;font-size:12.5px;color:#667085}
 .dbb-dl .meta i{font-style:normal;display:inline-flex;align-items:center;gap:5px}
 .dbb-dl .meta svg{width:13px;height:13px;color:#98a2b3}
@@ -487,16 +512,31 @@ const initials = (n: string) =>
 export async function dashboardList(tbCtx: any, editor: boolean) {
   ensureCss('dbb-css-dlist', DL_CSS);
   const ctx = await userContext(tbCtx);
-  const all = (await store.listDashboards(ctx)).filter((d) => d.kind === 'standalone');
+  // D-033: editors also see machine-type dashboards (e.g. one saved with "Don't apply now", which otherwise
+  // could only be found through the builder's Open dialog); everyone else sees overviews only.
+  const all = (await store.listDashboards(ctx)).filter((d) => d.kind === 'standalone' || (editor && d.profile));
+  // Whether a machine-type dashboard is applied anywhere: any assignment (machine, location, customer) naming it.
+  let applied: ((id: string) => boolean) | null = null;
+  if (editor && all.some((d) => d.kind !== 'standalone'))
+    try {
+      const a = ctx.assign && !ctx.assign.stale ? ctx.assign : await store.refreshAssign(ctx);
+      const blob = JSON.stringify([[...a.byId.values()], a.customer]);
+      const mine = new Set(Object.values(a.personal ?? {}));
+      applied = (id) => mine.has(id) || blob.includes(`"dashboardId":"${id}"`);
+    } catch {
+      applied = null;
+    }
   const wrap = document.createElement('div');
   wrap.className = 'dbb-dl';
+  wrap.style.zIndex = String(aboveBuilder(10040));
   wrap.setAttribute('role', 'dialog');
   wrap.setAttribute('aria-modal', 'true');
   wrap.setAttribute('aria-label', 'Dashboard list');
   wrap.innerHTML = `<div class="box">
-    <div class="hd"><div class="logo">${dlsvg('grid')}</div><div class="ttl"><b>Dashboards</b><span>Overviews that aren't tied to one machine</span></div><button class="x" data-close aria-label="Close" title="Close (Esc)">${dlsvg('x')}</button></div>
-    <div class="tools"><label class="search">${dlsvg('search')}<input data-q type="text" placeholder="Search by name or owner" aria-label="Search dashboards" autocomplete="off"/></label>
+    <div class="hd"><div class="logo">${dlsvg('grid')}</div><div class="ttl"><b>Dashboards</b><span>${editor ? 'Overviews, and the dashboards made for a machine type' : "Overviews that aren't tied to one machine"}</span></div><button class="x" data-close aria-label="Close" title="Close (Esc)">${dlsvg('x')}</button></div>
+    <div class="tools"><label class="search">${dlsvg('search')}<input data-q type="text" placeholder="${editor ? 'Search by name, owner or machine type' : 'Search by name or owner'}" aria-label="Search dashboards" autocomplete="off"/></label>
       <div class="seg" role="radiogroup" aria-label="Sort"><button data-sort="name" class="on">A–Z</button><button data-sort="recent">Recently updated</button></div></div>
+    ${editor ? `<div class="kinds" role="tablist" aria-label="Kind"><button role="tab" data-kind="all" class="on">All</button><button role="tab" data-kind="standalone">Overviews</button><button role="tab" data-kind="device">Machine types</button></div>` : ''}
     <div class="list" data-rows role="list"></div>
     <div class="ft"><span data-count></span><div class="pager" data-pager></div></div></div>`;
   document.body.appendChild(wrap);
@@ -504,6 +544,7 @@ export async function dashboardList(tbCtx: any, editor: boolean) {
   const rows = wrap.querySelector('[data-rows]') as HTMLElement;
   let page = 0;
   let sort: 'name' | 'recent' = 'name';
+  let kind: 'all' | 'standalone' | 'device' = 'all';
   const close = () => {
     wrap.remove();
     document.removeEventListener('keydown', onKey, true);
@@ -524,7 +565,8 @@ export async function dashboardList(tbCtx: any, editor: boolean) {
   const draw = () => {
     const f = q.value.trim().toLowerCase();
     const hits = all
-      .filter((d) => !f || d.name.toLowerCase().includes(f) || (d.ownerName ?? '').toLowerCase().includes(f))
+      .filter((d) => kind === 'all' || (kind === 'standalone') === (d.kind === 'standalone'))
+      .filter((d) => !f || d.name.toLowerCase().includes(f) || (d.ownerName ?? '').toLowerCase().includes(f) || (d.profile ?? '').toLowerCase().includes(f))
       .sort((a, b) => (sort === 'recent' ? b.updatedAt - a.updatedAt : a.name.localeCompare(b.name)));
     const pages = Math.max(1, Math.ceil(hits.length / LIST_PAGE));
     page = Math.max(0, Math.min(page, pages - 1));
@@ -532,15 +574,25 @@ export async function dashboardList(tbCtx: any, editor: boolean) {
     rows.innerHTML = shown.length
       ? shown
           .map(
-            (d) => `<div class="row" role="listitem" tabindex="0" data-id="${esc(d.id)}" title="Open “${esc(d.name)}”">
+            (d) => {
+              const dev = d.kind !== 'standalone';
+              const tags = `${dev ? `<em class="badge type" title="Made for every machine of this type">${esc(d.profile ?? '')}</em>` : ''}${
+                dev && applied && !applied(d.id) ? '<em class="badge na" title="Not shown on any machine yet. Open it in the builder and use Apply to…">Not applied</em>' : ''
+              }${d.visibility === 'private' ? '<em class="badge priv">Private</em>' : ''}`;
+              // Machine-type dashboards open in the builder (previewed on a machine of that type), not on the overview page.
+              const acts = dev
+                ? `<button class="btn open" data-edit="${esc(d.id)}" title="Open in the Dashboard Builder (previewed on a ${esc(d.profile ?? '')} machine)">${dlsvg('edit')}Open in builder</button>`
+                : `${editor ? `<button class="btn edit" data-edit="${esc(d.id)}" title="Edit in the Dashboard Builder">${dlsvg('edit')}Edit</button>` : ''}<button class="btn open" data-open="${esc(d.id)}">${dlsvg('open')}Open</button>`;
+              return `<div class="row" role="listitem" tabindex="0" data-id="${esc(d.id)}" data-dev="${dev ? 1 : ''}" title="${dev ? 'Edit' : 'Open'} “${esc(d.name)}”">
         <div class="av" style="background:${colorOf(d.name)}">${esc(initials(d.name))}</div>
-        <div class="main"><div class="nm"><span>${hl(d.name, f)}</span>${d.visibility === 'private' ? '<em class="badge priv">Private</em>' : ''}</div>
+        <div class="main"><div class="nm"><span>${hl(d.name, f)}</span>${tags}</div>
           <div class="meta"><i>${dlsvg('widgets')}${d.widgets.length} widget${d.widgets.length === 1 ? '' : 's'}</i><i><span class="own">${esc(initials(d.ownerName ?? ''))}</span>${hl(d.ownerName ?? '', f)}</i><i>${dlsvg('clock')}Updated ${esc(relTime(d.updatedAt))}</i></div></div>
-        <div class="acts">${editor ? `<button class="btn edit" data-edit="${esc(d.id)}" title="Edit in the Dashboard Builder">${dlsvg('edit')}Edit</button>` : ''}<button class="btn open" data-open="${esc(d.id)}">${dlsvg('open')}Open</button></div></div>`,
+        <div class="acts">${acts}</div></div>`;
+            },
           )
           .join('')
       : `<div class="empty"><div class="ic">${dlsvg(all.length ? 'search' : 'grid')}</div><b>${all.length ? 'No dashboard matches' : 'No dashboards yet'}</b>${
-          all.length ? 'Try another name or owner.' : editor ? 'In the Dashboard Builder, pick “No machine (standalone dashboard)” to build one, or ask the chat for a fleet overview.' : 'Dashboards shared with you will appear here.'
+          all.length ? 'Try another name, owner or machine type.' : editor ? 'In the Dashboard Builder, choose New dashboard to build one, or ask the chat for a fleet overview.' : 'Dashboards shared with you will appear here.'
         }</div>`;
     (wrap.querySelector('[data-count]') as HTMLElement).textContent = hits.length ? `Showing ${page * LIST_PAGE + 1}–${page * LIST_PAGE + shown.length} of ${hits.length}` : `0 of ${all.length}`;
     const nums = Array.from({ length: pages }, (_, i) => i).filter((i) => pages <= 7 || i === 0 || i === pages - 1 || Math.abs(i - page) <= 1);
@@ -562,6 +614,14 @@ export async function dashboardList(tbCtx: any, editor: boolean) {
       draw();
     }),
   );
+  wrap.querySelectorAll<HTMLElement>('[data-kind]').forEach((b) =>
+    b.addEventListener('click', () => {
+      kind = b.dataset.kind as typeof kind;
+      wrap.querySelectorAll('[data-kind]').forEach((x) => x.classList.toggle('on', x === b));
+      page = 0;
+      draw();
+    }),
+  );
   wrap.querySelector('[data-pager]')!.addEventListener('click', (e) => {
     const b = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-go]');
     if (!b || b.disabled) return;
@@ -576,23 +636,33 @@ export async function dashboardList(tbCtx: any, editor: boolean) {
       alertInline(wrap, `Could not open the dashboard: ${e.message ?? e}`);
     }
   };
+  // Opens a dashboard in the builder (below the navbar: openBuilder uses the launcher's placement). With the
+  // builder already open it loads the dashboard there, asking first about unsaved changes (D-033).
+  const editIn = (id: string) => {
+    close();
+    const d = all.find((x) => x.id === id);
+    const cur = currentState(tbCtx).params?.entityId;
+    const curProf = cur?.id ? ctx.nodes.get(cur.id)?.profile : undefined;
+    const deviceId = d?.profile ? (curProf === d.profile ? cur.id : scope.allDevices(ctx, d.profile)[0]?.id ?? null) : null;
+    try {
+      openBuilder({ ctx, dashboardId: id, deviceId, chatEnabled: tbCtx.settings?.chatEnabled !== false, onClose: (ch) => ch && notifyChanged() });
+    } catch (e: any) {
+      alertInline(wrap, `Could not open the builder: ${e.message ?? e}`);
+    }
+  };
   wrap.querySelector('[data-close]')!.addEventListener('click', close);
   wrap.addEventListener('mousedown', (e) => e.target === wrap && close());
   rows.addEventListener('click', (e) => {
     const t = e.target as HTMLElement;
     const ed = t.closest<HTMLElement>('[data-edit]');
-    if (ed) {
-      close();
-      openBuilder({ ctx, dashboardId: ed.dataset.edit!, deviceId: null, chatEnabled: tbCtx.settings?.chatEnabled !== false, onClose: (ch) => ch && notifyChanged() });
-      return;
-    }
+    if (ed) return editIn(ed.dataset.edit!);
     const row = t.closest<HTMLElement>('[data-id]');
-    if (row) openOnPage(row.dataset.id!);
+    if (row) row.dataset.dev ? editIn(row.dataset.id!) : openOnPage(row.dataset.id!);
   });
   rows.addEventListener('keydown', (e) => {
     const row = (e.target as HTMLElement).closest<HTMLElement>('.row[data-id]');
     if (!row) return;
-    if (e.key === 'Enter') openOnPage(row.dataset.id!);
+    if (e.key === 'Enter') row.dataset.dev ? editIn(row.dataset.id!) : openOnPage(row.dataset.id!);
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       ((e.key === 'ArrowDown' ? row.nextElementSibling : row.previousElementSibling) as HTMLElement | null)?.focus();

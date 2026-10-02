@@ -22,10 +22,11 @@
 import type { ColorRule, RuleOp, CardStyle, DashboardTheme, Widget } from '../core/schema';
 import { RULE_OP_LABELS, ICONS, FONTS, THEME_PRESETS } from '../core/schema';
 import type { KeyMeta } from '../core/types';
-import { esc, SWATCHES, PRESETS, loadFont, STATUS } from '../render/theme';
+import { esc, SWATCHES, PRESETS, loadFont, STATUS, safeUrl } from '../render/theme';
 import { sanitizeHtml } from '../render/rich';
 import { valueType, ValueType, matchRule, bandsToRules } from '../render/rules';
 import { ICON_SVG } from '../render/icons';
+import { sectionize } from './controls';
 
 /** Wraps path data in a 24x24 stroke icon for the rich-text toolbar. */
 const I = (d: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
@@ -550,7 +551,7 @@ export function styleEditor(host: HTMLElement, o: StyleEditorOptions) {
     <div class="dbb-hint">Shown as an ⓘ tooltip next to the title.</div>
     <div data-desc></div>
     <label class="dbb-field"><span>Footer note</span><input data-footer maxlength="200" value="${esc(w.settings.footer ?? '')}" placeholder="e.g. Source: PLC tag DP-01"/></label>
-    <div class="dbb-row wrap" style="margin-top:8px"><button class="dbb-btn sm" data-copyall>Copy this style to all widgets</button><button class="dbb-btn sm danger" data-reset>Reset style</button></div>
+    <div class="dbb-row wrap" data-nosec style="margin-top:8px"><button class="dbb-btn sm" data-copyall>Copy this style to all widgets</button><button class="dbb-btn sm danger" data-reset>Reset style</button></div>
   </div>`;
   o.descriptionHost(host.querySelector('[data-desc]') as HTMLElement);
   const emit = () => {
@@ -605,6 +606,7 @@ export function styleEditor(host: HTMLElement, o: StyleEditorOptions) {
   host.querySelector<HTMLInputElement>('[data-footer]')!.addEventListener('change', (e) => o.onChange(w.settings.style, { footer: (e.target as HTMLInputElement).value.trim() || undefined }));
   host.querySelector('[data-reset]')!.addEventListener('click', () => o.onChange(undefined));
   host.querySelector('[data-copyall]')!.addEventListener('click', () => o.onCopyToAll());
+  sectionize(host.querySelector('.dbb-form') as HTMLElement, 'style');
 }
 
 // ---------------------------------------------------------------- dashboard theme
@@ -621,6 +623,8 @@ export function styleEditor(host: HTMLElement, o: StyleEditorOptions) {
 export function themeEditor(host: HTMLElement, theme: DashboardTheme | undefined, onChange: (t: DashboardTheme | undefined) => void, extra: { onTemplates(): void }) {
   const t: DashboardTheme = { ...(theme ?? {}) };
   const cur = t.preset ?? 'light';
+  const img = t.bgImage ?? '';
+  const isData = /^data:/i.test(img);
   const seg = (f: keyof DashboardTheme, opts: [string, string][], v: string | undefined, def: string) =>
     `<div class="dbb-seg sm">${opts.map(([x, l]) => `<button data-tseg="${f}" data-v="${x}" class="${(v ?? def) === x ? 'on' : ''}">${l}</button>`).join('')}</div>`;
   host.innerHTML = `<div class="dbb-form">
@@ -633,14 +637,24 @@ export function themeEditor(host: HTMLElement, theme: DashboardTheme | undefined
     }).join('')}</div>
     <div class="dbb-row"><div class="dbb-field half"><span>Accent colour</span>${colorInputT('accent', t.accent, PRESETS[cur].accent)}</div>
       <label class="dbb-field half"><span>Font</span><select data-t="font"><option value="">Inter (default)</option>${FONTS.filter((f) => f !== 'Inter').map((f) => `<option ${t.font === f ? 'selected' : ''}>${f}</option>`).join('')}</select></label></div>
-    <div class="dbb-row"><div class="dbb-field half"><span>Page background</span>${colorInputT('bg', t.bg, PRESETS[cur].plane)}</div><div class="dbb-field half"><span>Card colour</span>${colorInputT('cardBg', t.cardBg, PRESETS[cur].surface)}</div></div>
-    <label class="dbb-field"><span>Background image (https://…)</span><input data-t="bgImage" value="${esc(t.bgImage ?? '')}" placeholder="optional"/></label>
+    <div class="dbb-sec">Background</div>
+    <div class="dbb-field"><span>Page colour</span>${colorInputT('bg', t.bg, PRESETS[cur].plane)}</div>
+    <div class="dbb-field"><span>Image</span>${
+      isData
+        ? `<div class="dbb-bgimg"><span class="pv" style="background-image:url(&quot;${esc(safeUrl(img) ?? '')}&quot;)"></span><span class="nm">Uploaded image</span><button class="dbb-x" data-bgclear title="Remove the image">✕</button></div>`
+        : ''
+    }${isData ? '' : `<input data-t="bgImage" value="${esc(img)}" placeholder="https://… address of an image"/>`}
+      <label class="dbb-btn sm dbb-upl">Upload image…<input type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" data-bgfile hidden/></label>
+      <div class="dbb-bgst" data-bgst></div></div>
+    ${img ? `<div class="dbb-field"><span>Image fit</span>${seg('bgFit', [['cover', 'Fill'], ['contain', 'Fit'], ['tile', 'Tile']], t.bgFit, 'cover')}</div>` : ''}
+    <div class="dbb-hint">The image shows in the gaps between cards. Use a light image or the Dark theme so text stays readable. Uploads up to 150 KB.</div>
     <div class="dbb-sec">Cards</div>
+    <div class="dbb-field"><span>Card colour</span>${colorInputT('cardBg', t.cardBg, PRESETS[cur].surface)}</div>
     <label class="dbb-field"><span>Corner radius · <b data-rv>${t.radius ?? 12}</b></span><input type="range" min="0" max="28" data-t="radius" value="${t.radius ?? 12}"/></label>
     <div class="dbb-field"><span>Shadow</span>${seg('shadow', [['none', 'Flat'], ['soft', 'Soft'], ['strong', 'Lifted']], t.shadow, 'soft')}</div>
     <div class="dbb-field"><span>Density</span>${seg('density', [['compact', 'Compact'], ['normal', 'Normal'], ['roomy', 'Roomy']], t.density, 'normal')}</div>
     <div class="dbb-field"><span>Titles</span>${seg('titleAlign', [['left', 'Left'], ['center', 'Centred']], t.titleAlign, 'left')}</div>
-    <button class="dbb-btn sm danger" data-treset style="align-self:flex-start;margin-top:6px">Reset theme</button>
+    <button class="dbb-btn sm danger" data-treset data-nosec style="align-self:flex-start;margin-top:6px">Reset theme</button>
   </div>`;
   const emit = () => {
     const c: any = {};
@@ -682,6 +696,52 @@ export function themeEditor(host: HTMLElement, theme: DashboardTheme | undefined
     }),
   );
   host.querySelector('[data-treset]')!.addEventListener('click', () => onChange(undefined));
+  // Background image (D-033): upload as a data: URI (150 KB cap, like the image widget), remove,
+  // and a status line that says why an address is not used or could not be loaded.
+  host.querySelector('[data-bgclear]')?.addEventListener('click', () => {
+    delete t.bgImage;
+    delete t.bgFit;
+    emit();
+  });
+  const st = host.querySelector('[data-bgst]') as HTMLElement;
+  host.querySelector<HTMLInputElement>('[data-bgfile]')!.addEventListener('change', (e) => {
+    const f = (e.target as HTMLInputElement).files?.[0];
+    if (!f) return;
+    if (f.size > 150 * 1024) {
+      st.className = 'dbb-bgst err';
+      st.textContent = `That image is ${Math.round(f.size / 1024)} KB; the limit is 150 KB. Use a smaller file or an https:// address.`;
+      return;
+    }
+    const r = new FileReader();
+    r.onload = () => {
+      t.bgImage = String(r.result);
+      emit();
+    };
+    r.readAsDataURL(f);
+  });
+  if (img) {
+    const u = safeUrl(img);
+    if (!u) {
+      st.className = 'dbb-bgst err';
+      st.textContent = /^http:\/\//i.test(img) ? 'Not shown: the address must start with https:// (the dashboard is served over https).' : 'Not shown: use an https:// address of an image file, without spaces, quotes or brackets.';
+    } else {
+      st.className = 'dbb-bgst';
+      st.textContent = 'Checking the image…';
+      const probe = new Image();
+      probe.onload = () => {
+        if (!st.isConnected) return;
+        st.className = 'dbb-bgst ok';
+        st.textContent = `✓ Image loaded (${probe.naturalWidth} × ${probe.naturalHeight})`;
+      };
+      probe.onerror = () => {
+        if (!st.isConnected) return;
+        st.className = 'dbb-bgst err';
+        st.textContent = "Couldn't load an image from this address. Check that it opens an image file (not a web page) and that the site allows embedding, or upload the file instead.";
+      };
+      probe.src = u;
+    }
+  }
+  sectionize(host.querySelector('.dbb-form') as HTMLElement, 'theme');
 }
 
 /**

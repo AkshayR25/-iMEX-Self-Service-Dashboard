@@ -197,22 +197,42 @@ export function parseMaybeJson(v: any): any {
 
 // ---------- telemetry ----------
 
+// ---------- data clock (D-033) ----------
+// Newest data-point timestamp handed to the widgets (latest values and series), for the machine page's
+// "Updated x ago". Reset by the renderer when it loads another dashboard.
+let dataTs = 0;
+/** Records data-point timestamps (ms); the newest one wins. Future timestamps are capped at now. */
+export function noteData(...ts: number[]) {
+  const now = Date.now();
+  for (const t of ts) if (Number.isFinite(t) && t > dataTs) dataTs = Math.min(t, now);
+}
+/** Newest data-point timestamp seen since the last reset (0 = none yet). */
+export const lastDataTs = () => dataTs;
+/** Forgets the data clock (a new dashboard is loading). */
+export const resetDataClock = () => (dataTs = 0);
+const noteLatestTs = (l: Latest) => {
+  for (const v of Object.values(l)) if (v) noteData(v.ts);
+  return l;
+};
+
 /** Latest value per key; a key is absent/undefined when the device has no (non-empty) value for it. */
 export type Latest = Record<string, { ts: number; value: number | string } | undefined>;
 
 /**
  * Latest telemetry values of a device (GET values/timeseries without a time window).
  * Values that look numeric are converted to numbers; null/empty values are dropped.
+ * `quiet` = don't move the data clock (header status reads that aren't shown as widget data).
  */
-export async function latest(deviceId: string, keys: string[]): Promise<Latest> {
+export async function latest(deviceId: string, keys: string[], quiet = false): Promise<Latest> {
   if (!keys.length) return {};
+  const noteLatest = quiet ? (l: Latest) => l : noteLatestTs;
   // Live cache first (WebSocket, D-021); REST only until the subscription's first reply or while the socket is down.
   const L = liveHub();
   if (L) {
     L.want(deviceId, keys);
     // cold page: give the socket a moment (it is usually ready in a few hundred ms) instead of a REST call
     const c = L.get(deviceId, keys) ?? ((await L.waitReady(deviceId, keys, LIVE_WAIT_MS)) ? L.get(deviceId, keys) : null);
-    if (c) return c as Latest;
+    if (c) return noteLatest(c as Latest);
   }
   const r = await get<Record<string, { ts: number; value: string }[]>>(
     `/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries?keys=${encodeURIComponent(keys.join(','))}`,
@@ -222,7 +242,7 @@ export async function latest(deviceId: string, keys: string[]): Promise<Latest> 
     const p = r?.[k]?.[0];
     if (p && p.value !== null && p.value !== undefined && String(p.value) !== '') out[k] = { ts: p.ts, value: toNum(p.value) };
   }
-  return out;
+  return noteLatest(out);
 }
 
 /**
@@ -275,9 +295,9 @@ export async function series(
           const extra = (L.since(deviceId, k, lastTs) ?? []).map((p) => ({ ts: p.ts, value: p.value as number }));
           out[k] = base.concat(extra).filter((p) => p.ts >= startTs);
         }
-        return out;
+        return noteSeries(out);
       }
-      if (!appendable && age < (offsetMin > 1 ? 5 * 60e3 : 55e3)) return c.data;
+      if (!appendable && age < (offsetMin > 1 ? 5 * 60e3 : 55e3)) return noteSeries(c.data);
     }
   }
   const span = Math.max(1, endTs - startTs);
@@ -291,7 +311,13 @@ export async function series(
   const out: Record<string, { ts: number; value: number }[]> = {};
   for (const k of keys) out[k] = (r?.[k] ?? []).map((p) => ({ ts: p.ts, value: toNum(p.value) as number })).sort((a, b) => a.ts - b.ts);
   if (L) cachePut(seriesCache, ck, { fetchedAt: now, data: out });
-  return out;
+  return noteSeries(out);
+}
+
+/** Notes the last point of every series on the data clock. Aggregated buckets carry their start time. */
+function noteSeries<T extends Record<string, { ts: number }[]>>(d: T): T {
+  for (const pts of Object.values(d)) if (pts.length) noteData(pts[pts.length - 1].ts);
+  return d;
 }
 
 // ---------- caches used while the WebSocket is live (D-021) ----------
@@ -535,6 +561,7 @@ export async function latestMany(req: { deviceId: string; keys: string[] }[]): P
     }
   }
   for (const r of req) if (!out.has(r.deviceId)) out.set(r.deviceId, {});
+  for (const l of out.values()) noteLatestTs(l);
   return out;
 }
 

@@ -631,3 +631,58 @@ describe('chat layout ops (D-029)', () => {
     expect(r.draft.widgets.find((w) => w.title === 'mv')!.h).toBeGreaterThanOrEqual(3);
   });
 });
+
+// ------------------------------------------------------------------ D-033
+
+describe('D-033 state URL, data clock, wording', () => {
+  it('decodes the state parameter, also when it is percent-encoded twice or lacks padding', async () => {
+    const { decodeStateParam } = await import('../src/entries/common');
+    const stack = [{ id: 'machine', params: { entityId: { id: 'pc', entityType: 'DEVICE' }, entityName: 'Pünë 1' } }];
+    const b64 = Buffer.from(JSON.stringify(stack), 'utf8').toString('base64');
+    const urlSafe = b64.replace(/\+/g, '-').replace(/\//g, '_');
+    expect(decodeStateParam(urlSafe)).toEqual(stack);
+    expect(decodeStateParam(urlSafe.replace(/=+$/, ''))).toEqual(stack);
+    expect(decodeStateParam(encodeURIComponent(b64))).toEqual(stack);
+    expect(decodeStateParam(encodeURIComponent(encodeURIComponent(b64)))).toEqual(stack);
+    expect(decodeStateParam(b64.replace(/\+/g, ' '))).toEqual(stack);
+    expect(decodeStateParam('not-a-state')).toBeNull();
+  });
+
+  it('data clock keeps the newest timestamp, caps future ones at now, resets', async () => {
+    const api = await import('../src/core/api');
+    api.resetDataClock();
+    expect(api.lastDataTs()).toBe(0);
+    api.noteData(1000, 5000, 3000);
+    expect(api.lastDataTs()).toBe(5000);
+    api.noteData(Date.now() + 3_600_000);
+    expect(api.lastDataTs()).toBeLessThanOrEqual(Date.now());
+    api.resetDataClock();
+    expect(api.lastDataTs()).toBe(0);
+  });
+
+  it('latest() moves the data clock unless quiet', async () => {
+    const api = await import('../src/core/api');
+    api.resetDataClock();
+    await api.latest('pc', ['dischargePressure'], true);
+    expect(api.lastDataTs()).toBe(0);
+    const l = await api.latest('pc', ['dischargePressure']);
+    expect(api.lastDataTs()).toBe(l.dischargePressure!.ts);
+  });
+
+  it('agoWords', async () => {
+    const { agoWords } = await import('../src/render/theme');
+    const now = 10_000_000_000;
+    expect(agoWords(now - 500, now)).toBe('just now');
+    expect(agoWords(now - 2000, now)).toBe('2 seconds ago');
+    expect(agoWords(now - 60_000, now)).toBe('1 minute ago');
+    expect(agoWords(now - 3 * 3600e3, now)).toBe('3 hours ago');
+    expect(agoWords(now - 2 * 86400e3, now)).toBe('2 days ago');
+  });
+
+  it('theme accepts an uploaded background image and a fit; rejects long web addresses', () => {
+    const d = (theme: any) => Dashboard.safeParse({ schemaVersion: 1, id: 'd1', name: 'x', kind: 'standalone', profile: null, timeRange: 'realtime', widgets: [], ownerId: 'u', ownerName: 'u', version: 1, updatedAt: 1, updatedBy: 'u', copiedFrom: null, theme }).success;
+    expect(d({ bgImage: 'data:image/png;base64,' + 'A'.repeat(50000), bgFit: 'tile' })).toBe(true);
+    expect(d({ bgImage: 'https://x.test/' + 'a'.repeat(3000) })).toBe(false);
+    expect(d({ bgFit: 'stretch' })).toBe(false);
+  });
+});

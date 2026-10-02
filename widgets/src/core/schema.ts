@@ -359,7 +359,13 @@ export const DashboardTheme = z
     accent: Color.optional(),
     font: FontName,
     bg: Color.optional(),
-    bgImage: z.string().max(2000).optional(),
+    // https address (max 2000 chars) or an uploaded data:image up to 150 KB (D-033).
+    bgImage: z
+      .string()
+      .max(210000)
+      .refine((u) => u.length <= 2000 || /^data:image\//i.test(u), 'Web addresses are limited to 2000 characters')
+      .optional(),
+    bgFit: z.enum(['cover', 'contain', 'tile']).optional(),
     cardBg: Color.optional(),
     radius: z.number().int().min(0).max(28).optional(),
     shadow: z.enum(['none', 'soft', 'strong']).optional(),

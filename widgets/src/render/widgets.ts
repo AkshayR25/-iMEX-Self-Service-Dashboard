@@ -807,9 +807,15 @@ async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<Color
     const rows = await Promise.all(devices.map(async (d) => ({ d, v: await api.latest(d.id, w.keys) })));
     // Column headers use the first device's profile; rows are machines, cells are latest values.
     const metas = w.keys.map((k) => keyMeta(ctx, devices[0].profile, k));
+    // D-033 (user request): numeric columns centred, text columns right-aligned. A column is numeric when
+    // every value it shows is a number (missing values don't count).
+    const colCls = w.keys.map((k, i) => {
+      const vals = rows.map((r) => r.v[k]).filter(Boolean);
+      return vals.length && vals.every((x) => valueType(metas[i], x!.value) === 'number') ? 'num' : 'txt';
+    });
     body.innerHTML =
       `<div class="dbb-scroll"><table class="dbb-table"><thead><tr><th>Machine</th>${metas
-        .map((m) => `<th class="num">${esc(m.displayName)}${m.unit ? ` (${esc(m.unit)})` : ''}</th>`)
+        .map((m, i) => `<th class="${colCls[i]}">${esc(m.displayName)}${m.unit ? ` (${esc(m.unit)})` : ''}</th>`)
         .join('')}</tr></thead><tbody>` +
       rows
         .map(
@@ -817,11 +823,11 @@ async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<Color
             `<tr><td>${esc(d.label)}</td>${w.keys
               .map((k, i) => {
                 const x = v[k];
-                if (!x) return '<td class="num"><span title="Not available on this device">—</span></td>';
+                if (!x) return `<td class="${colCls[i]}"><span title="Not available on this device">—</span></td>`;
                 const r = matchRule(rules, x.value, k);
                 const vt = valueType(metas[i], x.value);
                 const txt = vt === 'number' ? fmtVal(x.value, s.decimals ?? metas[i].decimals) : esc(stateLabel(x.value, rules, metas[i], k));
-                return `<td class="num">${r ? `<span class="cell" style="background:color-mix(in srgb, ${r.color} 18%, transparent);box-shadow:inset 3px 0 0 ${r.color}" title="${esc(r.label ?? '')}">${txt}</span>` : txt}</td>`;
+                return `<td class="${colCls[i]}">${r ? `<span class="cell" style="background:color-mix(in srgb, ${r.color} 18%, transparent);box-shadow:inset 3px 0 0 ${r.color}" title="${esc(r.label ?? '')}">${txt}</span>` : txt}</td>`;
               })
               .join('')}</tr>`,
         )

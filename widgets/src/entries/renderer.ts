@@ -30,10 +30,10 @@ import * as api from '../core/api';
 import * as scope from '../core/scope';
 import * as store from '../core/store';
 import type { UserContext } from '../core/scope';
-import { rangeLabel, normalizeRange } from '../core/schema';
+import { normalizeRange } from '../core/schema';
 import type { Dashboard } from '../core/schema';
 import { Grid, GRID_CSS } from '../render/grid';
-import { CSS, ensureCss, esc, STATUS, ago, applyTheme } from '../render/theme';
+import { CSS, ensureCss, esc, STATUS, ago, agoWords, applyTheme } from '../render/theme';
 import { defaultWidgets } from '../render/widgets';
 import { openBuilder } from '../builder/builder';
 import { BUILDER_CSS } from '../builder/styles';
@@ -47,16 +47,38 @@ const R_CSS = `
 .dbb-rtitle{font-size:15px;font-weight:600;display:flex;align-items:center;gap:8px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:-.01em}
 .dbb-crumb{font-size:13px;font-weight:500;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .dbb-src-chip{font-size:12px;color:var(--ink-2);background:var(--grid);border-radius:999px;padding:4px 11px}
-.dbb-range-chip{margin-left:auto;flex:none;display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:var(--ink-2);background:var(--grid);border-radius:999px;padding:4px 11px}
-.dbb-range-chip.live::before{content:"";width:7px;height:7px;border-radius:50%;background:#0ca30c;box-shadow:0 0 0 3px rgba(12,163,12,.2);animation:dbb-pulse 2s ease-in-out infinite}
 @keyframes dbb-pulse{50%{box-shadow:0 0 0 6px rgba(12,163,12,0)}}
 .dbb-status-pill{flex:none;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;border-radius:999px;padding:3px 10px 3px 8px;background:color-mix(in srgb,var(--pill) 14%,transparent);color:var(--ink)}
 .dbb-status-pill .dbb-dot{width:8px;height:8px;background:var(--pill);box-shadow:0 0 0 3px color-mix(in srgb,var(--pill) 25%,transparent)}
+.dbb-tw{margin-left:auto;flex:none;display:inline-flex;align-items:center;gap:8px;height:28px;padding:0 4px 0 11px;border:1px solid var(--line);border-radius:999px;background:var(--surface);font-size:12px;white-space:nowrap}
+.dbb-tw .k{color:var(--ink-3);font-weight:500;display:inline-flex;align-items:center;gap:5px}
+.dbb-tw .k svg{width:14px;height:14px}
+.dbb-tw .v{display:inline-flex;align-items:center;gap:6px;font-weight:600;color:var(--ink);background:var(--grid);border-radius:999px;padding:3px 10px}
+.dbb-tw .v.live::before{content:"";width:7px;height:7px;border-radius:50%;background:#0ca30c;box-shadow:0 0 0 3px rgba(12,163,12,.2);animation:dbb-pulse 2s ease-in-out infinite}
+.dbb-upd{flex:none;display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-3);white-space:nowrap;font-variant-numeric:tabular-nums;cursor:default}
+.dbb-upd b{font-weight:600;color:var(--ink-2)}
+.dbb-upd .d{width:7px;height:7px;border-radius:50%;background:var(--ink-3);flex:none}
+.dbb-upd.fresh .d{background:#0ca30c}
+.dbb-upd.old .d{background:#e8a317}
+@media (max-width:720px){.dbb-tw .k span{display:none}}
 .dbb-rtools{margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .dbb-rtools select{font:inherit;font-size:12px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink)}
 .dbb-rbody{flex:1;overflow:auto;min-height:0;padding:4px 6px}
 `;
 
+/** D-033: time window in words for the header ("Last 8 hours", "Live · last hour"). */
+function windowLabel(range: string): string {
+  const n = normalizeRange(range);
+  if (n === 'realtime') return 'Live · last hour';
+  const h = parseInt(n, 10);
+  return `Last ${h} hour${h === 1 ? '' : 's'}`;
+}
+const CLOCK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
+/** D-033 header items: the dashboard's time window and when its newest data point arrived (filled by the ticker). */
+function timeHtml(range: string): string {
+  const live = normalizeRange(range) === 'realtime';
+  return `<span class="dbb-tw" title="${live ? 'Dashboard time window: live values (updated as they arrive); charts show the last hour' : 'Dashboard time window: charts and summaries cover this period, ending now'}"><span class="k">${CLOCK}<span>Time window</span></span><span class="v ${live ? 'live' : ''}">${esc(windowLabel(range))}</span></span><span class="dbb-upd" aria-live="off"><span class="d"></span><span class="t">Waiting for data…</span></span>`;
+}
 /** Counter for unique ids of renderer instances in this library copy (used as the publishActions owner). */
 let seq = 0;
 
@@ -116,7 +138,10 @@ export function init(tbCtx: any) {
     const seq = (st.loadSeq = (st.loadSeq ?? 0) + 1);
     const stale = () => seq !== st.loadSeq;
     const { ent, standaloneId, key } = pageKey();
-    if (key !== st.lastKey) st.override = null;
+    if (key !== st.lastKey) {
+      st.override = null;
+      api.resetDataClock();
+    }
     st.lastKey = key;
     try {
       const ctx = await userContext(tbCtx, force);
@@ -195,7 +220,7 @@ export function init(tbCtx: any) {
     head.innerHTML = `
       <div class="dbb-crumb" title="${esc(node.label)} (${esc(node.profile)})">${esc(scope.ancestors(ctx, deviceId).reverse().map((a) => a.label).join(' › '))}</div>
       <span class="dbb-status-pill" style="--pill:${STATUS.neutral}"><span class="dbb-dot"></span>…</span>
-      <span class="dbb-range-chip ${range === 'realtime' ? 'live' : ''}" title="${range === 'realtime' ? 'Values update every 10 seconds; charts show the last hour' : 'Charts and summaries cover this window, ending now'}">${esc(rangeLabel(range))}</span>`;
+      ${timeHtml(range)}`;
     const grid = ensureGrid(ctx, deviceId, range, dash?.theme);
     grid.render(dash ? dash.widgets : defaultWidgets(ctx, node.profile));
     // Status pill after the grid has started loading (D-022): the header no longer holds up the widgets.
@@ -207,7 +232,8 @@ export function init(tbCtx: any) {
       const pill = head.querySelector('.dbb-status-pill') as HTMLElement | null;
       if (!pill) return;
       pill.style.setProperty('--pill', status[1]);
-      pill.innerHTML = `<span class="dbb-dot"></span>${status[0]}${lastTs ? ` · ${ago(lastTs)}` : ''}`;
+      pill.innerHTML = `<span class="dbb-dot"></span>${status[0]}`;
+      pill.title = lastTs ? `Machine last sent data ${ago(lastTs)}` : 'No data from this machine yet';
     });
 
     // Editing lives in the navbar's edit menu, not on the page.
@@ -273,7 +299,7 @@ export function init(tbCtx: any) {
     }
     const range = normalizeRange(d.timeRange);
     st.range = range;
-    head.innerHTML = `<div class="dbb-rtitle">${esc(d.name)}</div><span class="dbb-range-chip ${range === 'realtime' ? 'live' : ''}">${esc(rangeLabel(range))}</span>`;
+    head.innerHTML = `<div class="dbb-rtitle">${esc(d.name)}</div>${timeHtml(range)}`;
     ensureGrid(ctx, null, range, d.theme).render(d.widgets);
     publishActions(
       id,
@@ -328,8 +354,28 @@ export function init(tbCtx: any) {
   const watch = setInterval(() => {
     if (pageKey().key !== st.lastKey) void load();
   }, 500);
+  // D-033: "Updated x ago" from the newest data point the widgets received (api data clock), every second.
+  const tick = () => {
+    const el = head.querySelector('.dbb-upd') as HTMLElement | null;
+    if (!el) return;
+    const ts = api.lastDataTs();
+    const t = el.querySelector('.t') as HTMLElement;
+    if (!ts) {
+      t.textContent = 'Waiting for data…';
+      el.className = 'dbb-upd';
+      el.removeAttribute('title');
+      return;
+    }
+    const age = Date.now() - ts;
+    const txt = agoWords(ts);
+    t.innerHTML = `Updated <b>${esc(txt)}</b>`;
+    el.className = `dbb-upd ${age < 2 * 60e3 ? 'fresh' : age > 15 * 60e3 ? 'old' : ''}`;
+    el.title = `Newest data point on this dashboard: ${new Date(ts).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
+  };
+  const ticker = setInterval(tick, 1000);
   (tbCtx as any).__dbbCleanup = () => {
     clearInterval(watch);
+    clearInterval(ticker);
     window.removeEventListener(CHANGED_EVENT, onChanged);
     stopRedraw();
     publishActions(id, null);
@@ -352,7 +398,7 @@ async function lastTelemetry(ctx: UserContext, deviceId: string, profile: string
   let keys = (ctx.profileKeys[profile] ?? []).map((k) => k.key).slice(0, 20);
   if (!keys.length) keys = (await api.timeseriesKeys(deviceId).catch(() => [] as string[])).slice(0, 20);
   if (!keys.includes('runStatus')) keys.push('runStatus');
-  const l = await api.latest(deviceId, keys).catch(() => ({}) as api.Latest);
+  const l = await api.latest(deviceId, keys, true).catch(() => ({}) as api.Latest);
   const ts = Object.values(l).map((v) => v?.ts ?? 0);
   return { lastTs: ts.length ? Math.max(...ts) || null : null, runStatus: l.runStatus?.value };
 }

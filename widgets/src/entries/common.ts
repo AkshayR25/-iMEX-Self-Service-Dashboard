@@ -123,6 +123,26 @@ export const CHANGED_EVENT = 'imex-dbb:changed';
 /** Fires CHANGED_EVENT on `window`, reaching every widget (every library copy) on the page. */
 export const notifyChanged = () => window.dispatchEvent(new CustomEvent(CHANGED_EVENT));
 
+/**
+ * Decodes ThingsBoard's `state` URL parameter: URL-safe base64 of the UTF-8 JSON state stack.
+ * D-033: on some ThingsBoard setups the value is percent-encoded twice, so after URLSearchParams it still
+ * holds `%3D` etc.; it is decoded again (up to 3 times) and base64 padding is restored before atob.
+ * @returns the state stack array, or null when it can't be decoded.
+ */
+export function decodeStateParam(raw: string): any[] | null {
+  try {
+    let v = raw.trim();
+    for (let i = 0; i < 3 && /%[0-9a-f]{2}/i.test(v); i++) v = decodeURIComponent(v);
+    v = v.replace(/-/g, '+').replace(/_/g, '/').replace(/\s/g, '+');
+    v = v.replace(/=+$/, '');
+    v += '='.repeat((4 - (v.length % 4)) % 4);
+    const arr = JSON.parse(decodeURIComponent(escape(atob(v))));
+    return Array.isArray(arr) ? arr : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Current dashboard state {id, params}. Reads the `state` URL parameter (entity state controller) first,
  *  then the widget's state controller. Used by the navbar, which is not always told about state changes. */
 export function currentState(tbCtx: any): { id: string; params: any } {
@@ -130,8 +150,8 @@ export function currentState(tbCtx: any): { id: string; params: any } {
     const raw = new URLSearchParams(location.search).get('state');
     if (raw) {
       // The entity state controller stores the state stack as URL-safe base64 of UTF-8 JSON.
-      const arr = JSON.parse(decodeURIComponent(escape(atob(raw.replace(/-/g, '+').replace(/_/g, '/')))));
-      const last = Array.isArray(arr) ? arr[arr.length - 1] : null;
+      const arr = decodeStateParam(raw);
+      const last = arr ? arr[arr.length - 1] : null;
       if (last?.id) return { id: last.id, params: last.params ?? {} };
     }
   } catch {

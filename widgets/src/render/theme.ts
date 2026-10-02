@@ -141,7 +141,7 @@ export function safeUrl(u?: string | null): string | null {
 /**
  * Applies a dashboard theme to a container as CSS variables. Returns whether it is dark.
  * @param el Dashboard root (machine page root or builder canvas). Gets inline CSS variables, the
- *   .dbb-dark class and a background (colour, or a fixed cover image from bgImage via safeUrl).
+ *   .dbb-dark class and a background (colour, or a cover / contain / tiled image from bgImage via safeUrl).
  * @param t Dashboard.theme; missing or unknown preset falls back to light, missing fields to preset values.
  * Side effect: loads the theme font (loadFont). Safe to call again with another theme: every
  * variable and background property is overwritten.
@@ -169,10 +169,15 @@ export function applyTheme(el: HTMLElement, t?: DashboardTheme | null): { dark: 
   loadFont(t?.font || 'Inter');
   el.classList.toggle('dbb-dark', p.dark);
   const img = safeUrl(t?.bgImage);
+  const fit = t?.bgFit ?? 'cover';
   el.style.backgroundColor = 'var(--plane)';
   el.style.backgroundImage = img ? `url("${img}")` : '';
-  el.style.backgroundSize = img ? 'cover' : '';
-  el.style.backgroundAttachment = img ? 'fixed' : '';
+  // D-033: no longer background-attachment:fixed, which sized the image to the browser window and
+  // showed only a slice of it inside a ThingsBoard widget (and is ignored under transformed parents).
+  el.style.backgroundSize = img ? (fit === 'tile' ? 'auto' : fit) : '';
+  el.style.backgroundRepeat = img ? (fit === 'tile' ? 'repeat' : 'no-repeat') : '';
+  el.style.backgroundPosition = img ? 'center' : '';
+  el.style.backgroundAttachment = '';
   return { dark: p.dark };
 }
 
@@ -255,7 +260,8 @@ export const CSS = `
 .dbb-table th{text-align:left;color:var(--ink-3);font-weight:500;padding:6px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--card-bg,var(--surface));font-size:11px;text-transform:uppercase;letter-spacing:.03em}
 .dbb-table td{padding:6px;border-bottom:1px solid var(--grid);font-variant-numeric:tabular-nums}
 .dbb-table tbody tr:hover td{background:var(--hover)}
-.dbb-table td.num{text-align:right}
+.dbb-table :is(td,th).num{text-align:center}
+.dbb-table :is(td,th).txt{text-align:right}
 .dbb-table td .cell{display:inline-block;border-radius:6px;padding:1px 7px}
 .dbb-scroll{height:100%;overflow:auto}
 .dbb-md{height:100%;overflow:auto;line-height:1.45;word-wrap:break-word}
@@ -298,7 +304,13 @@ export const CSS = `
 
 /** Adds a <style id=...> to <head> unless one with that id exists. Changing the CSS needs a page reload to apply. */
 export function ensureCss(id: string, css: string) {
-  if (document.getElementById(id)) return;
+  // D-031: a style element left by an older build on the same page (widgets re-imported without a full reload,
+  // or another widget type still on an older build) is updated, not kept
+  const cur = document.getElementById(id);
+  if (cur) {
+    if (cur.textContent !== css) cur.textContent = css;
+    return;
+  }
   const s = document.createElement('style');
   s.id = id;
   s.textContent = css;
@@ -381,4 +393,15 @@ export function miniMarkdown(src: string): string {
   }
   if (list) out.push('</ul>');
   return out.join('');
+}
+
+/** D-033 header wording: "just now", "2 seconds ago", "5 minutes ago", "3 hours ago", "2 days ago". */
+export function agoWords(ts: number, now = Date.now()): string {
+  const s = Math.max(0, Math.floor((now - ts) / 1000));
+  const unit = (n: number, u: string) => `${n} ${u}${n === 1 ? '' : 's'} ago`;
+  if (s < 2) return 'just now';
+  if (s < 60) return unit(s, 'second');
+  if (s < 3600) return unit(Math.floor(s / 60), 'minute');
+  if (s < 86400) return unit(Math.floor(s / 3600), 'hour');
+  return unit(Math.floor(s / 86400), 'day');
 }

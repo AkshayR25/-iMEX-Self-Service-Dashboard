@@ -69,6 +69,28 @@ async function open(query = 'page=builder&dev=pc') {
       await page.click(`.dbb-left .dbb-pal[data-t="${type}"]`, { timeout: 4000 });
       await page.waitForTimeout(150);
     },
+    /** D-033: data source dropdown of the selected widget. */
+    source: async (mode) => {
+      await page.selectOption('.dbb-right [data-s="src"]', mode);
+      await page.waitForTimeout(150);
+    },
+    /**
+     * D-033: picks values in a searchable dropdown (data-pk = 'keys' | 'dev' | ...): opens it, clicks each
+     * row that isn't ticked yet (or the one row of a single choice), closes with Done. Returns the rows' state.
+     */
+    pick: async (name, values, { search } = {}) => {
+      const host = `.dbb-right [data-pk="${name}"]`;
+      await page.click(`${host} .dbb-pk-trig`, { timeout: 4000 });
+      // the search box appears only for longer lists (more than 4 entries)
+      if (search && (await page.$(`${host} .dbb-pk-s input`))) await page.fill(`${host} .dbb-pk-s input`, search);
+      for (const v of values) {
+        const row = `${host} .dbb-pk-row[data-v="${v}"]`;
+        if (!(await page.$(`${row}.on`))) await page.click(row, { timeout: 4000 });
+        await page.waitForTimeout(60);
+      }
+      if (await page.$(`${host} [data-done]`)) await page.click(`${host} [data-done]`);
+      await page.waitForTimeout(200);
+    },
     /** Card error placeholders currently on the canvas (a widget that failed to load). */
     cardErrors: () => page.evaluate(() => [...document.querySelectorAll('.dbb-canvas .dbb-card')].map((c) => c.textContent).filter((t) => /Could not load|Unknown widget|undefined|NaN/.test(t))),
   };
@@ -247,27 +269,36 @@ test('Widget tab: title, type change, data sources, properties and caps', async 
   await t.page.press('.dbb-right [data-s="title"]', 'Tab');
   eq((await t.draft()).widgets[0].title, 'Pressure trend', 'title');
   ok(/Pressure trend/.test(await t.page.textContent('.dbb-canvas .dbb-card-t')), 'card title updated');
-  // multi-key: tick all numeric properties; the cap is 4
+  // multi-key: tick every property that can be ticked in the dropdown; the cap is 4, ticks apply on Done
+  await t.click('.dbb-right [data-pk="keys"] .dbb-pk-trig');
   for (let i = 0; i < 6; i++) {
-    const v = await t.page.$eval(`.dbb-right`, (r, id) => r.querySelector(`input[name="k-${id}"]:not([disabled]):not(:checked)`)?.value ?? null, w.id);
-    if (!v) break;
-    await t.page.click(`.dbb-right input[name="k-${w.id}"][value="${v}"]`);
-    await t.page.waitForTimeout(80);
+    const row = await t.page.$('.dbb-right [data-pk="keys"] .dbb-pk-row:not(.on):not(.dis)');
+    if (!row) break;
+    await row.click();
+    await t.page.waitForTimeout(60);
   }
+  eq((await t.draft()).widgets[0].keys.length, 1, 'ticks are not applied while the list is open');
+  await t.click('.dbb-right [data-pk="keys"] [data-done]');
+  await t.page.waitForTimeout(200);
   w = (await t.draft()).widgets[0];
   ok(w.keys.length >= 2 && w.keys.length <= 4, `line keys within 1..4: ${w.keys}`);
-  // specific machines: two compressors
-  await t.page.check(`.dbb-right input[name="src-${w.id}"][value="fixed"]`);
-  await t.page.check('.dbb-right [data-s="dev"][value="rc"]');
+  eq(await t.page.$$eval('.dbb-right [data-pk="keys"] .chip', (c) => c.length), w.keys.length, 'selected properties shown as chips');
+  // removing a chip removes the property
+  await t.click('.dbb-right [data-pk="keys"] .chip [data-rm]');
+  await t.page.waitForTimeout(200);
+  eq((await t.draft()).widgets[0].keys.length, w.keys.length - 1, 'chip ✕ removes the property');
+  // specific machines: two compressors (search narrows the list)
+  await t.source('fixed');
+  await t.pick('dev', ['rc'], { search: 'richmond comp' });
   w = (await t.draft()).widgets[0];
   eq(w.binding.mode, 'fixed', 'fixed binding');
   eq(w.binding.deviceIds.slice().sort(), ['pc', 'rc'], 'two machines');
   await t.page.waitForTimeout(800);
   eq(await t.cardErrors(), [], 'fixed binding renders');
   // same-type machines at this location, and all of a type under a location
-  await t.page.check(`.dbb-right input[name="src-${w.id}"][value="siblings"]`);
+  await t.source('siblings');
   eq((await t.draft()).widgets[0].binding.mode, 'siblings', 'siblings');
-  await t.page.check(`.dbb-right input[name="src-${w.id}"][value="nodeQuery"]`);
+  await t.source('nodeQuery');
   w = (await t.draft()).widgets[0];
   eq(w.binding.mode, 'nodeQuery', 'nodeQuery');
   await t.page.selectOption('.dbb-right [data-s="node"]', 'ric');
@@ -281,7 +312,7 @@ test('Widget tab: title, type change, data sources, properties and caps', async 
   ok(w.keys.length === 1, `keys trimmed to 1: ${w.keys}`);
   ok(w.binding.mode === 'current', `multi-machine binding reset: ${w.binding.mode}`);
   // nearest machine of a type (value card only)
-  await t.page.check(`.dbb-right input[name="src-${w.id}"][value="nearest"]`);
+  await t.source('nearest');
   w = (await t.draft()).widgets[0];
   eq(w.binding.mode, 'nearest', 'nearest');
   ok(w.binding.profile && w.binding.profile !== 'Compressor', `nearest defaults to another type (${w.binding.profile})`);
@@ -299,13 +330,72 @@ test('Widget tab: title, type change, data sources, properties and caps', async 
 test('Specific machines are capped at 4 per widget', async (t) => {
   await t.addWidget('bar');
   const w = (await t.draft()).widgets[0];
-  await t.page.check(`.dbb-right input[name="src-${w.id}"][value="fixed"]`);
-  for (const id of ['rc', 'rd', 'pw']) {
-    const sel = `.dbb-right [data-s="dev"][value="${id}"]`;
-    if (await t.page.$(sel) && !(await t.page.isDisabled(sel))) await t.page.check(sel);
+  await t.source('fixed');
+  await t.click('.dbb-right [data-pk="dev"] .dbb-pk-trig');
+  for (let i = 0; i < 8; i++) {
+    const row = await t.page.$('.dbb-right [data-pk="dev"] .dbb-pk-row:not(.on):not(.dis)');
+    if (!row) break;
+    await row.click();
+    await t.page.waitForTimeout(60);
   }
+  const greyed = await t.page.$$eval('.dbb-right [data-pk="dev"] .dbb-pk-row.dis', (r) => r.map((x) => x.title));
+  await t.click('.dbb-right [data-pk="dev"] [data-done]');
+  await t.page.waitForTimeout(200);
   const ids = (await t.draft()).widgets[0].binding.deviceIds;
   ok(ids.length <= 4, `at most 4 machines (${ids})`);
+  ok(ids.length < 4 || greyed.every((x) => /At most 4/.test(x)), `rows past the cap are greyed with a reason (${greyed})`);
+});
+
+test('D-033: right panel sections are cards that collapse and stay collapsed; no builder brand in the top bar', async (t) => {
+  ok(!(await t.page.$('.dbb-top .dbb-brand')) && !/Dashboard Builder/.test(await t.page.textContent('.dbb-top')), 'no brand / header text');
+  const first = await t.b(() => document.querySelector('.dbb-top > *').querySelector('[data-a="machine"]') !== null);
+  ok(first, 'machine picker is the first item of the top bar');
+  await t.addWidget('line');
+  eq(await t.b(() => [...document.querySelectorAll('.dbb-right .dbb-grp')].map((g) => g.dataset.grp)), ['Widget', 'Data source', 'Properties', 'Options'], 'Widget tab sections');
+  await t.click('.dbb-right .dbb-grp[data-grp="Options"] .dbb-grp-h');
+  ok(!(await t.page.isVisible('.dbb-right .dbb-grp[data-grp="Options"] .dbb-grp-b')), 'collapsed');
+  // an edit re-renders the panel; the section stays collapsed
+  await t.source('fixed');
+  ok(await t.page.$('.dbb-right .dbb-grp[data-grp="Options"].shut'), 'still collapsed after a re-render');
+  ok(await t.page.isVisible('.dbb-right [data-s="dup"]'), 'Duplicate / Remove stay outside the sections');
+  await t.click('.dbb-right .dbb-tab[data-tab="style"]');
+  eq(await t.b(() => [...document.querySelectorAll('.dbb-right .dbb-grp')].map((g) => g.dataset.grp)), ['Title', 'Layout', 'Card', 'Help text'], 'Style tab sections');
+  await t.click('.dbb-right [data-desel]');
+  eq(await t.b(() => [...document.querySelectorAll('.dbb-right .dbb-grp')].map((g) => g.dataset.grp)), ['Theme', 'Background', 'Cards'], 'Dashboard tab sections');
+});
+
+test('D-033: background image: status for bad addresses, upload, fit; shown on the canvas', async (t) => {
+  await t.page.fill('.dbb-right [data-t="bgImage"]', 'http://example.com/a.jpg');
+  await t.page.press('.dbb-right [data-t="bgImage"]', 'Tab');
+  await t.page.waitForTimeout(300);
+  ok(/must start with https/.test(await t.page.textContent('.dbb-right [data-bgst]')), 'explains http is not used');
+  // upload (a 1x1 png)
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+  await t.page.setInputFiles('.dbb-right [data-bgfile]', { name: 'bg.png', mimeType: 'image/png', buffer: png });
+  await t.page.waitForTimeout(500);
+  const th = (await t.draft()).theme;
+  ok(/^data:image\/png;base64,/.test(th.bgImage), 'stored as data URI');
+  ok(/Image loaded/.test(await t.page.textContent('.dbb-right [data-bgst]')), 'image checked');
+  await t.click('.dbb-right [data-tseg="bgFit"][data-v="tile"]');
+  await t.page.waitForTimeout(300);
+  eq((await t.draft()).theme.bgFit, 'tile', 'fit stored');
+  const bg = await t.b(() => { const c = getComputedStyle(document.querySelector('.dbb-center')); return { img: c.backgroundImage.startsWith('url("data:image/png;'), rep: c.backgroundRepeat, att: c.backgroundAttachment }; });
+  eq(bg, { img: true, rep: 'repeat', att: 'scroll' }, 'canvas shows it tiled, scrolling with the page');
+  await t.click('.dbb-right [data-bgclear]');
+  await t.page.waitForTimeout(300);
+  ok(!(await t.draft()).theme?.bgImage, 'removed');
+});
+
+test('D-033: table centres numeric columns and right-aligns text columns', async (t) => {
+  await t.addWidget('table');
+  await t.page.waitForTimeout(1000);
+  const cols = await t.b(() => {
+    const tb = document.querySelector('.dbb-canvas .dbb-table');
+    return [...tb.querySelectorAll('thead th')].slice(1).map((th, i) => ({ cls: th.className, th: getComputedStyle(th).textAlign, td: getComputedStyle(tb.querySelector(`tbody tr td:nth-child(${i + 2})`)).textAlign }));
+  });
+  ok(cols.length > 0, 'has value columns');
+  for (const c of cols) eq([c.th, c.td], c.cls === 'num' ? ['center', 'center'] : ['right', 'right'], `column ${c.cls}`);
+  ok(cols.some((c) => c.cls === 'num'), 'numeric column present');
 });
 
 // ------------------------------------------------------------------ style, colours, theme
@@ -685,8 +775,8 @@ test('standalone (no machine): only specific machines; Apply explains standalone
   await t.addWidget('value');
   const w = (await t.draft()).widgets[0];
   eq(w.binding.mode, 'none', 'no machine bound yet');
-  ok(!(await t.page.$(`.dbb-right input[name="src-${w.id}"][value="current"]`)), 'This machine not offered');
-  await t.page.check(`.dbb-right input[name="src-${w.id}"][value="fixed"]`);
+  ok(!(await t.page.$('.dbb-right [data-s="src"] option[value="current"]')), 'This machine not offered');
+  await t.source('fixed');
   eq((await t.draft()).widgets[0].binding.mode, 'fixed', 'specific machine');
   await t.page.waitForTimeout(800);
   eq(await t.cardErrors(), [], 'renders');
@@ -900,7 +990,7 @@ test('chat: a CEO fleet overview is laid out without gaps, sized to its rows, co
 test('Widget tab: alarm list can cover all machine types under a location', async (t) => {
   await t.addWidget('alarms');
   const w = (await t.draft()).widgets[0];
-  await t.page.check(`.dbb-right input[name="src-${w.id}"][value="nodeQuery"]`);
+  await t.source('nodeQuery');
   await t.page.selectOption('.dbb-right [data-s="sprof"]', '');
   eq((await t.draft()).widgets[0].binding.profile, '', 'all machine types');
   await t.page.waitForTimeout(900);
@@ -926,8 +1016,13 @@ test('machine page header: one line, no machine name or type; org › site, stat
   ok(/ITHENA › Pune/.test(h.text), `crumb: ${h.text}`);
   ok(!/Pune Compressor 1|Compressor\b(?!.*›)/.test(h.text.replace('ITHENA › Pune', '')), `no machine name/type: ${h.text}`);
   ok(/Running|Stopped|Offline/.test(h.text), 'status');
-  ok(/Realtime|Last/.test(h.text), 'range chip');
+  ok(/Time window\s*Live · last hour/.test(h.text), `time window: ${h.text}`);
+  ok(/Updated (just now|\d+ (second|minute|hour)s? ago)/.test(h.text), `updated: ${h.text}`);
   ok(/^Inter/.test(h.font), `page font Inter (${h.font})`);
+  // D-033: "Updated x ago" follows the newest data point and ticks every second; exact time in the tooltip
+  const upd = await t.b(() => ({ title: document.querySelector('.dbb-upd').title, right: document.querySelector('.dbb-upd').getBoundingClientRect().right, head: document.querySelector('.dbb-rhead').getBoundingClientRect().right }));
+  ok(/Newest data point on this dashboard: /.test(upd.title), `tooltip: ${upd.title}`);
+  ok(upd.head - upd.right <= 24, 'Updated sits at the right end of the row');
 });
 
 test('machine page follows a machine picked in an app navbar (URL-only state change)', async (t) => {
@@ -1148,7 +1243,10 @@ test('New dashboard: top-bar button and dialog (machine type or overview); navba
   await t.click('.dbb-top [data-a="new"]');
   await t.page.waitForSelector('.dbb-modal :text("What is it for?")');
   await t.page.fill('.dbb-modal [data-n]', 'Plant overview');
-  await t.page.check('.dbb-modal input[value="overview"]');
+  ok(await t.page.isVisible('.dbb-modal [data-typesec]'), 'machine type shown for "One machine type"');
+  await t.click('.dbb-modal .dbb-nd-opt[data-k="overview"]');
+  ok(!(await t.page.isVisible('.dbb-modal [data-typesec]')), 'machine type hidden for an overview');
+  eq(await t.page.getAttribute('.dbb-modal .dbb-nd-opt[data-k="overview"]', 'aria-checked'), 'true', 'radio state');
   await t.modalBtn('ok');
   await t.page.waitForSelector('.dbb-modal :text("Discard unsaved changes?")');
   await t.modalBtn('ok');
@@ -1157,7 +1255,8 @@ test('New dashboard: top-bar button and dialog (machine type or overview); navba
   eq([d.name, d.profile, d.widgets.length, d.version], ['Plant overview', null, 0, 0], 'blank overview');
   eq(await t.page.inputValue('.dbb-top [data-a="machine"]'), '', 'no machine for an overview');
   await t.click('.dbb-top [data-a="new"]');
-  await t.page.selectOption('.dbb-modal [data-p]', 'Dryer');
+  await t.click('.dbb-modal [data-pk="ndtype"] .dbb-pk-trig');
+  await t.click('.dbb-modal [data-pk="ndtype"] .dbb-pk-row[data-v="Dryer"]');
   await t.modalBtn('ok');
   await t.idle(300);
   d = await t.draft();
@@ -1185,13 +1284,93 @@ test('Builder from a page without a machine: start screen with New, Open and rec
     window.__b.recent = null; // the first render already asked for the (then empty) list
     window.__b.renderAll();
   });
-  await t.page.waitForSelector('.dbb-empty [data-recent] .dbb-recent-r', { timeout: 5000 });
-  ok(/What would you like to do\?/.test(await t.page.textContent('.dbb-empty')), 'start screen');
-  const names = await t.b(() => [...document.querySelectorAll('.dbb-recent-r b')].map((b) => b.textContent));
+  await t.page.waitForSelector('.dbb-empty [data-recent] .dbb-st-row', { timeout: 5000 });
+  ok(/Start a dashboard/.test(await t.page.textContent('.dbb-empty')), 'start screen');
+  const tiles = await t.b(() => [...document.querySelectorAll('.dbb-st-tile')].map((b) => b.dataset.a));
+  eq(tiles, ['new', 'open', 'chat'], 'three action tiles');
+  const g = await t.b(() => {
+    const r = document.querySelector('.dbb-st-row');
+    const n = r.querySelector('.dbb-st-name').getBoundingClientRect();
+    const m = r.querySelector('.dbb-st-meta').getBoundingClientRect();
+    return { stacked: m.top >= n.bottom - 1, h: Math.round(r.getBoundingClientRect().height) >= 54, font: getComputedStyle(r).fontFamily.split(',')[0].replace(/"/g, '') };
+  });
+  eq(g, { stacked: true, h: true, font: 'Inter' }, 'recent rows: name above details, roomy, Inter');
+  await t.page.screenshot({ path: join(tmpdir(), 'start.png') });
+  const names = await t.b(() => [...document.querySelectorAll('.dbb-st-name')].map((b) => b.textContent));
   ok(names.length >= 3, `recent dashboards listed (${names})`);
-  await t.page.locator('.dbb-recent-r').first().click();
+  await t.page.locator('.dbb-st-row').first().click();
   await t.idle(400);
   eq((await t.draft()).name, names[0], 'click opens it');
+});
+
+test('D-033: Dashboard list shows unapplied machine-type dashboards to editors and opens them in the builder', async (t) => {
+  await t.page.close();
+  Object.assign(t, await open('dev=pc'));
+  await seedStandalone(t, 2);
+  await t.page.click('#nav .dbb-launch-btn');
+  await t.page.click('.dbb-emenu [data-m="__list"]');
+  await t.page.waitForSelector('.dbb-dl .row');
+  await t.click('.dbb-dl [data-kind="device"]');
+  const rows = await t.b(() => [...document.querySelectorAll('.dbb-dl .row')].map((r) => ({ name: r.querySelector('.nm span').textContent, badges: [...r.querySelectorAll('.badge')].map((b) => b.textContent) })));
+  eq(rows, [{ name: 'Machine board', badges: ['Compressor', 'Not applied'] }], 'machine type, marked not applied');
+  await t.page.screenshot({ path: join(tmpdir(), 'dlist-types.png') });
+  // search also matches the machine type
+  await t.click('.dbb-dl [data-kind="all"]');
+  await t.page.fill('.dbb-dl [data-q]', 'compressor');
+  eq(await t.b(() => [...document.querySelectorAll('.dbb-dl .row .nm span')].map((r) => r.textContent)), ['Machine board'], 'search by machine type');
+  await t.click('.dbb-dl .row[data-id="dev1"]');
+  await t.page.waitForFunction(() => document.querySelector('.dbb-overlay .dbb-top [data-a="name"]')?.value === 'Machine board', null, { timeout: 6000 });
+  await t.page.waitForTimeout(400);
+  eq(await t.page.inputValue('.dbb-top [data-a="machine"]'), 'pc', 'previews on a Compressor');
+  ok(!(await t.page.$('.dbb-dl')), 'list closed');
+  // applied once assigned
+  await t.click('.dbb-top [data-a="close"]');
+  await t.page.waitForFunction(() => !document.querySelector('.dbb-overlay'));
+  await t.b(() => window.__tb.setAttrs('DEVICE', 'rc', { dbb_assign: { dashboardId: 'dev1', mode: 'linked', by: 'u1', at: Date.now() } }));
+  await t.b(() => window.dispatchEvent(new CustomEvent('imex-dbb:changed')));
+  await t.page.waitForTimeout(600);
+  await t.page.click('#nav .dbb-launch-btn');
+  await t.page.click('.dbb-emenu [data-m="__list"]');
+  await t.page.waitForSelector('.dbb-dl .row');
+  ok(!(await t.page.$('.dbb-dl .badge.na')), 'no "Not applied" once assigned');
+});
+
+test('D-033: Dashboard list and menu open above the builder, even when the app raises the builder', async (t) => {
+  await t.page.close();
+  Object.assign(t, await open('dev=pc'));
+  await seedStandalone(t, 3);
+  await t.page.click('.dbb-edit-ic');
+  await t.page.click('.dbb-emenu [data-m="__builder"]');
+  await t.page.waitForSelector('.dbb-overlay .dbb-top select', { timeout: 6000 });
+  // a host navbar that lifts the builder (seen on a customer app: z-index 300000)
+  await t.b(() => (document.querySelector('.dbb-overlay').style.zIndex = '300000'));
+  await t.page.click('.dbb-edit-ic');
+  await t.page.waitForSelector('.dbb-emenu');
+  const menuZ = await t.b(() => Number(getComputedStyle(document.querySelector('.dbb-emenu')).zIndex));
+  ok(menuZ > 300000, `menu above the builder (${menuZ})`);
+  ok(!(await t.page.$('.dbb-emenu small, .dbb-emenu svg')), 'menu rows are plain text (no taglines, no icons)');
+  await t.b(() => document.querySelector('.dbb-emenu [data-m="__list"]').click());
+  await t.page.waitForSelector('.dbb-dl .row');
+  const top = await t.b(() => {
+    const r = document.querySelector('.dbb-dl .box').getBoundingClientRect();
+    return document.elementFromPoint(r.left + r.width / 2, r.top + 30)?.closest('.dbb-dl') ? 'list' : 'other';
+  });
+  eq(top, 'list', 'the list is on top and clickable');
+  // Edit from the list loads it into the open builder (no second builder)
+  await t.b(() => document.querySelector('.dbb-dl [data-edit="sa2"]').click());
+  await t.page.waitForFunction(() => document.querySelector('.dbb-overlay .dbb-top [data-a="name"]')?.value === 'Fleet board 02', null, { timeout: 6000 });
+  eq(await t.b(() => document.querySelectorAll('.dbb-overlay').length), 1, 'one builder');
+});
+
+test('D-033: machine page Edit opens the builder below the navbar (placement registered by the launcher)', async (t) => {
+  await t.page.close();
+  Object.assign(t, await open('dev=pc'));
+  await t.page.click('.dbb-edit-ic');
+  await t.page.click('.dbb-emenu [data-m="edit"]');
+  await t.page.waitForSelector('.dbb-overlay .dbb-top select', { timeout: 6000 });
+  await t.page.waitForTimeout(300);
+  const g = await t.b(() => ({ nav: Math.round(document.querySelector('#nav').getBoundingClientRect().bottom), top: Math.round(document.querySelector('.dbb-overlay').getBoundingClientRect().top) }));
+  eq(g.top, g.nav, 'starts at the navbar bottom');
 });
 
 // ------------------------------------------------------------------ D-030
@@ -1264,6 +1443,47 @@ test('builder top in a ThingsBoard-like grid: navbar band + status line, not the
     return out;
   });
   eq(r, { auto: 60, px: 64, full: 0 }, 'auto = navbar band (50) + status line (10)');
+});
+
+test('New dashboard dialog is readable (stacked text, roomy options) and stale builder styles are replaced', async (t) => {
+  // a style element left by an older build on the same page must be updated when the builder opens again
+  await t.b(() => {
+    document.getElementById('dbb-css-builder').textContent = '/* stale build */';
+    return window.__b.close();
+  });
+  await t.page.waitForFunction(() => !document.querySelector('.dbb-overlay'));
+  await t.b(() => window.IMEX_DBB.open({ deviceId: 'pc' }));
+  await t.page.waitForSelector('.dbb-overlay .dbb-top [data-a="new"]', { timeout: 6000 });
+  ok(/\.dbb-nd-opt/.test(await t.b(() => document.getElementById('dbb-css-builder').textContent)), 'styles updated');
+  // D-033: host page CSS like a customer app's (label grids, wide radios, decorated ::before) must not break it
+  await t.b(() => {
+    const st = document.createElement('style');
+    st.textContent = 'label{display:grid;grid-template-columns:1fr 3fr} input[type=radio]{width:100%} div::before,span::before{content:"◆";color:purple}';
+    document.head.appendChild(st);
+  });
+  await t.click('.dbb-top [data-a="new"]');
+  await t.page.waitForSelector('.dbb-modal .dbb-nd-opt');
+  await t.page.waitForTimeout(300);
+  const g = await t.b(() => {
+    const opt = document.querySelector('.dbb-nd-opt').getBoundingClientRect();
+    const dot = document.querySelector('.dbb-nd-opt .dbb-nd-dot').getBoundingClientRect();
+    const tt = document.querySelector('.dbb-nd-t').getBoundingClientRect();
+    const dd = document.querySelector('.dbb-nd-d').getBoundingClientRect();
+    const sel = document.querySelector('[data-typesec]').getBoundingClientRect();
+    const fs = (sel2) => parseFloat(getComputedStyle(document.querySelector(sel2)).fontSize);
+    const deco = [...document.querySelectorAll('.dbb-modal .dbb-nd-cap, .dbb-modal .dbb-nd-t, .dbb-modal-h')].some((e) => !/none|normal/.test(getComputedStyle(e, '::before').content));
+    return {
+      stacked: dd.top >= tt.bottom - 1 && sel.top >= opt.bottom - 1,
+      pad: Math.round(tt.top - opt.top),
+      dotBesideTitle: dot.right <= tt.left && tt.left - dot.right <= 16 && Math.abs(dot.top - tt.top) <= 6,
+      title: fs('.dbb-nd-t'),
+      desc: fs('.dbb-nd-d'),
+      font: getComputedStyle(document.querySelector('.dbb-nd-d')).fontFamily.split(',')[0].replace(/"/g, ''),
+      deco,
+    };
+  });
+  eq(g, { stacked: true, pad: 15, dotBesideTitle: true, title: 14, desc: 13, font: 'Inter', deco: false }, 'title, description and type picker stacked, dot beside the title, no host decoration');
+  await t.page.screenshot({ path: join(tmpdir(), 'new-dialog.png') });
 });
 
 // ------------------------------------------------------------------ D-028 security
@@ -1378,13 +1598,13 @@ async function seedStandalone(t, n) {
       docs['dbb_d_' + id] = { schemaVersion: 1, id, name: (i === 7 ? 'Energy board ' : 'Fleet board ') + String(i).padStart(2, '0'), kind: 'standalone', profile: null, version: 1, ownerId: 'u1', ownerName: 'Asha', updatedBy: 'Asha', updatedAt: now - i * 1000, timeRange: 'realtime', copiedFrom: null,
         widgets: [{ id: 'w' + i, type: 'value', title: 'SA VALUE ' + i, x: 0, y: 0, w: 3, h: 2, binding: { mode: 'fixed', deviceIds: ['pc'] }, keys: ['dischargePressure'], settings: {} }] };
     }
-    // one machine dashboard that must NOT be listed
+    // one machine-type dashboard (listed for editors only, under "Machine types", D-033)
     docs.dbb_d_dev1 = { ...docs.dbb_d_sa1, id: 'dev1', name: 'Machine board', kind: 'device', profile: 'Compressor', widgets: [{ ...docs.dbb_d_sa1.widgets[0], binding: { mode: 'current' } }] };
     window.__tb.setAttrs('ASSET', 'store', docs);
   }, n);
 }
 
-test('navbar: Dashboard list shows only standalone dashboards, with search, sort and pages; Open shows it in the Dashboard Overview state', async (t) => {
+test('navbar: Dashboard list shows overviews (editors also machine types), with search, sort and pages; Open shows it in the Dashboard Overview state', async (t) => {
   await t.page.close();
   Object.assign(t, await open('dev=pc'));
   await seedStandalone(t, 11);
@@ -1394,9 +1614,11 @@ test('navbar: Dashboard list shows only standalone dashboards, with search, sort
   await t.page.waitForTimeout(250);
   await t.page.screenshot({ path: join(tmpdir(), 'dlist.png') });
   const names = () => t.b(() => [...document.querySelectorAll('.dbb-dl .row .nm span')].map((r) => r.textContent));
+  ok(/Showing 1–8 of 12/.test(await t.page.textContent('.dbb-dl [data-count]')), 'All: 11 overviews + 1 machine type');
+  await t.click('.dbb-dl [data-kind="standalone"]');
   let n = await names();
   eq(n.length, 8, 'first page has 8');
-  ok(!n.some((x) => /Machine board/.test(x)), 'machine dashboards are not listed');
+  ok(!n.some((x) => /Machine board/.test(x)), 'Overviews: no machine-type dashboards');
   eq(n[0], 'Energy board 07', 'sorted A–Z');
   ok(/Showing 1–8 of 11/.test(await t.page.textContent('.dbb-dl [data-count]')), 'count');
   await t.page.click('.dbb-dl [data-pager] [aria-label="Page 2"]');
@@ -1460,6 +1682,7 @@ test('navbar: viewers get a list icon with only the Dashboard list', async (t) =
   await t.page.click('.dbb-emenu [data-m="__list"]');
   await t.page.waitForSelector('.dbb-dl .row');
   ok(!(await t.page.$('.dbb-dl [data-edit]')), 'no Edit for viewers');
+  ok(!(await t.page.$('.dbb-dl [data-kind]')) && !(await t.page.$('.dbb-dl .row[data-id="dev1"]')), 'viewers see overviews only');
   await t.page.keyboard.press('Escape');
   ok(!(await t.page.$('.dbb-dl')), 'Esc closes');
 });
