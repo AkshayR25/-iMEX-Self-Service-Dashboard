@@ -1373,6 +1373,44 @@ test('D-033: machine page Edit opens the builder below the navbar (placement reg
   eq(g.top, g.nav, 'starts at the navbar bottom');
 });
 
+test('D-034: machine page Edit opens below the app navbar even when our launcher never registered a placement', async (t) => {
+  await t.page.close();
+  Object.assign(t, await open('dev=pc'));
+  // An app navbar of its own (like iMEX navbar2) in a ThingsBoard-like grid: header band (rows 1-5, a cell placed one
+  // row lower), a thin full-width status line, then the page. Our launcher's init never ran, so nothing is registered.
+  await t.b(() => {
+    window.__setPlacement(null);
+    const grid = document.createElement('gridster');
+    grid.id = 'fakegrid';
+    grid.style.cssText = 'position:fixed;left:0;top:0;width:100vw;height:100vh;display:block;pointer-events:none;z-index:-1';
+    const item = (top, h, left, w) => {
+      const it = document.createElement('gridster-item');
+      it.style.cssText = `position:absolute;display:block;top:${top}px;height:${h}px;left:${left}px;width:${w}`;
+      grid.appendChild(it);
+    };
+    item(0, 50, 0, '80%'); // logo + links
+    item(6, 44, '80%', '20%'); // a navbar cell one row lower
+    item(50, 12, 0, '100%'); // status line
+    item(62, 800, 0, '100%'); // the machine page
+    document.body.appendChild(grid);
+  });
+  eq(await t.b(() => window.__measureHeaderTop()), 62, 'header band = navbar (50) + status line (12)');
+  await t.page.click('.dbb-edit-ic');
+  await t.page.click('.dbb-emenu [data-m="edit"]');
+  await t.page.waitForSelector('.dbb-overlay .dbb-top select', { timeout: 6000 });
+  await t.page.waitForTimeout(300);
+  eq(await t.b(() => Math.round(document.querySelector('.dbb-overlay').getBoundingClientRect().top)), 62, 'builder starts below the measured header, not full screen');
+  // a stale registration (navbar widget re-created: its element is gone) also falls back to the measurement
+  await t.click('.dbb-top [data-a="close"]');
+  await t.page.waitForFunction(() => !document.querySelector('.dbb-overlay'));
+  await t.b(() => window.__setPlacement({ topOffset: () => 0, pageKey: () => location.href }));
+  await t.page.click('.dbb-edit-ic');
+  await t.page.click('.dbb-emenu [data-m="edit"]');
+  await t.page.waitForSelector('.dbb-overlay .dbb-top select', { timeout: 6000 });
+  await t.page.waitForTimeout(300);
+  eq(await t.b(() => Math.round(document.querySelector('.dbb-overlay').getBoundingClientRect().top)), 62, 'stale placement falls back to the page header');
+});
+
 // ------------------------------------------------------------------ D-030
 
 test('builder opens below the app navbar; navigating closes it (asks first with unsaved changes)', async (t) => {

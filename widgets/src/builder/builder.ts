@@ -103,6 +103,52 @@ export function setBuilderPlacement(p: { topOffset: () => number; pageKey: () =>
   }
 }
 
+/**
+ * D-034: bottom of the app's header band, measured from the ThingsBoard page itself, for builders opened
+ * without a placement from the navbar widget (e.g. "Edit this dashboard" on the machine page when the app's
+ * own navbar, not our launcher, is in the header, or after the navbar widget was re-created).
+ * Header band = the dashboard widgets (gridster items) that start in the top row, plus every widget that
+ * overlaps that band, plus thin full-width strips directly under it (the iMEX status line). Widgets taller than
+ * 40 % of the window are page content, not header. Returns 0 (full screen) when there is no such band.
+ */
+export function measureHeaderTop(): number {
+  const grid = Array.from(document.querySelectorAll<HTMLElement>('gridster, tb-dashboard-layout')).find((g) => g.getBoundingClientRect().height > 0);
+  if (!grid) return 0;
+  const vh = window.innerHeight;
+  const items = Array.from(grid.querySelectorAll<HTMLElement>('gridster-item'))
+    .map((it) => it.getBoundingClientRect())
+    .filter((q) => q.height > 0 && q.width > 0);
+  const small = items.filter((q) => q.height <= vh * 0.4);
+  if (!small.length) return 0;
+  const topRow = Math.min(...items.map((q) => q.top));
+  const seed = small.filter((q) => q.top <= topRow + 2);
+  if (!seed.length) return 0;
+  let bottom = Math.max(...seed.map((q) => q.bottom));
+  // widgets that overlap the band (e.g. a navbar cell placed a row lower) belong to the header
+  for (let more = true; more; ) {
+    more = false;
+    for (const q of small)
+      if (q.top < bottom - 1 && q.bottom > bottom) {
+        bottom = q.bottom;
+        more = true;
+      }
+  }
+  // a thin full-width strip right under the header (status line)
+  const gw = grid.getBoundingClientRect().width;
+  for (let more = true; more; ) {
+    more = false;
+    for (const q of items)
+      if (Math.abs(q.top - bottom) <= 2 && q.height <= 24 && q.width >= gw * 0.95 && q.bottom > bottom) {
+        bottom = q.bottom;
+        more = true;
+      }
+  }
+  return Math.max(0, Math.round(bottom));
+}
+
+/** D-034: page key from the URL (path + ThingsBoard `state` parameter), for builders opened without one. */
+const urlPageKey = () => `${location.pathname}|${new URLSearchParams(location.search).get('state') ?? ''}`;
+
 /** Palette icons (SVG markup) per widget type. */
 const ICON = WIDGET_ICON as Record<WidgetType, string>;
 
@@ -164,10 +210,21 @@ export function openBuilder(o: BuilderOptions) {
       })();
     return cur;
   }
-  // D-033: callers that don't say where the builder goes (renderer Edit / Customise, Dashboard list Edit)
-  // use the placement the navbar launcher registered, so the builder still starts below the app navbar.
-  const pl = placement ?? ((window as any).__imexDbbPlacement as typeof placement) ?? null;
-  if (!o.topOffset && pl) o = { ...o, topOffset: pl.topOffset, pageKey: o.pageKey ?? pl.pageKey };
+  // D-033/D-034: callers that don't say where the builder goes (machine page Edit / Customise, Dashboard list
+  // Edit) use the placement the navbar launcher registered; when there is none (the app's own navbar calls
+  // launcher.open but never ran our launcher's init) or it can't measure any more (its widget was re-created),
+  // the header band is measured from the page. So every entry point starts below the app navbar.
+  if (!o.topOffset) {
+    const pl = placement ?? ((window as any).__imexDbbPlacement as typeof placement) ?? null;
+    o = {
+      ...o,
+      topOffset: () => {
+        const v = pl ? pl.topOffset() : 0;
+        return v > 0 ? v : v < 0 ? 0 : measureHeaderTop();
+      },
+      pageKey: o.pageKey ?? pl?.pageKey ?? urlPageKey,
+    };
+  }
   // D-029: nothing from an earlier visit: cached data series and REST answers are dropped, so previews load fresh.
   api.clearCaches();
   const b = new Builder(o);

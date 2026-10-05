@@ -84,7 +84,7 @@ npm run backfill          # 7 days at 5-min intervals
 npm run simulator         # live telemetry every 10 s
 npm run teardown          # lists every POC entity (incl. widgets, dashboard, rule chain), deletes after you type DELETE
 npm test                  # 93 unit tests (store, scope, first-load call counts, chat ops, providers, live WebSocket, rules, limits, compatibility, generator)
-npm run test:e2e          # 65 end-to-end scenarios of the builder and machine page in Chromium (fake ThingsBoard, D-023, D-026)
+npm run test:e2e          # 66 end-to-end scenarios of the builder and machine page in Chromium (fake ThingsBoard, D-023, D-026)
 node widgets/e2e/bench.mjs 5 60   # worst-case load test: 5 tabs, 40 machines, every value every second (D-028)
 npm run typecheck
 ```

@@ -379,6 +379,22 @@ A full read-only security review of widgets/src and the chat relay, then fixes, 
   - **(b)** `currentState()` failed on a state parameter that was percent-encoded twice (`%3D` left after URLSearchParams). The new `decodeStateParam()` decodes up to 3 times, restores `+` and base64 padding, and returns null instead of throwing.
 - Tests: 93 unit tests (5 new: state decoding, the data clock and quiet reads, wording, theme schema) and 65 E2E scenarios (6 new: section cards and the removed brand; background image status / upload / fit; table alignment; machine-type dashboards in the list; list and menu above a raised builder; machine page Edit placement). The New dashboard, Widget tab, caps, header and list tests were updated for the new controls.
 
+### D-034 "Edit this dashboard" opens below the app navbar too, 5 Oct 2026 (user report)
+- **Problem:** on the customer app, the builder opened below the navbar everywhere except "Edit dashboard" (machine page), which opened full screen. The machine page widget calls `openBuilder` without a position. D-033 had it reuse the placement registered by our launcher's `init`, but there were two gaps:
+  - the app's own navbar (navbar2) calls `launcher.open` / `dashboardList` directly and never runs `init`, so nothing was registered;
+  - a registration from a navbar widget that was later re-created measures a detached element and returns 0.
+- **Fix:**
+  - `launcher.open()` and `dashboardList()` now register the placement too (`registerPlacement`). A detached navbar element falls back to measuring the page.
+  - `openBuilder` without a position, and with no usable registration, measures the app header from the ThingsBoard page itself (`measureHeaderTop()` in builder/builder.ts). The header is:
+    - the dashboard widgets that start in the top row, plus widgets overlapping that band;
+    - plus thin full-width strips right under it (the status line);
+    - widgets taller than 40 % of the window count as page content;
+    - 0 (full screen) when there is no such band.
+  - Such builders also follow navigation using a URL page key (path + `state` parameter).
+  - The setting `builderTop` = 0 still means full screen.
+- **Deploy:** the fix is in the library copy of the **machine dashboard (renderer)** widget type, so re-import `imex_dbb_renderer.json` (and the launcher). It works even if navbar2 still embeds an older bundle.
+- Tests: 66 E2E (1 new). It covers an app navbar in a ThingsBoard-like grid with no registration (header 50 px + status line 12 px → the builder starts at 62 px), and a stale registration that returns 0 → also 62 px.
+
 ## ThingsBoard quirks found
 
 - `GET /api/plugins/telemetry/.../values/timeseries` returns **at most 100 points** when `limit` is omitted and `agg` is NONE. The service must always pass `limit` (checked: 2,016 stored, 100 returned without a limit).

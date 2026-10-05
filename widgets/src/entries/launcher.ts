@@ -29,7 +29,7 @@
 //
 // Admin checks here (icon visibility, open()) are UI-only; a customer user can still write attributes
 // through the REST API (D-012).
-import { openBuilder, setBuilderPlacement } from '../builder/builder';
+import { openBuilder, setBuilderPlacement, measureHeaderTop } from '../builder/builder';
 import * as store from '../core/store';
 import { CSS, ensureCss, esc, loadFont } from '../render/theme';
 import { userContext, stateEntity, notifyChanged, currentState, currentActions, ACTIONS_EVENT, EditAction, RSTATE_KEY } from './common';
@@ -138,6 +138,7 @@ export async function open(tbCtx: any, opts: { deviceId?: string | null; dashboa
   if (settings.adminOnly !== false && !ctx.isAdmin) throw new Error('Only admins can build dashboards.');
   const chatRoles = roleList(settings.chatEnabledRoles);
   const chatEnabled = settings.chatEnabled !== false && (!chatRoles.length || chatRoles.includes(ctx.role.toLowerCase()));
+  registerPlacement(tbCtx);
   const cp = currentState(tbCtx).params ?? {};
   const ent = cp.entityId?.id ? { id: cp.entityId.id, entityType: cp.entityId.entityType } : stateEntity(tbCtx);
   // On the Dashboard Overview state the builder opens the standalone dashboard shown there (D-026).
@@ -389,7 +390,22 @@ export function init(tbCtx: any) {
   };
   (window as any).IMEX_DBB = { open: (o?: any) => open(tbCtx, o) };
   // D-033: builders opened elsewhere (machine page Edit / Customise, Dashboard list) start below this navbar too.
-  setBuilderPlacement({ topOffset: () => builderTop(tbCtx), pageKey: () => `${location.pathname}|${JSON.stringify(currentState(tbCtx))}` });
+  registerPlacement(tbCtx);
+}
+
+/**
+ * D-033/D-034: tells builders opened from other entry points (machine page Edit / Customise, Dashboard list) to
+ * start below this navbar. Called from init and also from open() / dashboardList(), because an app navbar may
+ * call those directly without ever running init (the iMEX navbar2 widget does). When the navbar widget's element
+ * is gone (the widget was re-created on a state change), the header is measured from the page instead.
+ */
+function registerPlacement(tbCtx: any) {
+  const host: HTMLElement | undefined = tbCtx?.$container?.[0];
+  setBuilderPlacement({
+    // -1 = full screen on purpose (setting builderTop 0); 0 from a detached element = unknown, measure the page
+    topOffset: () => (/^(0|full|none)$/i.test(String(tbCtx?.settings?.builderTop ?? '').trim()) ? -1 : host?.isConnected ? builderTop(tbCtx) : measureHeaderTop()),
+    pageKey: () => `${location.pathname}|${JSON.stringify(currentState(tbCtx))}`,
+  });
 }
 
 /** Rows per page in the Dashboard list. */
@@ -511,6 +527,7 @@ const initials = (n: string) =>
  */
 export async function dashboardList(tbCtx: any, editor: boolean) {
   ensureCss('dbb-css-dlist', DL_CSS);
+  registerPlacement(tbCtx);
   const ctx = await userContext(tbCtx);
   // D-033: editors also see machine-type dashboards (e.g. one saved with "Don't apply now", which otherwise
   // could only be found through the builder's Open dialog); everyone else sees overviews only.

@@ -3,7 +3,7 @@ import { ithena, asUser } from '../test/fake-tb';
 import * as launcher from '../src/entries/launcher';
 import * as renderer from '../src/entries/renderer';
 import * as listing from '../src/entries/listing';
-import { openBuilder } from '../src/builder/builder';
+import { openBuilder, setBuilderPlacement, measureHeaderTop } from '../src/builder/builder';
 import { userContext } from '../src/entries/common';
 
 const tb = ithena();
@@ -131,6 +131,8 @@ const baseFetch = tb.fetch;
 };
 (window as any).__tb = tb;
 (window as any).__builderTop = launcher.builderTop; // E2E: navbar-bottom measurement (D-030)
+(window as any).__setPlacement = setBuilderPlacement; // E2E: simulate an app navbar that never ran our launcher's init (D-034)
+(window as any).__measureHeaderTop = measureHeaderTop;
 
 let state: any = BENCH ? { dbbDashboardId: 'bench' } : { entityId: { id: new URLSearchParams(location.search).get('dev') ?? 'pc', entityType: 'DEVICE' } };
 // Simulates an app navbar that switches the machine by rewriting the state URL only (no onStateChanged,
