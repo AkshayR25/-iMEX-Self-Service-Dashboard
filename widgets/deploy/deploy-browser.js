@@ -21,6 +21,8 @@
 //     profileKeys    {profile: [{key, displayName, unit, decimals, min, max}]} catalogue, written to the
 //                    store as `dbb_profile_keys` (OVERWRITES the stored catalogue on every run)
 //     userEmails     customer users whose home dashboard becomes the stand-in app (empty in production)
+//     skipAppDashboard  true: skip steps 5 and 6, for a tenant whose own app dashboard already contains the
+//                    navbar and renderer widgets (D-035); its configuration is then never touched
 //
 // Steps (each is create-or-update, so the whole call is idempotent and safe to re-run per customer):
 //   1. Customer: looked up by title (throws if missing).
@@ -362,7 +364,9 @@ window.DBB_DEPLOY = async function (opts) {
   await api('POST', `/api/plugins/telemetry/ASSET/${cfg.id.id}/attributes/SERVER_SCOPE`, cfgNew);
   if (legacyKey && !cfgAttrs.dbb_llm_api_key) say('API key from the old "Call LLM" node moved to ' + o.llmConfigName);
   // store --UsesLlmConfig--> config (read by the "Read LLM settings" node). Idempotent (POST updates in place).
-  await api('POST', '/api/relation', { from: store.id, to: cfg.id, type: 'UsesLlmConfig', typeGroup: 'COMMON' });
+  // ThingsBoard 4.3 saves relations at /api/v2/relation; older versions only have /api/relation.
+  const rel = { from: store.id, to: cfg.id, type: 'UsesLlmConfig', typeGroup: 'COMMON' };
+  await api('POST', '/api/v2/relation', rel).catch(() => api('POST', '/api/relation', rel));
   say(`store linked to ${o.llmConfigName}` + (cfgAttrs.dbb_llm_api_key || legacyKey ? '' : ' (set dbb_llm_api_key on it to enable chat)'));
 
   // --- widget bundle + types
@@ -452,7 +456,11 @@ window.DBB_DEPLOY = async function (opts) {
     say('store: dbb_lib_version = ' + window.__dbbGlue.version);
   }
 
-  // --- stand-in app dashboard
+  // --- stand-in app dashboard (skipped when the real app dashboard already hosts our widgets, D-035)
+  if (o.skipAppDashboard) {
+    say('app dashboard and home dashboards skipped (skipAppDashboard)');
+    return { log, dashboardId: null, storeId: store.id.id, ruleChainId: rc.id.id, bundleId: bundle.id.id };
+  }
   // Unused (fixed ids below are used instead; `void wid` silences the linter).
   const wid = (n) => `dbb-${n}-0000-0000-000000000000`.slice(0, 36);
   const W = {

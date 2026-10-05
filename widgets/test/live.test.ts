@@ -62,6 +62,13 @@ describe('live telemetry over WebSocket', () => {
     expect(await q).toBe(false);
   });
 
+  it('uses ws:// on a plain-http ThingsBoard, so the token never goes into a legacy URL (D-035)', () => {
+    const sockets: FakeWs[] = [];
+    const live = new Live({ host: 'localhost:8080', secure: false, token: () => 'jwt', connect: (url) => (sockets.push(new FakeWs(url)), sockets[sockets.length - 1]), later: () => undefined });
+    live.want('dev1', ['power']);
+    expect(sockets[0].url).toBe('ws://localhost:8080/api/ws');
+  });
+
   it('subscribes with auth + TIMESERIES cmd, serves latest values from the cache, ignores nulls', async () => {
     const { live, sockets } = setup();
     live.want('dev1', ['power', 'status']);

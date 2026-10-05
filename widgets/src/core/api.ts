@@ -37,7 +37,7 @@
 //   GET  /api/plugins/telemetry/DEVICE/{id}/values/timeseries            (latest, or windowed with startTs/endTs)
 //   GET  /api/plugins/telemetry/DEVICE/{id}/keys/timeseries
 //   GET  /api/v2/alarm/{type}/{id}
-//   GET  /api/relations/info?fromId=|toId=&relationTypeGroup=COMMON
+//   GET  /api/relations/info/{from|to}/{type}/{id} (TB 4.3+), else /api/relations/info?fromId=|toId= (D-035)
 //   GET  /api/devices?deviceIds=, /api/assets?assetIds=
 //   POST /api/relations                                                 (EntityRelationsQuery, whole subtree)
 //   POST /api/entitiesQuery/find                                        (Entity Data Query)
@@ -429,17 +429,27 @@ export interface RelInfo {
   fromName?: string;
 }
 
+// D-035: ThingsBoard 4.3 serves relation infos only at /api/relations/info/{from|to}/{type}/{id}; 4.2 and older only
+// at /api/relations/info?fromId=|toId=. The path form is tried first (an unknown route is a 404, so no retries);
+// after one 404 the query form is used for the rest of the page.
+let relInfoQueryForm = false;
+async function relInfo(dir: 'from' | 'to', e: EntityRef): Promise<RelInfo[]> {
+  if (!relInfoQueryForm) {
+    try {
+      return await get<RelInfo[]>(`/api/relations/info/${dir}/${e.entityType}/${e.id}?relationTypeGroup=COMMON`);
+    } catch (err) {
+      if (!(err instanceof ApiError && (err.status === 404 || err.status === 405))) throw err;
+      relInfoQueryForm = true;
+    }
+  }
+  return get<RelInfo[]>(`/api/relations/info?${dir}Id=${e.id}&${dir}Type=${e.entityType}&relationTypeGroup=COMMON`);
+}
+
 /** Outgoing relations of `e` of the given type (default `Contains`, the hierarchy relation). */
-export const childrenOf = (e: EntityRef, type = 'Contains') =>
-  get<RelInfo[]>(`/api/relations/info?fromId=${e.id}&fromType=${e.entityType}&relationTypeGroup=COMMON`).then((rs) =>
-    (rs ?? []).filter((r) => r.type === type),
-  );
+export const childrenOf = (e: EntityRef, type = 'Contains') => relInfo('from', e).then((rs) => (rs ?? []).filter((r) => r.type === type));
 
 /** Incoming relations of `e` of the given type (default `Contains`), i.e. its parents. */
-export const parentsOf = (e: EntityRef, type = 'Contains') =>
-  get<RelInfo[]>(`/api/relations/info?toId=${e.id}&toType=${e.entityType}&relationTypeGroup=COMMON`).then((rs) =>
-    (rs ?? []).filter((r) => r.type === type),
-  );
+export const parentsOf = (e: EntityRef, type = 'Contains') => relInfo('to', e).then((rs) => (rs ?? []).filter((r) => r.type === type));
 
 /** Devices by id (raw TB Device objects), fetched in chunks of 100 ids. Unknown/unreadable ids are omitted by TB. */
 export async function devicesByIds(ids: string[]): Promise<any[]> {

@@ -42,8 +42,10 @@ async function open(query = 'page=builder&dev=pc') {
   const errors = [];
   page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
   page.on('console', (m) => {
-    // Google Fonts can't load in the sandbox; that is not a widget error.
-    if (m.type() === 'error' && !/fonts\.googleapis|ERR_|Failed to load resource/.test(m.text())) errors.push('console: ' + m.text());
+    // Google Fonts can't load in the sandbox; that is not a widget error. The harness has no WebSocket server, so
+    // the live socket fails and REST takes over (as in production with the socket down); since D-035 that is a
+    // ws:// handshake error on this http: page instead of an ERR_SSL one.
+    if (m.type() === 'error' && !/fonts\.googleapis|ERR_|Failed to load resource|WebSocket connection to .* failed/.test(m.text())) errors.push('console: ' + m.text());
   });
   page.on('dialog', (d) => {
     errors.push('native dialog: ' + d.message());
@@ -79,8 +81,9 @@ async function open(query = 'page=builder&dev=pc') {
      * row that isn't ticked yet (or the one row of a single choice), closes with Done. Returns the rows' state.
      */
     pick: async (name, values, { search } = {}) => {
+      // opened by its caret: the centre of the control can be a chip's ✕ (wide chips with Inter loaded)
       const host = `.dbb-right [data-pk="${name}"]`;
-      await page.click(`${host} .dbb-pk-trig`, { timeout: 4000 });
+      await page.click(`${host} .dbb-pk-trig .car`, { timeout: 4000 });
       // the search box appears only for longer lists (more than 4 entries)
       if (search && (await page.$(`${host} .dbb-pk-s input`))) await page.fill(`${host} .dbb-pk-s input`, search);
       for (const v of values) {
@@ -270,7 +273,7 @@ test('Widget tab: title, type change, data sources, properties and caps', async 
   eq((await t.draft()).widgets[0].title, 'Pressure trend', 'title');
   ok(/Pressure trend/.test(await t.page.textContent('.dbb-canvas .dbb-card-t')), 'card title updated');
   // multi-key: tick every property that can be ticked in the dropdown; the cap is 4, ticks apply on Done
-  await t.click('.dbb-right [data-pk="keys"] .dbb-pk-trig');
+  await t.click('.dbb-right [data-pk="keys"] .dbb-pk-trig .car');
   for (let i = 0; i < 6; i++) {
     const row = await t.page.$('.dbb-right [data-pk="keys"] .dbb-pk-row:not(.on):not(.dis)');
     if (!row) break;
@@ -331,7 +334,7 @@ test('Specific machines are capped at 4 per widget', async (t) => {
   await t.addWidget('bar');
   const w = (await t.draft()).widgets[0];
   await t.source('fixed');
-  await t.click('.dbb-right [data-pk="dev"] .dbb-pk-trig');
+  await t.click('.dbb-right [data-pk="dev"] .dbb-pk-trig .car');
   for (let i = 0; i < 8; i++) {
     const row = await t.page.$('.dbb-right [data-pk="dev"] .dbb-pk-row:not(.on):not(.dis)');
     if (!row) break;
@@ -1255,7 +1258,7 @@ test('New dashboard: top-bar button and dialog (machine type or overview); navba
   eq([d.name, d.profile, d.widgets.length, d.version], ['Plant overview', null, 0, 0], 'blank overview');
   eq(await t.page.inputValue('.dbb-top [data-a="machine"]'), '', 'no machine for an overview');
   await t.click('.dbb-top [data-a="new"]');
-  await t.click('.dbb-modal [data-pk="ndtype"] .dbb-pk-trig');
+  await t.click('.dbb-modal [data-pk="ndtype"] .dbb-pk-trig .car');
   await t.click('.dbb-modal [data-pk="ndtype"] .dbb-pk-row[data-v="Dryer"]');
   await t.modalBtn('ok');
   await t.idle(300);

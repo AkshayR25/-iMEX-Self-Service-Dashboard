@@ -10,7 +10,7 @@
 //   The renderer redraws on onChange() instead of on a 10 s timer (entries/renderer.ts, entries/listing.ts).
 //
 // Protocol (verified on ThingsBoard CE 4.3, demo.thingsboard.io, 27 Sep 2026)
-//   v2 (TB 3.6+):  wss://<host>/api/ws, first message carries {authCmd: {cmdId: 0, token: <jwt>}} and the
+//   v2 (TB 3.6+):  wss://<host>/api/ws (ws:// on an http: page, D-035), first message carries {authCmd: {cmdId: 0, token: <jwt>}} and the
 //                  commands {cmds: [{type: 'TIMESERIES', entityType, entityId, scope: 'LATEST_TELEMETRY', cmdId, keys}]};
 //                  unsubscribe {cmds: [{type: 'TIMESERIES', cmdId, unsubscribe: true}]}.
 //   legacy:        wss://<host>/api/ws/plugins/telemetry?token=<jwt>, {tsSubCmds: [...same fields...]}.
@@ -58,6 +58,8 @@ export interface WsLike {
 export interface LiveOptions {
   /** Page origin host, e.g. demo.thingsboard.io (default location.host). */
   host?: string;
+  /** wss:// (true) or ws:// (false). Default: ws only on an http: page, e.g. a local ThingsBoard (D-035). */
+  secure?: boolean;
   /** JWT source (default localStorage.jwt_token). */
   token?: () => string | null;
   /** WebSocket factory (default native WebSocket). */
@@ -96,6 +98,7 @@ export class Live {
   constructor(opts: LiveOptions = {}) {
     this.o = {
       host: opts.host ?? (typeof location !== 'undefined' ? location.host : ''),
+      secure: opts.secure ?? !(typeof location !== 'undefined' && location.protocol === 'http:'),
       token: opts.token ?? (() => (typeof localStorage !== 'undefined' ? localStorage.getItem('jwt_token') : null)),
       connect: opts.connect ?? ((url) => new WebSocket(url) as unknown as WsLike),
       now: opts.now ?? (() => Date.now()),
@@ -216,7 +219,10 @@ export class Live {
     }
     this.state = 'connecting';
     this.gotReply = false;
-    const url = this.mode === 'v2' ? `wss://${this.o.host}/api/ws` : `wss://${this.o.host}/api/ws/plugins/telemetry?token=${encodeURIComponent(token)}`;
+    // D-035: wss was hard-coded, so on an http: ThingsBoard the v2 socket failed and the legacy fallback put the
+    // token in the URL; the scheme now follows the page.
+    const scheme = this.o.secure ? 'wss' : 'ws';
+    const url = this.mode === 'v2' ? `${scheme}://${this.o.host}/api/ws` : `${scheme}://${this.o.host}/api/ws/plugins/telemetry?token=${encodeURIComponent(token)}`;
     let ws: WsLike;
     try {
       ws = this.o.connect(url);

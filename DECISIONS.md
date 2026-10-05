@@ -395,6 +395,49 @@ A full read-only security review of widgets/src and the chat relay, then fixes, 
 - **Deploy:** the fix is in the library copy of the **machine dashboard (renderer)** widget type, so re-import `imex_dbb_renderer.json` (and the launcher). It works even if navbar2 still embeds an older bundle.
 - Tests: 66 E2E (1 new). It covers an app navbar in a ThingsBoard-like grid with no registration (header 50 px + status line 12 px → the builder starts at 62 px), and a stale registration that returns 0 → also 62 px.
 
+### D-035 Local copy of the iMEX demo app (from iserv-demov2, read-only) with the Dashboard Builder, 5 Oct 2026 (user decision)
+- **User decisions (5 Oct):** the handoff's plan (deploy D-034 to the local ThingsBoard next to Reports) was first changed to "stay on demo.thingsboard.io", then to: **copy the iMEX demo app from iserv-demov2 to the local ThingsBoard, into the same tenant as Self-Service Reports**, and run the Dashboard Builder there as it is integrated on the server. iserv-demov2 stays **read-only** ("the rule stays"). On the copy: generators every 10 s instead of 1 s, latest telemetry only, new device access tokens, no activation emails, users with a password Akshay chose, no secrets copied.
+- **Instances:** iserv-demov2 = ThingsBoard CE **4.2.1**; local (Docker, `C:\thingsboard`) = CE **4.3.1.5**. Credentials in `.env`: `SRC_TB_*` (server), `TB_*` (local), `LOCAL_USER_PASSWORD` (users the import creates).
+- **Copy tooling (`scripts/mirror/`):**
+  - `clients.mjs`: the server client is read-only by construction. Any non-GET is refused before sending (except login and the Entity/Alarm Data Query POSTs), and so are GETs with side effects (dashboard star/unstar, user tokens, activation links, device API, OAuth, device credentials).
+  - `export-source.mjs` → `mirror-data/source/` (git-ignored). It exports dashboards, tenant widget types, images, rule chains with metadata, profiles, customers, users, assets and devices, with attributes per scope, latest values (strict types) and relations. Secret attribute values (`dbb_llm_api_key`, `authToken`, `*token*/*key*/*secret*/*password*`) and Google Maps keys are masked on read (`redact.mjs`).
+  - `fetch-static.mjs` + `cdn-map.mjs`: 8 libraries the server serves from its own web UI (`assets/ithena/devextreme-23.2.11/…`) are mapped to public CDN copies. All are byte-identical except daterangepicker, whose minifier comment differs. The folder is named 23.2.11 but holds DevExtreme **23.2.6**.
+  - `import-local.mjs`: backs up the local tenant configuration (`backups/<date>/local-before-import`), then creates or updates by name everything listed below. One source→local id map (`mirror-data/idmap.json`) rewrites every server id inside the copied JSON. It is idempotent.
+  - `verify-local.mjs` (leftover server ids, generator data), `diff-local.mjs` (pre-existing local entities unchanged), `smoke-local.mjs` (every app state in headless Chromium as a customer user: screenshots + console errors, tokens masked).
+- **What was copied:**
+  - customer *Ithena Technology*;
+  - device profiles Compressor, Dryer, Blower, Weather Station (alarm rules kept; provisioning off);
+  - asset profiles DashboardStore (marked `[poc=true]`) and CATALOGUE_STORE_ASSET;
+  - 6 rule chains (4 per-type generator chains, *Ithena Telemetry Simulation*, *[UCA] Shift Detection RC*);
+  - 9 assets (ITHENA ORG → Pune, Richmond, Mumbai, Bangalore, Austin; System Configuration; DashboardStore with every Builder dashboard; CATALOGUE_STORE_ASSET) and 15 devices, with attributes, latest values and relations;
+  - 19 developer widget types and 4 images;
+  - the app dashboard **Self Service Dashboard** (12 states);
+  - users aradhyab@, imex_service@ and a new admin **akshayr+imex@ithena.ai** (akshayr@ithena.ai already exists in POC Customer Alpha), each with `Role` and `selectedNodes`.
+- **Not copied:**
+  - *[WESCO] Performance Monitoring V1*, which is broken on the server (its `_wesco_*` widget types are gone), and *Test*;
+  - the server's `imex_rpt_*` (the local Reports build is newer) and `imex_dbb_*` (deployed from this repo);
+  - the root chain (the local one is used) and the tenant admin;
+  - the LLM key: the local `DBBLLM-CONFIG` already exists and is reused.
+- **Changes made to the local copies only:**
+  1. Generator period ≥ 10 s.
+  2. Five TBEL generators fixed. `clamp()` called `Math.max(0.0, v)` with an integer `v`, which fails in TBEL with "argument type mismatch". Dryer 2/3/4 and Weather Station 3/4 stopped producing data **on the server too** (12:32 UTC on 5 Oct). Local: `clamp` converts to double.
+  3. Library URLs point at the CDN copies.
+  4. `active_alarm_` called `http://3.110.150.117:8080/api/alarm/DEVICE/` with the stored token. It is now same-origin, so a local token never goes to that address.
+  5. The Reports widget's `serviceUrl` is `http://localhost:8090`. On the server it is `http://172.67.145.52:8090/`.
+  6. Map `gmApiKey` is empty. The map uses OpenStreetMap and works without it.
+- **Dashboard Builder on local:** `deploy-node.mjs --go` with `deploy.local.json` = customer *Ithena Technology*, store *DashboardStore*, config *DBBLLM-CONFIG*, `skipAppDashboard: true` (new option; the copied app dashboard already hosts the widgets, as on the server). The catalogue copied from the server was passed back unchanged (Weather Station 18, Compressor 33, Dryer 20, Blower 21 keys).
+- **Two bugs in our code found on local, fixed:**
+  - `core/live.ts` hard-coded `wss://`. On a plain-http ThingsBoard the v2 socket failed and the legacy fallback put the JWT into the WebSocket URL. The scheme now follows the page (`secure` option).
+  - ThingsBoard 4.3 removed `GET /api/relations/info?fromId=|toId=`, which now returns 500; the path form `/api/relations/info/{from|to}/{type}/{id}` is the only one left. 4.2 has only the query form. `core/api.ts` `relInfo` tries the path form first and after one 404 uses the query form for the page.
+
+  Also in `deploy-browser.js`: relations are saved at `/api/v2/relation` (4.3), falling back to `/api/relation`.
+- **Verified on local:**
+  - all 15 machines receive data every 10 s;
+  - no server ids are left in the dashboard, rule chains, attributes or users. The only exception is the "by" user id of two Builder dashboards saved by server users who were not copied: a label only;
+  - every entity, profile, rule chain, dashboard and widget type Reports had before is unchanged (`diff-local.mjs`);
+  - the map page renders; the remaining errors per state are listed in the widget review (developer widgets: `authToken` not set yet, 4.3 incompatibilities in `navbar2` and the listing, several DevExtreme versions on one page).
+- **Tests:** 96 unit tests (3 new: ws:// on http, relation infos on 4.3 and on 4.2) and 66 E2E. Two E2E tests opened the property / machine picker by clicking the control's centre. With Inter actually loaded (internet on this PC), the centre is the selected chip's ✕, so the click removed the property. They now click the caret. The harness has no WebSocket server; its console filter now also ignores the ws:// handshake error, which used to be an ERR_SSL error and was ignored by accident.
+
 ## ThingsBoard quirks found
 
 - `GET /api/plugins/telemetry/.../values/timeseries` returns **at most 100 points** when `limit` is omitted and `agg` is NONE. The service must always pass `limit` (checked: 2,016 stored, 100 returned without a limit).
@@ -407,3 +450,7 @@ A full read-only security review of widgets/src and the chat relay, then fixes, 
 - The "save attributes" node rejects `ATTRIBUTES_UPDATED` messages. A transform that feeds it must return `msgType: "POST_ATTRIBUTES_REQUEST"` and string-only metadata.
 - `GET /api/user/{id}/token` lets a tenant admin get a user's token (used only to test as the sample users).
 - The demo server is slow: the builder's "affected machines" preview and the renderer's refresh after an apply take 3–10 s there.
+- **4.3:** `GET /api/relations/info?fromId=|toId=` is gone (500); use `GET /api/relations/info/{from|to}/{type}/{id}` (not in 4.2.1). Relations are saved at `POST /api/v2/relation`.
+- A customer user with a home dashboard is redirected from `/dashboards/<id>?state=…` to `/dashboard/<id>` without the state parameter; open `/dashboard/<id>?state=…` directly.
+- TBEL: `Math.max(0.0, 1)` (double and integer) fails with "argument type mismatch"; multiply by `1.0` first.
+- `GET /api/plugins/telemetry/.../values/timeseries` returns values as strings unless `useStrictDataTypes=true`; re-posting them as-is would store numbers as text.

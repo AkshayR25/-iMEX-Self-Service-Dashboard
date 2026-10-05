@@ -57,7 +57,7 @@ Since we run **one ThingsBoard tenant per customer**, each tenant gets its own w
 ```bash
 git clone <repo> imex-dbb && cd imex-dbb
 npm install
-npm test               # 93 unit tests against a fake ThingsBoard / fake WebSocket
+npm test               # 96 unit tests against a fake ThingsBoard / fake WebSocket
 npm run typecheck
 npm run build:widgets  # -> widgets/dist/imex-dbb.js, glue.json, widget-types/*.json
 ```
@@ -87,6 +87,17 @@ npm run build:widgets  # -> widgets/dist/imex-dbb.js, glue.json, widget-types/*.
    ```
    The call is idempotent, so you can re-run it after every build. It **overwrites `dbb_profile_keys`** each time, so keep the catalogue in one place (e.g. a JSON file in the repo).
 4. **Chat key (D-021):** Assets → **DBB-LLM-CONFIG** (tenant-owned, created by the script; never assign it to a customer) → Attributes → Server attributes → set `dbb_llm_api_key` to a Claude, OpenAI or Gemini key. Swap providers by replacing the key; nothing else changes. Optional: `dbb_llm_model_anthropic`, `dbb_llm_model_openai`, `dbb_llm_model_gemini` to pick the model per provider (the script writes defaults only when missing). Re-deploys never overwrite the key or the models.
+
+### Option A2: the same deploy from Node (D-035)
+
+`widgets/deploy/deploy-node.mjs` runs `DBB_DEPLOY` from a terminal with the tenant admin from `.env` (`TB_URL`, `TB_TENANT_USERNAME`, `TB_TENANT_PASSWORD`; the token stays in memory). Options go in `deploy.local.json` (git-ignored), same fields as above plus `skipAppDashboard: true` when the tenant's own app dashboard already holds our navbar and renderer widgets (then the script never touches any dashboard). Without `profileKeys` in that file, the catalogue already on the store is passed back unchanged.
+
+```bash
+npm run build:widgets
+node widgets/deploy/deploy-node.mjs        # dry run: shows customer, store and catalogue it would use
+node widgets/deploy/deploy-node.mjs --go   # deploys
+node widgets/deploy/check-tb.mjs           # read-only: what is deployed (builds, states, relay, store, key set/empty)
+```
 
 ### Option B: manual import (no console scripting)
 

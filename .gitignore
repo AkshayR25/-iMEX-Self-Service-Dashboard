@@ -6,3 +6,6 @@ scripts/output/*
 widgets/dist/*.gz.b64
 widgets/harness/harness.js
 scratch/
+backups/
+deploy.local.json
+mirror-data/

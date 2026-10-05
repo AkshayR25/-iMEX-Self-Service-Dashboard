@@ -17,6 +17,8 @@ export class FakeTB {
   alarms: { originator: string; type: string }[] = [];
   me = { id: { id: 'u1' }, customerId: { id: 'c1' }, email: 'admin@x', authority: 'CUSTOMER_USER', firstName: 'Asha', lastName: 'Admin' };
   failNext: { match: RegExp; status: number } | null = null;
+  /** Serve relation infos like ThingsBoard 4.3 (path form only), see the relations/info route below (D-035). */
+  relInfoPaths = false;
 
   add(e: FakeEntity, parent?: string) {
     this.entities.set(e.id, e);
@@ -92,9 +94,13 @@ export class FakeTB {
       return resp(200, Object.fromEntries(keys.filter((k) => t[k]).map((k) => [k, rows(k)])));
     }
     if ((m = /^\/api\/plugins\/telemetry\/ASSET\/([\w-]+)\/timeseries\/ANY$/.exec(p))) return resp(200, null);
-    if (p === '/api/relations/info') {
-      const from = u.searchParams.get('fromId');
-      const to = u.searchParams.get('toId');
+    // TB 4.3 (relInfoPaths): only /api/relations/info/{from|to}/{type}/{id}; the query form is gone (500 there).
+    // TB 4.2 and older (default): only the query form; the path form is an unknown route (404).
+    const rp = this.relInfoPaths ? /^\/api\/relations\/info\/(from|to)\/[A-Z_]+\/([\w-]+)$/.exec(p) : null;
+    if (this.relInfoPaths && p === '/api/relations/info') return resp(500, { message: 'Request method GET not supported' });
+    if (rp || p === '/api/relations/info') {
+      const from = rp ? (rp[1] === 'from' ? rp[2] : null) : u.searchParams.get('fromId');
+      const to = rp ? (rp[1] === 'to' ? rp[2] : null) : u.searchParams.get('toId');
       const rs = this.relations.filter((r) => (from ? r.from === from : r.to === to));
       return resp(
         200,
