@@ -56,7 +56,7 @@ if (dash) {
 const bundle = (await all('/api/widgetsBundles?tenantOnly=true')).find((b) => b.title === opts.bundleTitle);
 out(`bundle "${opts.bundleTitle}": ${bundle ? bundle.id.id : 'not found'}`);
 if (bundle) {
-  const fqns = await api('GET', `/api/widgetsBundle/${bundle.id.id}/widgetTypeFqns`, undefined, true);
+  const fqns = await api('GET', `/api/widgetTypeFqns?widgetsBundleId=${bundle.id.id}`, undefined, true);
   out(`  widget types in bundle: ${(fqns || []).join(', ')}`);
   if (backup) save('widgets-bundle.json', { bundle, fqns });
 }
