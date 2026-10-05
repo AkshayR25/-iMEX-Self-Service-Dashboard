@@ -103,3 +103,29 @@ describe('bulk reads (D-022)', () => {
     expect(tb.calls).toEqual(['POST /api/entitiesQuery/find', 'POST /api/alarmsQuery/find']);
   });
 });
+
+describe('scope relations kept for the browser session (D-037)', () => {
+  const rel = () => tb.calls.filter((c) => c === 'POST /api/relations').length;
+  it('a second page load in the same session makes no relation calls; another user, an old entry or a failed call does', async () => {
+    const ses = new Map<string, string>();
+    vi.stubGlobal('sessionStorage', { getItem: (k: string) => ses.get(k) ?? null, setItem: (k: string, v: string) => ses.set(k, v) });
+    const first = await ctxFor('Admin', ['root']);
+    expect(rel()).toBe(2);
+    tb.calls = [];
+    const second = await ctxFor('Admin', ['root']);
+    expect(rel()).toBe(0);
+    expect(scope.allDevices(second).map((d) => d.id).sort()).toEqual(scope.allDevices(first).map((d) => d.id).sort());
+
+    // another user does not get the first user's tree
+    tb.calls = [];
+    await ctxFor('Viewer', ['root'], 'u-other');
+    expect(rel()).toBe(2);
+
+    // an entry older than the limit is not used
+    for (const [k, v] of ses) ses.set(k, JSON.stringify({ ...JSON.parse(v), at: Date.now() - scope.REL_CACHE_MS - 1 }));
+    tb.calls = [];
+    await ctxFor('Admin', ['root']);
+    expect(rel()).toBe(2);
+    vi.unstubAllGlobals();
+  });
+});

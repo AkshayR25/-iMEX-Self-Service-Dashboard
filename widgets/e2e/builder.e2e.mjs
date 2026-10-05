@@ -1004,7 +1004,7 @@ test('Widget tab: alarm list can cover all machine types under a location', asyn
 
 // ------------------------------------------------------------------ machine page (renderer)
 
-test('machine page header: one line, no machine name or type; org › site, status, range', async (t) => {
+test('machine page header: one line; machine name as the title (D-038), org › site, status, range', async (t) => {
   await t.page.close();
   const s = await open('dev=pc');
   Object.assign(t, s);
@@ -1019,7 +1019,9 @@ test('machine page header: one line, no machine name or type; org › site, stat
   ok(h.height <= 48, `header height ${h.height}px`);
   ok(h.sameLine, 'crumb, status and range on one line');
   ok(/ITHENA › Pune/.test(h.text), `crumb: ${h.text}`);
-  ok(!/Pune Compressor 1|Compressor\b(?!.*›)/.test(h.text.replace('ITHENA › Pune', '')), `no machine name/type: ${h.text}`);
+  // D-038: the machine's name is the page title (there is no app navbar that shows it any more)
+  ok(/^Pune Compressor 1 ITHENA › Pune/.test(h.text), `title first, then the crumb: ${h.text}`);
+  ok((await t.b(() => parseFloat(getComputedStyle(document.querySelector('.dbb-rhead .dbb-rtitle')).fontWeight))) >= 700, 'title is bold');
   ok(/Running|Stopped|Offline/.test(h.text), 'status');
   ok(/Time window\s*Live · last hour/.test(h.text), `time window: ${h.text}`);
   ok(/Updated (just now|\d+ (second|minute|hour)s? ago)/.test(h.text), `updated: ${h.text}`);

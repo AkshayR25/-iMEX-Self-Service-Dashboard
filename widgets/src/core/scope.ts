@@ -107,6 +107,9 @@ export interface AssignSnapshot {
   stale: boolean;
 }
 
+/** How long the scope's relations are kept in sessionStorage (D-037). */
+export const REL_CACHE_MS = 10 * 60 * 1000;
+
 /** `Role` values (lower-cased) that grant admin rights (D-011). */
 export const ADMIN_ROLES = new Set(['admin', 'customer admin', 'administrator']);
 
@@ -263,10 +266,35 @@ export async function loadAssignments(assetIds: string[], deviceIds: string[]) {
 async function buildTree(ctx: UserContext, roots: { entityId: string; entityType: string }[], userAttrs: Record<string, any>) {
   const refs = roots.map((r) => ({ id: r.entityId, entityType: r.entityType === 'DEVICE' ? 'DEVICE' : 'ASSET' }));
   ctx.rootIds = refs.map((r) => r.id);
-  const [down, up] = await Promise.all([
-    Promise.all(refs.map((r) => (r.entityType === 'ASSET' ? api.relationsTree(r, 'FROM', ['ASSET', 'DEVICE']).catch(() => [] as api.Rel[]) : Promise.resolve([] as api.Rel[])))),
-    Promise.all(refs.map((r) => api.relationsTree(r, 'TO', ['ASSET']).catch(() => [] as api.Rel[]))),
-  ]);
+  // D-037: the relations (2 calls per root) are kept for the browser session, 10 minutes, per user and root set.
+  // Every page of the app loads the library again (the headless launcher is on each state), so without this a
+  // user with 50 locations paid 100 relation calls on every page change. A failed call is never cached.
+  const cacheKey = `imex-dbb-rel:${ctx.userId}:${refs.map((r) => r.id).join(',')}`;
+  let cached: { at: number; down: api.Rel[][]; up: api.Rel[][] } | null = null;
+  try {
+    const hit = JSON.parse(sessionStorage.getItem(cacheKey) || 'null');
+    if (hit && Date.now() - hit.at < REL_CACHE_MS && Array.isArray(hit.down) && Array.isArray(hit.up)) cached = hit;
+  } catch {
+    /* no session storage, or not JSON */
+  }
+  let failed = false;
+  const miss = (): api.Rel[] => {
+    failed = true;
+    return [];
+  };
+  const [down, up] = cached
+    ? [cached.down, cached.up]
+    : await Promise.all([
+        Promise.all(refs.map((r) => (r.entityType === 'ASSET' ? api.relationsTree(r, 'FROM', ['ASSET', 'DEVICE']).catch(miss) : Promise.resolve([] as api.Rel[])))),
+        Promise.all(refs.map((r) => api.relationsTree(r, 'TO', ['ASSET']).catch(miss))),
+      ]);
+  if (!cached && !failed) {
+    try {
+      sessionStorage.setItem(cacheKey, JSON.stringify({ at: Date.now(), down, up }));
+    } catch {
+      /* storage full or unavailable: the next page asks again */
+    }
+  }
 
   // children per asset, in the order ThingsBoard returned them
   const kids = new Map<string, api.EntityRef[]>();

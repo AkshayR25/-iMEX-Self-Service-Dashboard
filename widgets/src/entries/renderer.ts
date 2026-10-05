@@ -44,7 +44,8 @@ import { userContext, currentEntity, currentParam, RSTATE_KEY, CHANGED_EVENT, no
 const R_CSS = `
 .dbb-rend{height:100%;display:flex;flex-direction:column;background:var(--plane);position:relative}
 .dbb-rhead{display:flex;align-items:center;gap:10px;padding:7px 16px;min-height:40px;background:var(--surface);border-bottom:1px solid var(--line);flex-wrap:nowrap;min-width:0}
-.dbb-rtitle{font-size:15px;font-weight:600;display:flex;align-items:center;gap:8px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:-.01em}
+.dbb-crumb-d{color:var(--ink)}
+.dbb-rtitle{flex:0 1 auto;font-size:17px;font-weight:700;display:flex;align-items:center;gap:8px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:-.01em}
 .dbb-crumb{font-size:13px;font-weight:500;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .dbb-src-chip{font-size:12px;color:var(--ink-2);background:var(--grid);border-radius:999px;padding:4px 11px}
 @keyframes dbb-pulse{50%{box-shadow:0 0 0 6px rgba(12,163,12,0)}}
@@ -215,10 +216,13 @@ export function init(tbCtx: any) {
     const canReset = admin && level === 'device' && res.deviceAssignment?.mode === 'customised';
     const range = normalizeRange(dash?.timeRange ?? 'realtime');
     st.range = range;
-    // One compact line (user request 28 Sep 2026): org › site, status, time range. The machine name and
-    // type are not repeated here; the app's navbar already shows the selected machine.
+    // One compact line: machine name (the page's title), then org › site · dashboard name, status, time range.
+    // D-038: the title is back. It was left out on 28 Sep 2026 because the app's navbar showed the machine; with
+    // the side menu there is no navbar, and nothing on the page said which machine or dashboard is open.
+    const where = scope.ancestors(ctx, deviceId).reverse().map((a) => a.label).join(' › ');
     head.innerHTML = `
-      <div class="dbb-crumb" title="${esc(node.label)} (${esc(node.profile)})">${esc(scope.ancestors(ctx, deviceId).reverse().map((a) => a.label).join(' › '))}</div>
+      <div class="dbb-rtitle" title="${esc(node.label)} (${esc(node.profile)})">${esc(node.label)}</div>
+      <div class="dbb-crumb" title="${esc(where)}${dash ? ` · Dashboard: ${esc(dash.name)}` : ''}">${esc(where)}${dash ? `<span class="dbb-crumb-d"> · ${esc(dash.name)}</span>` : ''}</div>
       <span class="dbb-status-pill" style="--pill:${STATUS.neutral}"><span class="dbb-dot"></span>…</span>
       ${timeHtml(range)}`;
     const grid = ensureGrid(ctx, deviceId, range, dash?.theme);

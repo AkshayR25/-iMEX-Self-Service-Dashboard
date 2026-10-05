@@ -450,6 +450,19 @@ A full read-only security review of widgets/src and the chat relay, then fixes, 
 - **Tests:** 96 unit, 67 E2E (1 new: builder right of a 248 px menu with top inset 0, follows the collapse to 72 px, headless widget draws nothing, `isEditor`, Dashboard list through the API). The Dashboard-tab theme test picked the font while the panel was still redrawing after the preset click and failed about once in several full runs; it now waits 150 ms first.
 - **Deployed** to the local ThingsBoard (build 2026-10-05T13:58:20Z). Not on iserv-demov2.
 
+### D-037 Scope relations kept for the browser session, 5 Oct 2026 (user decision)
+- **Why:** the load review of the app (UI repo, `docs/LOAD_REVIEW.md`) measured 2 relation calls per location in the user's scope on every page load: 10 for an admin with 5 sites. The library is loaded again on every page of the app (the headless launcher of D-036 is on each state), and the in-memory cache of `entries/common.ts` does not survive that. 50 locations would cost 100 calls per page change. Akshay: "Yes, please fix that."
+- **What:** `buildTree` (`core/scope.ts`) keeps the two relation results in `sessionStorage` under `imex-dbb-rel:<userId>:<root ids>` for `REL_CACHE_MS` = 10 minutes. Per user and per root set, so another login or a changed `selectedNodes` asks again. A failed relation call is not stored. Without `sessionStorage` nothing changes.
+- **Cost of it:** a machine or site added to the hierarchy shows up in the builder up to 10 minutes later in a browser tab that was already open. A new tab or sign-in sees it at once. Entities, names and assignments are not cached: only the Contains relations.
+- **Measured on local:** relation calls per page load for the admin went from 10 to 0 after the first page of a session.
+- **Tests:** 97 unit (1 new: second load makes no relation calls; another user, an entry older than the limit do), 67 E2E.
+
+### D-038 Machine page header shows the machine name again, 5 Oct 2026 (user request)
+- **Why:** since 28 Sep 2026 the machine page's header left out the machine's name because the app's navbar showed it. The app now has a side menu and no navbar (D-036). Akshay: "When a dashboard is selected there is no title for that page meaning user wont understand what dashboard he/she is looking at - add that."
+- **What:** the header line starts with the machine's label as the title (17 px, bold), then `org › site · dashboard name`, the status pill and the time window. Still one line, at most 48 px high. The Dashboard Overview page already had the dashboard's name as its title; it uses the same title style.
+- **Files:** `widgets/src/entries/renderer.ts` (header markup, `.dbb-rtitle`, `.dbb-crumb-d`); E2E test "machine page header" now expects the title.
+- **Deployed** to the local ThingsBoard (build 2026-10-05T17:32:07Z). Not on iserv-demov2.
+
 ## ThingsBoard quirks found
 
 - `GET /api/plugins/telemetry/.../values/timeseries` returns **at most 100 points** when `limit` is omitted and `agg` is NONE. The service must always pass `limit` (checked: 2,016 stored, 100 returned without a limit).

@@ -11,3 +11,6 @@ Newest first. One row per change; details in `DECISIONS.md`. Rows that also belo
 | 2026-10-05 | (D-035) | Deploy: `skipAppDashboard` option; relations saved via `/api/v2/relation` with fallback; Node runner `deploy-node.mjs`, read-only `check-tb.mjs` | `widgets/deploy/deploy-browser.js:367-369, 460`, `widgets/deploy/*.mjs` |
 | 2026-10-05 | (D-035) | Copy of the iMEX demo app from iserv-demov2 (read-only) to the local tenant shared with Reports: export, import, verify, diff, smoke scripts | `scripts/mirror/` |
 | 2026-10-05 | (D-035) | E2E: pickers opened by the caret (centre can be a chip's ✕); harness ignores the missing WebSocket server | `widgets/e2e/builder.e2e.mjs:48, 86` |
+| 2026-10-05 | (D-037) | ◆ Scope relations kept in sessionStorage for 10 minutes (per user and root set): no relation calls on later pages of a session | `widgets/src/core/scope.ts` (`buildTree`, `REL_CACHE_MS`) |
+| 2026-10-05 | (D-038) | ◆ Machine page header starts with the machine name as the title, then org › site · dashboard name | `widgets/src/entries/renderer.ts` |
+| 2026-10-05 | (D-035) | Local copy: long-lived local authToken script; read-only screenshots of the server | `scripts/mirror/local-authtoken.mjs`, `scripts/mirror/shots-source.mjs` |
