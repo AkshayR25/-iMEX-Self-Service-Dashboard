@@ -165,6 +165,14 @@ const mk = (sel: string, settings: any) => ({
 });
 const rctx = mk('#body', {});
 launcher.init(mk('#nav', { navbar: true, appName: 'iMEX · ITHENA' }));
+// E2E (D-036): mount another launcher (e.g. headless) into a new cell, like a second widget on the page
+(window as any).__mountLauncher = (settings: any) => {
+  const cell = document.createElement('div');
+  cell.id = 'cell' + Math.random().toString(36).slice(2, 8);
+  document.body.appendChild(cell);
+  launcher.init(mk('#' + cell.id, settings));
+  return cell.id;
+};
 const pg = new URLSearchParams(location.search).get('page');
 if (pg === 'builder') {
   // Builder E2E: open the builder directly for ?dev= (or no machine with dev=none); instance on window.__b.

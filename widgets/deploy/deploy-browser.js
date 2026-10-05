@@ -397,9 +397,10 @@ window.DBB_DEPLOY = async function (opts) {
           dashboardList: { title: 'Show "Dashboard list" (standalone dashboards) to every user', type: 'boolean', default: true },
           overviewState: { title: 'Dashboard Overview state id (standalone dashboards)', type: 'string', default: 'dashboard_overview' },
           builderTop: { title: 'Dashboard Builder starts below (auto = below the navbar; px; 0 = full screen)', type: 'string', default: 'auto' },
+          headless: { title: 'Headless: draw nothing, only provide the builder API (window.IMEX_DBB) for an app menu of its own', type: 'boolean', default: false },
         },
       },
-      form: ['label', 'adminOnly', 'navbar', 'appName', 'homeState', 'homeLabel', 'listingState', 'listingLabel', 'machineState', 'machineLabel', 'customerId', 'lightStyle', 'chatEnabled', 'chatEnabledRoles', 'hideForRoles', 'dashboardList', 'overviewState', 'builderTop'],
+      form: ['label', 'adminOnly', 'navbar', 'appName', 'homeState', 'homeLabel', 'listingState', 'listingLabel', 'machineState', 'machineLabel', 'customerId', 'lightStyle', 'chatEnabled', 'chatEnabledRoles', 'hideForRoles', 'dashboardList', 'overviewState', 'builderTop', 'headless'],
     },
     renderer: {
       schema: { type: 'object', properties: { refreshSeconds: { title: 'Refresh every (s)', type: 'number', default: 10 }, chatEnabled: { title: 'Enable chat in builder', type: 'boolean', default: true }, customerId: { title: 'Customer id for tenant admins', type: 'string', default: '' } } },

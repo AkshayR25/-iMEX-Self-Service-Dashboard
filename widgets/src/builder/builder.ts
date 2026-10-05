@@ -146,6 +146,22 @@ export function measureHeaderTop(): number {
   return Math.max(0, Math.round(bottom));
 }
 
+/**
+ * D-036: space an app shell reserves around the page, e.g. a fixed side menu. Read from the CSS custom properties
+ * `--imex-app-inset-left` / `--imex-app-inset-top` on <html> (px), which the shell sets and updates, firing the
+ * window event `imex-app:insets` when they change. `top` is null when the shell sets none (then the navbar
+ * measurement applies as before).
+ */
+export function appInsets(): { left: number; top: number | null } {
+  const cs = getComputedStyle(document.documentElement);
+  const num = (name: string) => {
+    const v = cs.getPropertyValue(name).trim();
+    return v === '' ? null : Math.max(0, parseFloat(v) || 0);
+  };
+  return { left: num('--imex-app-inset-left') ?? 0, top: num('--imex-app-inset-top') };
+}
+export const APP_INSETS_EVENT = 'imex-app:insets';
+
 /** D-034: page key from the URL (path + ThingsBoard `state` parameter), for builders opened without one. */
 const urlPageKey = () => `${location.pathname}|${new URLSearchParams(location.search).get('state') ?? ''}`;
 
@@ -298,13 +314,18 @@ class Builder {
   /** D-030: top of the overlay = bottom of the app navbar (options.topOffset); full screen when 0. */
   placeBelowNavbar() {
     if (!this.root) return;
-    const top = Math.max(0, Math.round(this.o.topOffset?.() ?? 0));
+    // D-036: an app shell (side menu) that declares its insets wins over the navbar measurement
+    const ins = appInsets();
+    const top = Math.max(0, Math.round(ins.top ?? this.o.topOffset?.() ?? 0));
     // never more than 40 % of the window (a wrong measurement must not hide the builder)
     const px = top > window.innerHeight * 0.4 ? 0 : top;
+    const left = ins.left > window.innerWidth * 0.4 ? 0 : Math.round(ins.left);
     this.root.style.top = px ? `${px}px` : '';
-    // below the navbar, the app's own menus (Angular Material overlays, z-index 1000) must open above the builder
-    this.root.style.zIndex = px ? '999' : '';
-    this.root.classList.toggle('dbb-below-nav', !!px);
+    this.root.style.left = left ? `${left}px` : '';
+    // next to the navbar / menu, the app's own menus (Angular Material overlays, z-index 1000) and the side menu's
+    // flyouts must open above the builder
+    this.root.style.zIndex = px || left ? '999' : '';
+    this.root.classList.toggle('dbb-below-nav', !!px || !!left);
   }
 
   /**
@@ -363,6 +384,7 @@ class Builder {
     // D-030: below the app navbar (it stays visible and clickable) instead of over the whole window
     this.placeBelowNavbar();
     window.addEventListener('resize', this.resizeHandler);
+    window.addEventListener(APP_INSETS_EVENT, this.resizeHandler);
     if (this.o.pageKey) {
       this.navKey = this.o.pageKey();
       this.navWatch = setInterval(() => void this.checkNavigation(), 500);
@@ -383,6 +405,7 @@ class Builder {
     document.removeEventListener('keydown', this.keyHandler);
     window.removeEventListener('beforeunload', this.unloadHandler);
     window.removeEventListener('resize', this.resizeHandler);
+    window.removeEventListener(APP_INSETS_EVENT, this.resizeHandler);
     if (this.navWatch) clearInterval(this.navWatch);
     this.grid?.destroy();
     this.root.remove();

@@ -214,6 +214,22 @@ export function init(tbCtx: any) {
   loadFont('Inter');
   const s = tbCtx.settings ?? {};
   const host: HTMLElement = tbCtx.$container[0];
+  // D-036: headless = draws nothing; only provides window.IMEX_DBB for an app menu of its own (e.g. the iMEX side
+  // menu), which then opens the builder, the Dashboard list and New dashboard through it.
+  if (s.headless) {
+    host.innerHTML = '';
+    const editorP = userContext(tbCtx).then((c) => s.adminOnly === false || c.isAdmin);
+    (window as any).IMEX_DBB = {
+      open: (o?: any) => open(tbCtx, o),
+      newDashboard: () => open(tbCtx, { startNew: true }),
+      dashboardList: async () => dashboardList(tbCtx, await editorP.catch(() => false)),
+      isEditor: () => editorP.catch(() => false),
+      actions: () => currentActions(),
+    };
+    registerPlacement(tbCtx);
+    window.dispatchEvent(new CustomEvent('imex-dbb:ready'));
+    return;
+  }
   const btnHtml = `<button type="button" class="dbb-launch-btn dbb-edit-ic" title="${esc(s.label || 'Edit dashboards')}" aria-label="${esc(s.label || 'Edit dashboards')}" aria-haspopup="menu" aria-expanded="false">${svg(MENU_ICONS.edit)}</button>`;
   if (s.navbar) {
     host.innerHTML = `<div class="dbb-root dbb-nav"><div class="dbb-nav-app">${esc(s.appName || 'iMEX')}</div>

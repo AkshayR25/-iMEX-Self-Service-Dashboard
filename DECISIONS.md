@@ -438,6 +438,18 @@ A full read-only security review of widgets/src and the chat relay, then fixes, 
   - the map page renders; the remaining errors per state are listed in the widget review (developer widgets: `authToken` not set yet, 4.3 incompatibilities in `navbar2` and the listing, several DevExtreme versions on one page).
 - **Tests:** 96 unit tests (3 new: ws:// on http, relation infos on 4.3 and on 4.2) and 66 E2E. Two E2E tests opened the property / machine picker by clicking the control's centre. With Inter actually loaded (internet on this PC), the centre is the selected chip's ✕, so the click removed the property. They now click the caret. The harness has no WebSocket server; its console filter now also ignores the ws:// handshake error, which used to be an ERR_SSL error and was ignored by accident.
 
+### D-036 Builder next to an app side menu; headless launcher, 5 Oct 2026 (user decision)
+- **Why:** the iMEX app is getting a side menu instead of the top navbar (UI redesign, built as native ThingsBoard widgets in a separate repo, `D:Claude CodeiMEX App UI`). The builder could only start below a navbar (`builderTop`, D-030), and its API (`window.IMEX_DBB`) only existed when our navbar widget drew its own pencil icon.
+- **App shell insets.** An app shell declares the space it keeps for itself with two CSS custom properties on `<html>`: `--imex-app-inset-left` and `--imex-app-inset-top` (px), and fires the window event `imex-app:insets` when they change (menu collapsed / expanded).
+  - The builder overlay starts at that left edge. If the top inset is set (also `0px`), it replaces the navbar measurement; if it is not set, the D-030 / D-034 behaviour is unchanged.
+  - The builder re-places itself on that event and on window resize. An inset of more than 40 % of the window is ignored, like the top offset.
+  - With an inset the overlay uses z-index 999, so the menu's flyouts and the app's own menus open above it.
+  - CSS properties and an event, not a function call, because every widget type has its own copy of the library and the side menu is not our code.
+- **Headless launcher.** New navbar-widget setting `headless`: the widget draws nothing and only provides `window.IMEX_DBB` = `open(opts)`, `newDashboard()`, `dashboardList()`, `isEditor()` (Promise), `actions()` (the machine page's edit actions, same as `window.__imexDbbActions`), then fires `imex-dbb:ready`. An app menu calls these instead of reimplementing them. Put the widget in a 1×1 cell of every state.
+- **Files:** `widgets/src/builder/builder.ts` (`appInsets`, `placeBelowNavbar`), `widgets/src/entries/launcher.ts` (`init`, headless branch), settings form in `widgets/widget-types.mjs` and `widgets/deploy/deploy-browser.js`, `widgets/harness/harness.ts` (`__mountLauncher`).
+- **Tests:** 96 unit, 67 E2E (1 new: builder right of a 248 px menu with top inset 0, follows the collapse to 72 px, headless widget draws nothing, `isEditor`, Dashboard list through the API). The Dashboard-tab theme test picked the font while the panel was still redrawing after the preset click and failed about once in several full runs; it now waits 150 ms first.
+- **Deployed** to the local ThingsBoard (build 2026-10-05T13:58:20Z). Not on iserv-demov2.
+
 ## ThingsBoard quirks found
 
 - `GET /api/plugins/telemetry/.../values/timeseries` returns **at most 100 points** when `limit` is omitted and `agg` is NONE. The service must always pass `limit` (checked: 2,016 stored, 100 returned without a limit).

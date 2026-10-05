@@ -493,6 +493,8 @@ test('Dashboard tab: theme preset, accent, font (Inter default), radius, density
   await t.click('.dbb-right [data-preset="dark"]');
   eq((await t.draft()).theme?.preset, 'dark', 'dark preset');
   ok(await t.b(() => document.querySelector('.dbb-center').classList.contains('dbb-dark')), 'canvas dark');
+  // the preset click redraws the panel; a font picked during the redraw lands on a select that is being replaced
+  await t.page.waitForTimeout(150);
   await t.page.selectOption('.dbb-right [data-t="font"]', 'Poppins');
   eq((await t.draft()).theme.font, 'Poppins', 'font Poppins');
   ok(/Poppins/.test(await t.b(() => getComputedStyle(document.querySelector('.dbb-canvas .dbb-card')).fontFamily)), 'canvas uses the theme font');
@@ -1374,6 +1376,34 @@ test('D-033: machine page Edit opens the builder below the navbar (placement reg
   await t.page.waitForTimeout(300);
   const g = await t.b(() => ({ nav: Math.round(document.querySelector('#nav').getBoundingClientRect().bottom), top: Math.round(document.querySelector('.dbb-overlay').getBoundingClientRect().top) }));
   eq(g.top, g.nav, 'starts at the navbar bottom');
+});
+
+test('D-036: app shell insets: builder opens right of a side menu and follows collapse; headless launcher API', async (t) => {
+  await t.page.close();
+  Object.assign(t, await open('dev=pc'));
+  const cell = await t.b(() => {
+    document.documentElement.style.setProperty('--imex-app-inset-left', '248px');
+    document.documentElement.style.setProperty('--imex-app-inset-top', '0px');
+    return window.__mountLauncher({ headless: true });
+  });
+  await t.page.waitForFunction(() => typeof window.IMEX_DBB?.dashboardList === 'function');
+  eq(await t.b((id) => document.getElementById(id).innerHTML, cell), '', 'headless launcher draws nothing');
+  eq(await t.b(() => window.IMEX_DBB.isEditor()), true, 'isEditor for an admin');
+  await t.b(() => window.IMEX_DBB.open());
+  await t.page.waitForSelector('.dbb-overlay .dbb-top select', { timeout: 6000 });
+  const box = () => t.b(() => { const r = document.querySelector('.dbb-overlay').getBoundingClientRect(); return [Math.round(r.left), Math.round(r.top), Math.round(r.right)]; });
+  eq(await box(), [248, 0, 1600], 'builder fills the window right of the expanded menu (inset top wins over the navbar)');
+  await t.b(() => {
+    document.documentElement.style.setProperty('--imex-app-inset-left', '72px');
+    window.dispatchEvent(new CustomEvent('imex-app:insets'));
+  });
+  await t.page.waitForTimeout(100);
+  eq((await box())[0], 72, 'follows the collapsed menu');
+  await t.click('.dbb-top [data-a="close"]');
+  await t.page.waitForFunction(() => !document.querySelector('.dbb-overlay'));
+  await t.b(() => window.IMEX_DBB.dashboardList());
+  await t.page.waitForSelector('.dbb-dl', { timeout: 6000 });
+  ok(true, 'Dashboard list opens through the headless API');
 });
 
 test('D-034: machine page Edit opens below the app navbar even when our launcher never registered a placement', async (t) => {
