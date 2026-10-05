@@ -115,11 +115,12 @@ export const INTER_STACK = 'Inter,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-
 
 /** CSS font-family value for a font name with a generic fallback (monospace / serif / sans-serif). Empty = Inter (INTER_STACK). Quotes in the name are stripped. */
 export function fontStack(name?: string | null): string {
-  if (!name) return INTER_STACK;
+  // D-039: no font chosen = the app's font (CSS variable --imx-font of the iMEX app shell), Inter without the shell
+  if (!name) return `var(--imx-font,${INTER_STACK})`;
   const generic = /mono/i.test(name) ? 'monospace' : /serif/i.test(name) && !/sans/i.test(name) ? 'serif' : 'sans-serif';
   // D-028: only letters, digits and spaces reach CSS (a quote or newline could end the declaration)
   const safe = name.replace(/[^A-Za-z0-9 ]/g, '').trim();
-  return safe ? `"${safe}",${generic}` : INTER_STACK;
+  return safe ? `"${safe}",${generic}` : `var(--imx-font,${INTER_STACK})`;
 }
 
 /**
@@ -166,6 +167,8 @@ export function applyTheme(el: HTMLElement, t?: DashboardTheme | null): { dark: 
     '--title-align': t?.titleAlign ?? 'left',
   };
   for (const [k, val] of Object.entries(v)) el.style.setProperty(k, val);
+  // D-039: a dashboard with its own font is marked, so an app-wide font does not replace it
+  el.toggleAttribute('data-dbb-font', !!t?.font);
   loadFont(t?.font || 'Inter');
   el.classList.toggle('dbb-dark', p.dark);
   const img = safeUrl(t?.bgImage);

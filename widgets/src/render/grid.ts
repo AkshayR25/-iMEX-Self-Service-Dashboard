@@ -33,6 +33,11 @@ import { renderWidget, RenderEnv, WidgetHandle } from './widgets';
 export const ROW_H = 64;
 /** Gap in px between cells and around the grid edge. */
 export const GAP = 10;
+/**
+ * Read-only grids narrower than this column width (px) are shown on half the columns ("compact"):
+ * every widget gets twice the share of the width, so 1-column tiles stay readable on small screens.
+ */
+export const COMPACT_COL_W = 58;
 
 /** Options for `Grid`. All callbacks are optional; a read-only grid needs none. */
 export interface GridOptions {
@@ -114,6 +119,30 @@ export function firstFit(items: Rect[], w: number, h: number): { x: number; y: n
 }
 
 /**
+ * The layout shown on a compact (half-column) grid. Widths are halved (rounded up, so nothing gets
+ * narrower than one column; heights stay), then the widgets are packed in reading order (top to
+ * bottom, left to right): each goes into the first free slot at or below the row of the one before,
+ * so the order is kept and no holes are left. Pure; the returned array keeps the input order.
+ */
+export function compactLayout<T extends Rect & { id: string }>(items: T[]): T[] {
+  const cols = GRID_COLS / 2;
+  const out = items.map((i) => ({ ...i, w: Math.min(cols, Math.max(1, Math.ceil(i.w / 2))) }));
+  const placed: Rect[] = [];
+  let row = 0;
+  for (const it of [...out].sort((a, b) => a.y - b.y || a.x - b.x)) {
+    let spot: { x: number; y: number } | null = null;
+    for (let y = row; !spot; y++)
+      for (let x = 0; x + it.w <= cols && !spot; x++)
+        if (!placed.some((p) => overlaps(p, { x, y, w: it.w, h: it.h }))) spot = { x, y };
+    it.x = spot.x;
+    it.y = spot.y;
+    row = spot.y;
+    placed.push(it);
+  }
+  return out;
+}
+
+/**
  * Grid component. Owns one absolutely positioned box per widget inside `host` and the
  * `WidgetHandle` returned by `renderWidget` for each (used to refresh and destroy them).
  *
@@ -130,6 +159,10 @@ export class Grid {
   private widgets: Widget[] = [];
   /** Current column width in px. */
   private colW = 0;
+  /** Columns shown: GRID_COLS, or half of them when a read-only grid is narrow (see COMPACT_COL_W). */
+  private cols = GRID_COLS;
+  /** Positions as shown (differ from the stored ones only in compact mode), by widget id. */
+  private view = new Map<string, Rect>();
   private ro: ResizeObserver;
 
   /**
@@ -180,11 +213,12 @@ export class Grid {
         this.boxes.delete(id);
       }
     this.layout(false);
+    this.computeView();
     for (const w of this.widgets) {
       let box = this.boxes.get(w.id);
       const sig = JSON.stringify({ ...w, x: 0, y: 0, w: 0, h: 0 });
       // Size is tracked separately (on the box's data attributes) because charts must redraw at the new size.
-      const sizeChanged = box && (box.dataset.w !== String(w.w) || box.dataset.h !== String(w.h));
+      const sizeChanged = box && (box.dataset.w !== String(this.rect(w).w) || box.dataset.h !== String(w.h));
       if (!box) {
         box = this.makeBox(w);
         this.boxes.set(w.id, box);
@@ -196,13 +230,28 @@ export class Grid {
         const inner = box.querySelector('.dbb-gi') as HTMLElement;
         this.handles.set(w.id, renderWidget(inner, w, this.env));
       }
-      box.dataset.w = String(w.w);
+      box.dataset.w = String(this.rect(w).w);
       box.dataset.h = String(w.h);
     }
-    // At least 4 rows; in edit mode 3 extra empty rows give room to drop below the last widget.
-    const rows = Math.max(4, ...this.widgets.map((w) => w.y + w.h)) + (this.opts.editable ? 3 : 0);
-    this.host.style.minHeight = `${rows * (ROW_H + GAP)}px`;
+    this.setHeight();
     this.paintSelection();
+  }
+
+  /** Host min-height from the lowest widget as shown: at least 4 rows; in edit mode 3 extra empty rows give room to drop below the last widget. */
+  private setHeight() {
+    const rows = Math.max(4, ...this.widgets.map((w) => this.rect(w).y + w.h)) + (this.opts.editable ? 3 : 0);
+    this.host.style.minHeight = `${rows * (ROW_H + GAP)}px`;
+  }
+
+  /** Fills `view` with the positions to show (the compact layout on a narrow read-only grid). */
+  private computeView() {
+    const shown = this.cols < GRID_COLS ? compactLayout(this.widgets) : this.widgets;
+    this.view = new Map(shown.map((w) => [w.id, { x: w.x, y: w.y, w: w.w, h: w.h }]));
+  }
+
+  /** A widget's position as shown. */
+  private rect(w: Widget): Rect {
+    return this.view.get(w.id) || w;
   }
 
   /** Asks every widget to re-fetch and redraw (fire-and-forget; each widget shows its own errors). Called by the renderer's refresh timer. */
@@ -223,15 +272,21 @@ export class Grid {
    */
   private layout(reflow: boolean) {
     const W = this.host.clientWidth;
-    const colW = (W - GAP * (GRID_COLS + 1)) / GRID_COLS;
+    const full = (W - GAP * (GRID_COLS + 1)) / GRID_COLS;
+    const cols = !this.opts.editable && W > 0 && full < COMPACT_COL_W ? GRID_COLS / 2 : GRID_COLS;
+    const colW = (W - GAP * (cols + 1)) / cols;
+    const modeChanged = cols !== this.cols;
     // Ignore sub-pixel jitter (e.g. a scrollbar flickering) to avoid redraw loops.
-    const changed = Math.abs(colW - this.colW) > 1;
+    const changed = Math.abs(colW - this.colW) > 1 || modeChanged;
     this.colW = colW;
+    this.cols = cols;
     if (reflow && changed) {
+      if (modeChanged) this.computeView();
       for (const w of this.widgets) {
         const b = this.boxes.get(w.id);
         if (b) this.place(b, w);
       }
+      if (modeChanged) this.setHeight();
       for (const h of this.handles.values()) void h.refresh();
     }
   }
@@ -247,7 +302,7 @@ export class Grid {
   }
 
   private place(box: HTMLElement, w: Widget) {
-    const p = this.px(w);
+    const p = this.px(this.rect(w));
     Object.assign(box.style, { left: `${p.left}px`, top: `${p.top}px`, width: `${p.width}px`, height: `${p.height}px` });
   }
 

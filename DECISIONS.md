@@ -463,6 +463,18 @@ A full read-only security review of widgets/src and the chat relay, then fixes, 
 - **Files:** `widgets/src/entries/renderer.ts` (header markup, `.dbb-rtitle`, `.dbb-crumb-d`); E2E test "machine page header" now expects the title.
 - **Deployed** to the local ThingsBoard (build 2026-10-05T17:32:07Z). Not on iserv-demov2.
 
+### D-039 App font and no platform name, 5 Oct 2026 (user request)
+- **Why:** Akshay: use the side menu's font (Inter) throughout the application, with font options in the app's Configuration page; and "No mention of Thingsboard anywhere - that is a strict guideline - end user do not need to know underlying framework / platform".
+- **What:** the default font stack is `var(--imx-font, Inter, …)`: the app's chosen font (set by its side menu on `<html>`) wins, Inter otherwise. A dashboard with its own theme font keeps it (`data-dbb-font` on the root, which the app's page-wide font rule skips). The chat prompt gets the rule "Never name the software platform, framework or vendor the app is built on (for example ThingsBoard); call it "the app" or "iMEX"" and calls the admin pages "the admin pages of the app".
+- **Files:** `widgets/src/render/theme.ts` (`fontStack`, `applyTheme`), `widgets/src/core/chat.ts` (prompt).
+- **Deployed** to the local ThingsBoard. Not on iserv-demov2.
+
+### D-040 Read-only dashboards on half the columns on small screens, 6 Oct 2026 (user request)
+- **Why:** "Check if all the pages look good when the side bar [is] expanded and collapsed … nothing should break even on smaller screens." At 1024 px with the app menu open, or 800 px, a 1-column widget of the machine page was about 48 px wide and its value was cut off.
+- **What:** a read-only grid whose column would be narrower than `COMPACT_COL_W` (58 px) shows the dashboard on 6 columns: every width halved (rounded up, at least one column), heights kept, widgets packed in reading order with no holes (`compactLayout`). The stored layout is never changed; the editor (Dashboard Builder) always shows 12 columns. Switching happens on resize, like the column width.
+- **Files:** `widgets/src/render/grid.ts` (`COMPACT_COL_W`, `compactLayout`, `Grid.layout/computeView/rect/setHeight`); unit test "compact layout halves the columns without overlaps or zero widths" (98 pass); E2E all pass.
+- **Deployed** to the local ThingsBoard. Not on iserv-demov2.
+
 ## ThingsBoard quirks found
 
 - `GET /api/plugins/telemetry/.../values/timeseries` returns **at most 100 points** when `limit` is omitted and `agg` is NONE. The service must always pass `limit` (checked: 2,016 stored, 100 returned without a limit).

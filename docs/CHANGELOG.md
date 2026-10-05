@@ -4,6 +4,9 @@ Newest first. One row per change; details in `DECISIONS.md`. Rows that also belo
 
 | Date | Commit | Change | Where |
 |---|---|---|---|
+| 2026-10-06 | (D-040) | ◆ Read-only dashboards (machine page, Dashboard Overview) switch to 6 columns when a column would be under 58 px: widths halved, packed in reading order; stored layout and editor unchanged | `widgets/src/render/grid.ts` (`compactLayout`, `Grid.layout`) |
+| 2026-10-05 | (D-039) | ◆ Chat prompt: never name the platform the app is built on | `widgets/src/core/chat.ts:641` |
+| 2026-10-05 | (D-039) | ◆ Default font follows the app's font (`--imx-font`, Inter otherwise); a dashboard's own theme font is marked `data-dbb-font` | `widgets/src/render/theme.ts:117, 171` |
 | 2026-10-05 | (D-036) | ◆ Builder opens next to an app side menu: insets from `--imex-app-inset-left/-top` on `<html>`, event `imex-app:insets` | `widgets/src/builder/builder.ts:155, 318` |
 | 2026-10-05 | (D-036) | ◆ Navbar widget setting `headless`: draws nothing, provides `window.IMEX_DBB` (open, newDashboard, dashboardList, isEditor, actions) | `widgets/src/entries/launcher.ts:219` |
 | 2026-10-05 | (D-035) | ◆ Live values: WebSocket scheme follows the page (ws:// on an http ThingsBoard); before, the v2 socket failed there and the legacy fallback put the token in the URL | `widgets/src/core/live.ts:224` |

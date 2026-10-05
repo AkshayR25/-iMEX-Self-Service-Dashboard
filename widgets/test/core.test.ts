@@ -4,7 +4,7 @@ import * as scope from '../src/core/scope';
 import * as store from '../src/core/store';
 import * as chat from '../src/core/chat';
 import { Dashboard, checkDashboard } from '../src/core/schema';
-import { resolveCollisions, firstFit } from '../src/render/grid';
+import { resolveCollisions, firstFit, compactLayout } from '../src/render/grid';
 
 let tb: FakeTB;
 const mem = new Map<string, string>();
@@ -516,6 +516,24 @@ describe('grid', () => {
   it('first fit fills gaps', () => {
     expect(firstFit([{ x: 0, y: 0, w: 3, h: 2 }], 3, 2)).toEqual({ x: 3, y: 0 });
     expect(firstFit([{ x: 0, y: 0, w: 12, h: 2 }], 3, 2)).toEqual({ x: 0, y: 2 });
+  });
+  it('compact layout halves the columns without overlaps or zero widths', () => {
+    const items = [
+      { id: 'a', x: 0, y: 0, w: 1, h: 2 },
+      { id: 'b', x: 1, y: 0, w: 3, h: 2 },
+      { id: 'c', x: 4, y: 0, w: 8, h: 2 },
+      { id: 'd', x: 11, y: 2, w: 1, h: 3 },
+      { id: 'e', x: 0, y: 2, w: 12, h: 2 },
+    ];
+    const out = compactLayout(items);
+    expect(out.map((i) => i.id)).toEqual(['a', 'b', 'c', 'd', 'e']);
+    for (const i of out) {
+      expect(i.w).toBeGreaterThanOrEqual(1);
+      expect(i.x + i.w).toBeLessThanOrEqual(6);
+      expect(i.h).toBe(items.find((o) => o.id === i.id)!.h);
+    }
+    expect(out.some((a, i) => out.some((b, j) => i < j && a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h))).toBe(false);
+    expect(out.find((i) => i.id === 'e')!.w).toBe(6);
   });
 });
 
