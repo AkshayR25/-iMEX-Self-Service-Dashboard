@@ -467,6 +467,7 @@ A full read-only security review of widgets/src and the chat relay, then fixes, 
 - **Why:** Akshay: use the side menu's font (Inter) throughout the application, with font options in the app's Configuration page; and "No mention of Thingsboard anywhere - that is a strict guideline - end user do not need to know underlying framework / platform".
 - **What:** the default font stack is `var(--imx-font, Inter, …)`: the app's chosen font (set by its side menu on `<html>`) wins, Inter otherwise. A dashboard with its own theme font keeps it (`data-dbb-font` on the root, which the app's page-wide font rule skips). The chat prompt gets the rule "Never name the software platform, framework or vendor the app is built on (for example ThingsBoard); call it "the app" or "iMEX"" and calls the admin pages "the admin pages of the app".
 - **Files:** `widgets/src/render/theme.ts` (`fontStack`, `applyTheme`), `widgets/src/core/chat.ts` (prompt).
+- 6 Oct 2026: the app's default font is DM Sans; `INTER_STACK` starts with it so the fallback matches the app.
 - **Deployed** to the local ThingsBoard. Not on iserv-demov2.
 
 ### D-040 Read-only dashboards on half the columns on small screens, 6 Oct 2026 (user request)

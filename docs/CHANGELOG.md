@@ -4,6 +4,7 @@ Newest first. One row per change; details in `DECISIONS.md`. Rows that also belo
 
 | Date | Commit | Change | Where |
 |---|---|---|---|
+| 2026-10-06 | (D-039) | Fallback font stack starts with DM Sans, the app's new default | `widgets/src/render/theme.ts:114` |
 | 2026-10-06 | (D-040) | ◆ Read-only dashboards (machine page, Dashboard Overview) switch to 6 columns when a column would be under 58 px: widths halved, packed in reading order; stored layout and editor unchanged | `widgets/src/render/grid.ts` (`compactLayout`, `Grid.layout`) |
 | 2026-10-05 | (D-039) | ◆ Chat prompt: never name the platform the app is built on | `widgets/src/core/chat.ts:641` |
 | 2026-10-05 | (D-039) | ◆ Default font follows the app's font (`--imx-font`, Inter otherwise); a dashboard's own theme font is marked `data-dbb-font` | `widgets/src/render/theme.ts:117, 171` |

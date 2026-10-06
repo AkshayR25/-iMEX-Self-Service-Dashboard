@@ -111,7 +111,7 @@ export function loadFont(name?: string | null) {
 }
 
 /** Default font of the app (user decision 28 Sep 2026: Inter, the standard on the other iMEX pages). */
-export const INTER_STACK = 'Inter,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif';
+export const INTER_STACK = '"DM Sans",Inter,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif';
 
 /** CSS font-family value for a font name with a generic fallback (monospace / serif / sans-serif). Empty = Inter (INTER_STACK). Quotes in the name are stripped. */
 export function fontStack(name?: string | null): string {
