@@ -117,7 +117,7 @@ test('opens for a machine: blank draft, empty state, Inter font', async (t) => {
     canvas: getComputedStyle(document.querySelector('.dbb-center')).fontFamily,
     panel: getComputedStyle(document.querySelector('.dbb-right')).fontFamily,
   }));
-  for (const [k, v] of Object.entries(fonts)) ok(/^Inter\b/.test(v), `${k} font is Inter (got ${v})`);
+  for (const [k, v] of Object.entries(fonts)) ok(/^("DM Sans", )?Inter\b/.test(v), `${k} font is the app font (got ${v})`);
   ok(await t.b(() => !!document.getElementById('dbb-font-Inter')), 'Inter font stylesheet requested');
 });
 
@@ -489,7 +489,7 @@ test('Dashboard tab: theme preset, accent, font (Inter default), radius, density
   await t.addWidget('value');
   await t.click('.dbb-right [data-desel]');
   ok(await t.page.isVisible('.dbb-right .dbb-tab.on:has-text("Dashboard")'), 'Dashboard tab when nothing selected');
-  eq(await t.page.textContent('.dbb-right [data-t="font"] option[value=""]'), 'Inter (default)', 'default font label');
+  eq(await t.page.textContent('.dbb-right [data-t="font"] option[value=""]'), 'Same as the app (default)', 'default font label');
   await t.click('.dbb-right [data-preset="dark"]');
   eq((await t.draft()).theme?.preset, 'dark', 'dark preset');
   ok(await t.b(() => document.querySelector('.dbb-center').classList.contains('dbb-dark')), 'canvas dark');
@@ -500,7 +500,7 @@ test('Dashboard tab: theme preset, accent, font (Inter default), radius, density
   ok(/Poppins/.test(await t.b(() => getComputedStyle(document.querySelector('.dbb-canvas .dbb-card')).fontFamily)), 'canvas uses the theme font');
   ok(/^Inter/.test(await t.b(() => getComputedStyle(document.querySelector('.dbb-top')).fontFamily)), 'builder chrome stays Inter');
   await t.page.selectOption('.dbb-right [data-t="font"]', '');
-  ok(/^"?Inter/.test(await t.b(() => getComputedStyle(document.querySelector('.dbb-canvas .dbb-card')).fontFamily)), 'theme default font is Inter');
+  ok(/^("DM Sans", )?"?Inter/.test(await t.b(() => getComputedStyle(document.querySelector('.dbb-canvas .dbb-card')).fontFamily)), 'theme default font is the app font');
   await t.click('.dbb-right [data-tseg="density"][data-v="compact"]');
   await t.click('.dbb-right [data-tseg="titleAlign"][data-v="center"]');
   const th = (await t.draft()).theme;
@@ -1004,9 +1004,19 @@ test('Widget tab: alarm list can cover all machine types under a location', asyn
 
 // ------------------------------------------------------------------ machine page (renderer)
 
-test('machine page header: one line; machine name as the title (D-038), org › site, status, range', async (t) => {
+test('machine page header without the app side menu: no machine title (the navbar shows it)', async (t) => {
   await t.page.close();
   const s = await open('dev=pc');
+  Object.assign(t, s);
+  await t.page.waitForSelector('.dbb-rhead .dbb-status-pill');
+  const h = await t.b(() => ({ title: !!document.querySelector('.dbb-rhead .dbb-rtitle'), text: document.querySelector('.dbb-rhead').textContent.replace(/s+/g, ' ').trim() }));
+  ok(!h.title, 'no title element');
+  ok(/^ITHENA › Pune/.test(h.text), `line starts with the crumb: ${h.text}`);
+});
+
+test('machine page header: one line; machine name as the title (D-038, with the app side menu), org › site, status, range', async (t) => {
+  await t.page.close();
+  const s = await open('dev=pc&shell=1');
   Object.assign(t, s);
   await t.page.waitForSelector('.dbb-rhead .dbb-status-pill');
   await t.page.waitForTimeout(800);
@@ -1025,7 +1035,7 @@ test('machine page header: one line; machine name as the title (D-038), org › 
   ok(/Running|Stopped|Offline/.test(h.text), 'status');
   ok(/Time window\s*Live · last hour/.test(h.text), `time window: ${h.text}`);
   ok(/Updated (just now|\d+ (second|minute|hour)s? ago)/.test(h.text), `updated: ${h.text}`);
-  ok(/^Inter/.test(h.font), `page font Inter (${h.font})`);
+  ok(/^("?DM Sans"?|Inter)/.test(h.font), `page font DM Sans / Inter (${h.font})`);
   // D-033: "Updated x ago" follows the newest data point and ticks every second; exact time in the tooltip
   const upd = await t.b(() => ({ title: document.querySelector('.dbb-upd').title, right: document.querySelector('.dbb-upd').getBoundingClientRect().right, head: document.querySelector('.dbb-rhead').getBoundingClientRect().right }));
   ok(/Newest data point on this dashboard: /.test(upd.title), `tooltip: ${upd.title}`);

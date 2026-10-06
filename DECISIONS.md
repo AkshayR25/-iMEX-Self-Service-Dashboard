@@ -462,6 +462,7 @@ A full read-only security review of widgets/src and the chat relay, then fixes, 
 - **What:** the header line starts with the machine's label as the title (17 px, bold), then `org › site · dashboard name`, the status pill and the time window. Still one line, at most 48 px high. The Dashboard Overview page already had the dashboard's name as its title; it uses the same title style.
 - **Files:** `widgets/src/entries/renderer.ts` (header markup, `.dbb-rtitle`, `.dbb-crumb-d`); E2E test "machine page header" now expects the title.
 - **Deployed** to the local ThingsBoard (build 2026-10-05T17:32:07Z). Not on iserv-demov2.
+- 6 Oct 2026: the title is shown only when the app's side menu is on the page (`#imx-menu-root` or `html.imx-menu-shift`); an app that still has its navbar keeps the line as before, so a server deploy does not show the machine name twice. Harness flag `?shell=1`; E2E tests for both cases. The theme font option's default reads "Same as the app (default)".
 
 ### D-039 App font and no platform name, 5 Oct 2026 (user request)
 - **Why:** Akshay: use the side menu's font (Inter) throughout the application, with font options in the app's Configuration page; and "No mention of Thingsboard anywhere - that is a strict guideline - end user do not need to know underlying framework / platform".

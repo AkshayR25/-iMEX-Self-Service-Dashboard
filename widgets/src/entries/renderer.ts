@@ -218,10 +218,12 @@ export function init(tbCtx: any) {
     st.range = range;
     // One compact line: machine name (the page's title), then org › site · dashboard name, status, time range.
     // D-038: the title is back. It was left out on 28 Sep 2026 because the app's navbar showed the machine; with
-    // the side menu there is no navbar, and nothing on the page said which machine or dashboard is open.
+    // the side menu there is no navbar, and nothing on the page said which machine or dashboard is open. An app
+    // that still has its navbar (no side menu on the page) keeps the line without the title.
     const where = scope.ancestors(ctx, deviceId).reverse().map((a) => a.label).join(' › ');
+    const sideMenu = !!document.querySelector('#imx-menu-root') || document.documentElement.classList.contains('imx-menu-shift');
     head.innerHTML = `
-      <div class="dbb-rtitle" title="${esc(node.label)} (${esc(node.profile)})">${esc(node.label)}</div>
+      ${sideMenu ? `<div class="dbb-rtitle" title="${esc(node.label)} (${esc(node.profile)})">${esc(node.label)}</div>` : ''}
       <div class="dbb-crumb" title="${esc(where)}${dash ? ` · Dashboard: ${esc(dash.name)}` : ''}">${esc(where)}${dash ? `<span class="dbb-crumb-d"> · ${esc(dash.name)}</span>` : ''}</div>
       <span class="dbb-status-pill" style="--pill:${STATUS.neutral}"><span class="dbb-dot"></span>…</span>
       ${timeHtml(range)}`;

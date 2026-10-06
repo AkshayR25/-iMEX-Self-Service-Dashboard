@@ -35,6 +35,8 @@ tb.telemetry.set('pw', { temperature: gen(29, 4) });
 // maximum (4 machines x up to 4 properties, 40 machines in total), and a fake ThingsBoard WebSocket that pushes
 // a new value for EVERY subscribed key of EVERY machine once per second. widgets/e2e/bench.mjs opens it in 5 tabs.
 const BENCH = new URLSearchParams(location.search).has('bench');
+// ?shell=1: the page pretends to have the app's side menu (the renderer then shows the machine name as its title, D-038)
+if (new URLSearchParams(location.search).has('shell')) document.documentElement.classList.add('imx-menu-shift');
 if (BENCH) {
   const KEYS = ['dischargePressure', 'dischargeTemp', 'powerKw', 'runStatus'];
   const devs = ['rc', 'pc'];

@@ -636,7 +636,7 @@ export function themeEditor(host: HTMLElement, theme: DashboardTheme | undefined
       return `<button data-preset="${p}" class="${cur === p ? 'on' : ''}" title="${P.label}"><span class="pv" style="background:${P.plane}"><i style="background:${P.surface};border-color:${P.line}"></i><i style="background:${P.surface};border-color:${P.line}"><b style="background:${P.accent}"></b></i></span><span>${P.label}</span></button>`;
     }).join('')}</div>
     <div class="dbb-row"><div class="dbb-field half"><span>Accent colour</span>${colorInputT('accent', t.accent, PRESETS[cur].accent)}</div>
-      <label class="dbb-field half"><span>Font</span><select data-t="font"><option value="">Inter (default)</option>${FONTS.filter((f) => f !== 'Inter').map((f) => `<option ${t.font === f ? 'selected' : ''}>${f}</option>`).join('')}</select></label></div>
+      <label class="dbb-field half"><span>Font</span><select data-t="font"><option value="">Same as the app (default)</option>${FONTS.filter((f) => f !== 'Inter').map((f) => `<option ${t.font === f ? 'selected' : ''}>${f}</option>`).join('')}</select></label></div>
     <div class="dbb-sec">Background</div>
     <div class="dbb-field"><span>Page colour</span>${colorInputT('bg', t.bg, PRESETS[cur].plane)}</div>
     <div class="dbb-field"><span>Image</span>${
