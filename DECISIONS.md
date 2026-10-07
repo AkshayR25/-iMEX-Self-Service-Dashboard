@@ -477,6 +477,12 @@ A full read-only security review of widgets/src and the chat relay, then fixes, 
 - **Files:** `widgets/src/render/grid.ts` (`COMPACT_COL_W`, `compactLayout`, `Grid.layout/computeView/rect/setHeight`); unit test "compact layout halves the columns without overlaps or zero widths" (98 pass); E2E all pass.
 - **Deployed** to the local ThingsBoard. Not on iserv-demov2.
 
+### D-041 Dashboard list as a page for the new app (headless API `dashboardPage`), 7 Oct 2026 (user request)
+- **Why:** Akshay: the Dashboard list pop-up fitted the current iSERV PM / iMEX, but with the new side menu "the pop-up thing does not go with the new UI" — the list should be a page. The change must not alter the main product: the pop-up stays for the navbar launcher.
+- **What:** `dashboardList(tbCtx, editor, host?)`: with a `host` element the same list (search, A–Z / recent, kinds, Open / Edit, keyboard) is drawn inside it as a page: no backdrop, header, Escape or click-outside; opening a dashboard leaves the page in place; a save or delete in the builder (CHANGED_EVENT) redraws it; the returned `destroy()` removes it. Exposed only in headless mode (D-036) as `window.IMEX_DBB.dashboardPage(host)`. CSS `.dbb-dl-inline`. The new app's widget `imex_dashboards_page` (iMEX App UI repo) uses it.
+- **Files:** `widgets/src/entries/launcher.ts`; E2E in the D-036 test (inline, static, no header, Escape keeps it, destroy removes it).
+- **Deployed** to the local ThingsBoard. Not on iserv-demov2 (there the navbar launcher and its pop-up are unchanged).
+
 ## ThingsBoard quirks found
 
 - `GET /api/plugins/telemetry/.../values/timeseries` returns **at most 100 points** when `limit` is omitted and `agg` is NONE. The service must always pass `limit` (checked: 2,016 stored, 100 returned without a limit).

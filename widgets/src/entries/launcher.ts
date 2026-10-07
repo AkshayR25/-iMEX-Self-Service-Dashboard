@@ -32,7 +32,7 @@
 import { openBuilder, setBuilderPlacement, measureHeaderTop } from '../builder/builder';
 import * as store from '../core/store';
 import { CSS, ensureCss, esc, loadFont } from '../render/theme';
-import { userContext, stateEntity, notifyChanged, currentState, currentActions, ACTIONS_EVENT, EditAction, RSTATE_KEY } from './common';
+import { userContext, stateEntity, notifyChanged, currentState, currentActions, ACTIONS_EVENT, EditAction, RSTATE_KEY, CHANGED_EVENT } from './common';
 import * as scope from '../core/scope';
 
 const MENU_ICONS: Record<string, string> = {
@@ -223,6 +223,8 @@ export function init(tbCtx: any) {
       open: (o?: any) => open(tbCtx, o),
       newDashboard: () => open(tbCtx, { startNew: true }),
       dashboardList: async () => dashboardList(tbCtx, await editorP.catch(() => false)),
+      // D-041: the same list drawn inside an element of the app's own Dashboards page (no pop-up)
+      dashboardPage: async (host: HTMLElement) => dashboardList(tbCtx, await editorP.catch(() => false), host),
       isEditor: () => editorP.catch(() => false),
       actions: () => currentActions(),
     };
@@ -434,6 +436,10 @@ const DL_CSS = `
 .dbb-dl,.dbb-dl *{box-sizing:border-box;font-family:Inter,"Segoe UI",Roboto,Arial,sans-serif;letter-spacing:normal;text-transform:none;line-height:1.35}
 @keyframes dbb-dl-fade{from{opacity:0}}
 @keyframes dbb-dl-up{from{opacity:0;transform:translateY(10px) scale(.985)}}
+.dbb-dl.dbb-dl-inline{position:static;inset:auto;z-index:auto;display:block;height:100%;padding:0;background:none;animation:none}
+.dbb-dl.dbb-dl-inline .box{width:100%;max-width:none;height:100%;max-height:none;border-radius:16px;box-shadow:none;border:1px solid #e4e7ec;animation:none}
+.dbb-dl.dbb-dl-inline .hd{display:none}
+.dbb-dl.dbb-dl-inline .tools{padding-top:16px}
 .dbb-dl button{all:unset;box-sizing:border-box;cursor:pointer;font-family:inherit}
 .dbb-dl input{all:unset;box-sizing:border-box;font-family:inherit}
 .dbb-dl svg{display:block}
@@ -541,7 +547,12 @@ const initials = (n: string) =>
  * click on the row / Enter) shows it in the Dashboard Overview state (openStandalone); editors also get Edit
  * (Dashboard Builder). Esc or a click on the backdrop closes it.
  */
-export async function dashboardList(tbCtx: any, editor: boolean) {
+/**
+ * The Dashboard list: as a pop-up (no `host`), or drawn inside `host` as a page (D-041, headless API
+ * `dashboardPage`). Inside a host there is no backdrop, header or Escape; the list redraws when a dashboard was
+ * saved (CHANGED_EVENT) and is removed with the returned `destroy()`.
+ */
+export async function dashboardList(tbCtx: any, editor: boolean, host?: HTMLElement): Promise<{ destroy: () => void } | void> {
   ensureCss('dbb-css-dlist', DL_CSS);
   registerPlacement(tbCtx);
   const ctx = await userContext(tbCtx);
@@ -560,11 +571,16 @@ export async function dashboardList(tbCtx: any, editor: boolean) {
       applied = null;
     }
   const wrap = document.createElement('div');
-  wrap.className = 'dbb-dl';
-  wrap.style.zIndex = String(aboveBuilder(10040));
-  wrap.setAttribute('role', 'dialog');
-  wrap.setAttribute('aria-modal', 'true');
-  wrap.setAttribute('aria-label', 'Dashboard list');
+  wrap.className = host ? 'dbb-dl dbb-dl-inline' : 'dbb-dl';
+  if (host) {
+    wrap.setAttribute('role', 'region');
+    wrap.setAttribute('aria-label', 'Dashboards');
+  } else {
+    wrap.style.zIndex = String(aboveBuilder(10040));
+    wrap.setAttribute('role', 'dialog');
+    wrap.setAttribute('aria-modal', 'true');
+    wrap.setAttribute('aria-label', 'Dashboard list');
+  }
   wrap.innerHTML = `<div class="box">
     <div class="hd"><div class="logo">${dlsvg('grid')}</div><div class="ttl"><b>Dashboards</b><span>${editor ? 'Overviews, and the dashboards made for a machine type' : "Overviews that aren't tied to one machine"}</span></div><button class="x" data-close aria-label="Close" title="Close (Esc)">${dlsvg('x')}</button></div>
     <div class="tools"><label class="search">${dlsvg('search')}<input data-q type="text" placeholder="${editor ? 'Search by name, owner or machine type' : 'Search by name or owner'}" aria-label="Search dashboards" autocomplete="off"/></label>
@@ -572,13 +588,18 @@ export async function dashboardList(tbCtx: any, editor: boolean) {
     ${editor ? `<div class="kinds" role="tablist" aria-label="Kind"><button role="tab" data-kind="all" class="on">All</button><button role="tab" data-kind="standalone">Overviews</button><button role="tab" data-kind="device">Machine types</button></div>` : ''}
     <div class="list" data-rows role="list"></div>
     <div class="ft"><span data-count></span><div class="pager" data-pager></div></div></div>`;
-  document.body.appendChild(wrap);
+  if (host) {
+    host.innerHTML = '';
+    host.appendChild(wrap);
+  } else document.body.appendChild(wrap);
   const q = wrap.querySelector('[data-q]') as HTMLInputElement;
   const rows = wrap.querySelector('[data-rows]') as HTMLElement;
   let page = 0;
   let sort: 'name' | 'recent' = 'name';
   let kind: 'all' | 'standalone' | 'device' = 'all';
+  // inside a host the page stays when a dashboard is opened; the pop-up closes
   const close = () => {
+    if (host) return;
     wrap.remove();
     document.removeEventListener('keydown', onKey, true);
   };
@@ -588,7 +609,7 @@ export async function dashboardList(tbCtx: any, editor: boolean) {
       close();
     }
   };
-  document.addEventListener('keydown', onKey, true);
+  if (!host) document.addEventListener('keydown', onKey, true);
   const hl = (text: string, f: string) => {
     if (!f) return esc(text);
     const i = text.toLowerCase().indexOf(f);
@@ -684,7 +705,7 @@ export async function dashboardList(tbCtx: any, editor: boolean) {
     }
   };
   wrap.querySelector('[data-close]')!.addEventListener('click', close);
-  wrap.addEventListener('mousedown', (e) => e.target === wrap && close());
+  if (!host) wrap.addEventListener('mousedown', (e) => e.target === wrap && close());
   rows.addEventListener('click', (e) => {
     const t = e.target as HTMLElement;
     const ed = t.closest<HTMLElement>('[data-edit]');
@@ -702,7 +723,25 @@ export async function dashboardList(tbCtx: any, editor: boolean) {
     }
   });
   draw();
-  setTimeout(() => q.focus(), 0);
+  if (!host) setTimeout(() => q.focus(), 0);
+  if (host) {
+    // a dashboard saved or deleted in the builder: the page shows the new list
+    let alive = true;
+    const onChanged = () => {
+      if (!alive || !host.isConnected) return void window.removeEventListener(CHANGED_EVENT, onChanged);
+      alive = false;
+      window.removeEventListener(CHANGED_EVENT, onChanged);
+      void dashboardList(tbCtx, editor, host);
+    };
+    window.addEventListener(CHANGED_EVENT, onChanged);
+    return {
+      destroy: () => {
+        alive = false;
+        window.removeEventListener(CHANGED_EVENT, onChanged);
+        wrap.remove();
+      },
+    };
+  }
 }
 
 /**

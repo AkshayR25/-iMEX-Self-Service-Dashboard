@@ -1416,6 +1416,25 @@ test('D-036: app shell insets: builder opens right of a side menu and follows co
   await t.b(() => window.IMEX_DBB.dashboardList());
   await t.page.waitForSelector('.dbb-dl', { timeout: 6000 });
   ok(true, 'Dashboard list opens through the headless API');
+  // D-041: the same list drawn inside an element (the app's Dashboards page), no backdrop, no header, stays open
+  const inl = await t.b(async () => {
+    const host = document.createElement('div');
+    host.id = 'dl-host';
+    host.style.cssText = 'position:fixed;left:400px;top:100px;width:700px;height:500px';
+    document.body.appendChild(host);
+    const h = await window.IMEX_DBB.dashboardPage(host);
+    const wrap = host.querySelector('.dbb-dl');
+    const cs = getComputedStyle(wrap);
+    const out = { inline: wrap.classList.contains('dbb-dl-inline'), position: cs.position, header: getComputedStyle(wrap.querySelector('.hd')).display, rows: host.querySelectorAll('.row').length, empty: !!host.querySelector('.empty'), hasDestroy: !!(h && h.destroy), stillThere: false };
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    out.stillThere = !!host.querySelector('.dbb-dl');
+    h.destroy();
+    out.gone = !host.querySelector('.dbb-dl');
+    host.remove();
+    return out;
+  });
+  ok(inl.inline && inl.position === 'static' && inl.header === 'none', `inline list: ${JSON.stringify(inl)}`);
+  ok((inl.rows >= 1 || inl.empty) && inl.hasDestroy && inl.stillThere && inl.gone, `rows ${inl.rows} (empty state ${inl.empty}), Escape keeps the page, destroy removes it`);
 });
 
 test('D-034: machine page Edit opens below the app navbar even when our launcher never registered a placement', async (t) => {
