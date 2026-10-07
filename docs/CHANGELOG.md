@@ -4,6 +4,7 @@ Newest first. One row per change; details in `DECISIONS.md`. Rows that also belo
 
 | Date | Commit | Change | Where |
 |---|---|---|---|
+| 2026-10-07 | — | Read-only look at the server's Andon board (sign in as the app user, PM (Manufacturer) tile, Andon icon, start the board; every write blocked in the browser) for the iMEX App UI repo's Andon page (its U-025) | `scripts/mirror/andon-source.mjs` |
 | 2026-10-06 | (D-038) | Machine title in the page header only when the app side menu is on the page (server with navbar: unchanged line) | `widgets/src/entries/renderer.ts` (`sideMenu`) |
 | 2026-10-06 | (D-039) | Fallback font stack starts with DM Sans, the app's new default | `widgets/src/render/theme.ts:114` |
 | 2026-10-07 | (D-042) | ◆ Live values go through ThingsBoard's own WebSocket (widget subscription API) instead of a second connection; own socket only as fallback | `widgets/src/core/tb-socket.ts`, `core/live.ts`, `entries/common.ts` |
