@@ -26,6 +26,8 @@
 //
 // Tests: widgets/test/live.test.ts drives this class with a fake WebSocket.
 
+import { connectLive } from './tb-socket';
+
 /** One live value. Numeric strings are converted to numbers (same rule as api.latest). */
 export interface LivePoint {
   ts: number;
@@ -190,6 +192,35 @@ export class Live {
   onChange(fn: (deviceIds: string[]) => void): () => void {
     this.listeners.add(fn);
     return () => this.listeners.delete(fn);
+  }
+
+  /** True while the subscriptions go through ThingsBoard's own WebSocket (core/tb-socket.ts, D-042). */
+  throughTb(): boolean {
+    return !!(this.ws && (this.ws as any).isTb);
+  }
+
+  /**
+   * Re-opens at once (no back-off) and resubscribes everything, keeping the cached values: used when a ThingsBoard
+   * context appears or goes away (D-042), so the hub moves to the dashboard's own connection without a gap.
+   */
+  reconnect(): void {
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    const ws = this.ws;
+    this.ws = null;
+    if (ws) {
+      ws.onclose = null;
+      try {
+        ws.close();
+      } catch {
+        /* already closed */
+      }
+    }
+    for (const s of this.subs.values()) s.ready = false;
+    this.failures = 0;
+    this.state = 'down';
+    if (this.subs.size) this.open();
+    else this.state = 'idle';
   }
 
   /** Closes the socket and forgets everything (tests, teardown). */
@@ -369,7 +400,8 @@ let enabled = true;
 export function liveHub(): Live | null {
   if (!enabled || typeof window === 'undefined' || typeof (window as any).WebSocket === 'undefined') return null;
   const w = window as any;
-  return (w.__imexDbbLive1 ??= new Live());
+  // D-042: through ThingsBoard's own WebSocket when an iMEX widget lends its context (tb-socket.ts), else our own
+  return (w.__imexDbbLive1 ??= new Live({ connect: connectLive }));
 }
 
 /** Turns the live layer off (REST only), e.g. for tests or a widget setting. */

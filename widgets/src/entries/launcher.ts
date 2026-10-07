@@ -32,7 +32,7 @@
 import { openBuilder, setBuilderPlacement, measureHeaderTop } from '../builder/builder';
 import * as store from '../core/store';
 import { CSS, ensureCss, esc, loadFont } from '../render/theme';
-import { userContext, stateEntity, notifyChanged, currentState, currentActions, ACTIONS_EVENT, EditAction, RSTATE_KEY, CHANGED_EVENT } from './common';
+import { userContext, stateEntity, notifyChanged, currentState, currentActions, ACTIONS_EVENT, EditAction, RSTATE_KEY, CHANGED_EVENT, liveLend, liveRelease } from './common';
 import * as scope from '../core/scope';
 
 const MENU_ICONS: Record<string, string> = {
@@ -208,6 +208,7 @@ export function builderTop(tbCtx: any): number {
  * `window.IMEX_DBB` (the last launcher initialised wins). Cleanup is in destroy().
  */
 export function init(tbCtx: any) {
+  liveLend(tbCtx); // D-042: live values over the dashboard's own WebSocket
   ensureCss('dbb-css-core', CSS);
   ensureCss('dbb-css-launch', BTN_CSS);
   ensureCss('dbb-css-emenu', MENU_CSS);
@@ -800,6 +801,7 @@ export function onStateChanged(tbCtx: any) {
 
 /** Widget onDestroy: stops the state watch, closes the menu and removes the ACTIONS_EVENT listener. */
 export function destroy(tbCtx?: any) {
+  if (tbCtx) liveRelease(tbCtx);
   clearInterval(tbCtx?.__dbbWatch);
   tbCtx?.__dbbMenuCleanup?.();
 }

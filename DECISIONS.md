@@ -483,6 +483,13 @@ A full read-only security review of widgets/src and the chat relay, then fixes, 
 - **Files:** `widgets/src/entries/launcher.ts`; E2E in the D-036 test (inline, static, no header, Escape keeps it, destroy removes it).
 - **Deployed** to the local ThingsBoard. Not on iserv-demov2 (there the navbar launcher and its pop-up are unchanged).
 
+### D-042 Live values over ThingsBoard's own WebSocket (one connection per page), 7 Oct 2026 (user request)
+- **Why:** Akshay asked that the widgets use the WebSocket and share connections, so each page holds as few as possible. The live hub (D-021) opened a WebSocket of its own; the ThingsBoard dashboard keeps one for its widgets, so a machine page had two connections as soon as any other widget subscribed (in the new app the side menu's alarm badge does).
+- **What:** `core/tb-socket.ts`: `TbSocket` looks like a WebSocket to `Live`, which sends its usual TIMESERIES commands; each becomes one `subscriptionApi.createSubscriptionFromInfo('latest', …)` of a ThingsBoard widget context, and the pushed values come back as the usual replies. Live's cache, history, readiness and REST fallback are unchanged. Every iMEX widget lends its context on init (`liveLend`) and takes it back on destroy (`liveRelease`); the newest one still on the page carries the subscriptions; when it goes, the hub reconnects at once through the next (`Live.reconnect()`, cached values kept). Without a context, or without the subscription API, the hub opens its own WebSocket exactly as before (so older platform versions and the test harness are unaffected).
+- **Measured on local (iMEX App UI repo, `measure-pages.mjs`, `live-check.mjs`):** machine and Dashboard Overview pages 1 connection (were 2 with the new app's menu), Builder commands ENTITY_DATA through ThingsBoard, values change on their own, no REST polling of latest values, still one connection and live after Machines → machine page.
+- **Files:** `widgets/src/core/tb-socket.ts` (new), `core/live.ts` (`throughTb`, `reconnect`, `liveHub` connects through `connectLive`), `entries/common.ts` (`liveLend`, `liveRelease`), `entries/renderer.ts`, `listing.ts`, `launcher.ts` (lend on init, release on destroy). Unit tests `widgets/test/tb-socket.test.ts` (5); all 103 unit and all E2E pass.
+- **Server:** additive and self-falling-back; on the current navbar app it moves the machine page's live values onto the dashboard's connection the same way.
+
 ## ThingsBoard quirks found
 
 - `GET /api/plugins/telemetry/.../values/timeseries` returns **at most 100 points** when `limit` is omitted and `agg` is NONE. The service must always pass `limit` (checked: 2,016 stored, 100 returned without a limit).
@@ -499,3 +506,4 @@ A full read-only security review of widgets/src and the chat relay, then fixes, 
 - A customer user with a home dashboard is redirected from `/dashboards/<id>?state=…` to `/dashboard/<id>` without the state parameter; open `/dashboard/<id>?state=…` directly.
 - TBEL: `Math.max(0.0, 1)` (double and integer) fails with "argument type mismatch"; multiply by `1.0` first.
 - `GET /api/plugins/telemetry/.../values/timeseries` returns values as strings unless `useStrictDataTypes=true`; re-posting them as-is would store numbers as text.
+- Widget subscription API (4.3): an `alarmCount` datasource without an entity filter is not pushed when an alarm is raised (ThingsBoard only recounts now and then); with an `entityType` or `entityList` filter the new count arrives about 20 ms after the alarm. Datasource names of count datasources are replaced ("Alarms count", "Alarms count 2", …): match the results by their order.

@@ -6,6 +6,7 @@ Newest first. One row per change; details in `DECISIONS.md`. Rows that also belo
 |---|---|---|---|
 | 2026-10-06 | (D-038) | Machine title in the page header only when the app side menu is on the page (server with navbar: unchanged line) | `widgets/src/entries/renderer.ts` (`sideMenu`) |
 | 2026-10-06 | (D-039) | Fallback font stack starts with DM Sans, the app's new default | `widgets/src/render/theme.ts:114` |
+| 2026-10-07 | (D-042) | ◆ Live values go through ThingsBoard's own WebSocket (widget subscription API) instead of a second connection; own socket only as fallback | `widgets/src/core/tb-socket.ts`, `core/live.ts`, `entries/common.ts` |
 | 2026-10-07 | (D-041) | ◆ Headless API `dashboardPage(host)`: the Dashboard list drawn inside an element as a page (the pop-up stays) | `widgets/src/entries/launcher.ts` (`dashboardList`, `.dbb-dl-inline`) |
 | 2026-10-06 | (D-040) | ◆ Read-only dashboards (machine page, Dashboard Overview) switch to 6 columns when a column would be under 58 px: widths halved, packed in reading order; stored layout and editor unchanged | `widgets/src/render/grid.ts` (`compactLayout`, `Grid.layout`) |
 | 2026-10-05 | (D-039) | ◆ Chat prompt: never name the platform the app is built on | `widgets/src/core/chat.ts:641` |

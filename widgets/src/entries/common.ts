@@ -16,6 +16,7 @@
 import { bindWidgetContext } from '../core/api';
 import { loadUserContext, UserContext } from '../core/scope';
 import { liveHub } from '../core/live';
+import { registerLiveProvider, unregisterLiveProvider, currentProvider } from '../core/tb-socket';
 
 /** Build of this library copy (build.mjs stamps it; same value as IMEX_DBB.version). */
 export const LIB_VERSION = '__VERSION__';
@@ -245,6 +246,22 @@ export function currentActions(): EditActions | null {
  * Skipped while the browser tab is hidden. Returns a stop function (call it on widget destroy).
  * @param pollMs fallback poll interval in ms (e.g. 10 000 realtime, 60 000 historic).
  */
+/**
+ * D-042: the widget lends its ThingsBoard context to the live hub, which then subscribes through the dashboard's own
+ * WebSocket instead of opening one of its own. Call on init; liveRelease on destroy.
+ */
+export function liveLend(tbCtx: any) {
+  if (!registerLiveProvider(tbCtx)) return;
+  const L = liveHub();
+  if (L && !L.throughTb()) L.reconnect();
+}
+export function liveRelease(tbCtx: any) {
+  unregisterLiveProvider(tbCtx);
+  const L = liveHub();
+  // another widget can carry the subscriptions: move there at once (without one, Live's own back-off applies)
+  if (L && !L.throughTb() && currentProvider()) L.reconnect();
+}
+
 export function scheduleRedraw(redraw: () => void, pollMs: () => number, minGapMs = 2000): () => void {
   const L = liveHub();
   let last = Date.now();

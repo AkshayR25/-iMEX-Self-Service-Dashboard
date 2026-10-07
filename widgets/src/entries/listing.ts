@@ -25,7 +25,7 @@ import type { UserContext, Node } from '../core/scope';
 import { CSS, ensureCss, esc, fmtNum, STATUS, loadFont } from '../render/theme';
 import { keyMeta } from '../render/widgets';
 import { ICON_SVG } from '../render/icons';
-import { userContext, stateEntity, CHANGED_EVENT, scheduleRedraw } from './common';
+import { userContext, stateEntity, CHANGED_EVENT, scheduleRedraw, liveLend, liveRelease } from './common';
 
 const L_CSS = `
 .dbb-list{display:flex;height:100%;background:#f4f5f7}
@@ -168,6 +168,7 @@ function initMap(tbCtx: any, host: HTMLElement) {
  * listener; `tbCtx.__dbbReload` / `tbCtx.__dbbCleanup` hooks. REST reads only.
  */
 export function init(tbCtx: any) {
+  liveLend(tbCtx); // D-042: live values over the dashboard's own WebSocket
   ensureCss('dbb-css-core', CSS);
   const host: HTMLElement = tbCtx.$container[0];
   if (tbCtx.settings?.mode === 'map') return initMap(tbCtx, host);
@@ -366,5 +367,6 @@ export function onStateChanged(tbCtx: any) {
 
 /** Widget onDestroy: stops the refresh timer and removes the CHANGED_EVENT listener (listing mode). */
 export function destroy(tbCtx: any) {
+  if (tbCtx) liveRelease(tbCtx);
   (tbCtx as any).__dbbCleanup?.();
 }

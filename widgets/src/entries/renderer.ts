@@ -39,7 +39,7 @@ import { openBuilder } from '../builder/builder';
 import { BUILDER_CSS } from '../builder/styles';
 import { modal, confirmModal, toast } from '../builder/ui';
 import { audit } from '../core/audit';
-import { userContext, currentEntity, currentParam, RSTATE_KEY, CHANGED_EVENT, notifyChanged, publishActions, EditAction, scheduleRedraw } from './common';
+import { userContext, currentEntity, currentParam, RSTATE_KEY, CHANGED_EVENT, notifyChanged, publishActions, EditAction, scheduleRedraw, liveLend, liveRelease } from './common';
 
 const R_CSS = `
 .dbb-rend{height:100%;display:flex;flex-direction:column;background:var(--plane);position:relative}
@@ -93,6 +93,7 @@ let seq = 0;
  * timeseries keys of the device.
  */
 export function init(tbCtx: any) {
+  liveLend(tbCtx); // D-042: live values over the dashboard's own WebSocket
   ensureCss('dbb-css-core', CSS);
   ensureCss('dbb-css-grid', GRID_CSS);
   ensureCss('dbb-css-builder', BUILDER_CSS);
@@ -416,5 +417,6 @@ export function onStateChanged(tbCtx: any) {
 
 /** Widget onDestroy: stops the timer, removes listeners, clears this widget's edit actions, destroys the grid. */
 export function destroy(tbCtx: any) {
+  if (tbCtx) liveRelease(tbCtx);
   (tbCtx as any).__dbbCleanup?.();
 }
