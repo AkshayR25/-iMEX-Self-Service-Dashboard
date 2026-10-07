@@ -73,3 +73,18 @@ export const sourceClient = () =>
 /** The local ThingsBoard (shared with Self-Service Reports). */
 export const targetClient = () =>
   makeClient({ label: 'LOCAL', readOnly: false, base: process.env.TB_URL, username: process.env.TB_TENANT_USERNAME, password: process.env.TB_TENANT_PASSWORD, minDelayMs: Number(process.env.TB_MIN_DELAY_MS ?? 0) });
+
+/**
+ * The NEW tenant on the server (TGT_TB_*), the destination of the local -> server migration (migrate-target.mjs).
+ * Refuses to start when it is the same tenant as the read-only SOURCE tenant (SRC_TB_*), which must never be written.
+ */
+export const newTenantClient = async () => {
+  const c = await makeClient({ label: 'NEW TENANT', readOnly: false, base: process.env.TGT_TB_URL, username: process.env.TGT_TB_USERNAME, password: process.env.TGT_TB_PASSWORD, minDelayMs: Number(process.env.TGT_TB_MIN_DELAY_MS ?? 150) });
+  const me = await c.api('GET', '/api/auth/user');
+  if (me.authority !== 'TENANT_ADMIN') throw new Error('NEW TENANT: the account is not a tenant administrator');
+  const src = await sourceClient();
+  const srcMe = await src.api('GET', '/api/auth/user');
+  if (srcMe.tenantId.id === me.tenantId.id) throw new Error('NEW TENANT is the read-only SOURCE tenant: refusing to write');
+  c.tenantId = me.tenantId.id;
+  return c;
+};
