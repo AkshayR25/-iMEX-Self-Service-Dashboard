@@ -89,6 +89,10 @@ REPORTS_HISTORY_URL=                              # after the first start: the R
 docker compose -p imex-reports-ai -f docker-compose.prod.yml up -d --build   # -p: own container and volume
 ```
 
+Use the Reports code from commit `40f6bc7` (branch phase-1) or later: it shows the catalogue names
+(`displayName`, e.g. "Main Motor Power (kW)") instead of raw keys. `CATALOGUE_STORE_ASSET=CATALOGUE_STORE_ASSET` (by name) works
+as well as the type setting above.
+
 Reports refuses tenant administrators by design: use ar@ / pc@ / vp@ / tl@ / demo@imex.com. The AI summary reads
 the key from this tenant's DBBLLM-CONFIG (2.1).
 
