@@ -86,6 +86,39 @@ const lImages = (await L.api('GET', '/api/images?pageSize=100&page=0&includeSyst
 const tmplUser = (await L.all('/api/users')).find((u) => u.email === TEMPLATE_USER);
 const tmplAttrs = await L.api('GET', `/api/plugins/telemetry/USER/${tmplUser.id.id}/values/attributes/SERVER_SCOPE`);
 say(`local: ${lDevices.length} machines, ${lAssets.length} assets, ${lDP.length} device profiles, ${lAP.length} asset profiles, ${lRC.length} rule chains, ${lWT.length} widget types, ${lImages.length} images, dashboard "${APP_TITLE}" (${Object.keys(lDash.configuration.states).length} states)`);
+// ------------------------------------------------------------------ changes made on the server since the last run
+// The new tenant is also worked on by hand (8 Oct 2026: a run overwrote rule chains and a widget edited on the server;
+// they were restored from the audit log with restore-from-audit.mjs). Everything this run would save again is checked
+// against the tenant's audit log since the previous run; a changed item stops the run. --overwrite=<name>,<name> (or
+// --overwrite=all) lets named items be replaced on purpose: only with Akshay's go-ahead.
+const LAST_RUN = 'mirror-data/target-last-run.json';
+const lastRun = existsSync(LAST_RUN) ? JSON.parse(readFileSync(LAST_RUN, 'utf8')).end : 0;
+const allowArg = (process.argv.find((a) => a.startsWith('--overwrite=')) || '').slice(12);
+const allowed = allowArg === 'all' ? null : new Set(allowArg.split(',').map((x) => x.trim()).filter(Boolean));
+const written = new Set(Object.values(idmap));
+const changed = {};
+if (lastRun) {
+  for (let p = 0; p < 50; p++) {
+    const r = await T.api('GET', `/api/audit/logs?pageSize=1000&page=${p}&startTime=${lastRun}&endTime=${Date.now()}&sortProperty=createdTime&sortOrder=DESC`);
+    for (const a of r.data) {
+      if (/LOGIN|LOGOUT/.test(a.actionType) || !a.entityId || !written.has(a.entityId.id)) continue;
+      const k = `${a.entityId.entityType} "${a.entityName}"`;
+      (changed[k] ||= { name: a.entityName, n: 0, last: a.createdTime, what: new Set() }).n++;
+      changed[k].what.add(a.actionType);
+    }
+    if (!r.hasNext) break;
+  }
+}
+const blocked = Object.entries(changed).filter(([, c]) => allowed && !allowed.has(c.name));
+if (Object.keys(changed).length) {
+  say(`changed on the server since the last run (${new Date(lastRun).toISOString().slice(0, 16)} UTC), would be overwritten:`);
+  for (const [k, c] of Object.entries(changed)) say(`  ${k}: ${c.n}x ${[...c.what].join('/')}, last ${new Date(c.last).toISOString().slice(0, 16)} UTC${allowed && !allowed.has(c.name) ? '' : '  (overwrite allowed)'}`);
+}
+if (GO && blocked.length) {
+  say(`STOPPED: ${blocked.length} item(s) were changed on the server. Nothing was written. Agree with Akshay first; then name them in --overwrite=... or bring the server's version back to local.`);
+  process.exit(1);
+}
+
 if (!GO) {
   say(`would create: customer ${CUSTOMER.server}; users ${USERS.map((u) => u.email + ' (' + u.role + ')').join(', ')}`);
   say(`machines: ${lDevices.map((d) => d.name).sort().join(', ')}`);
@@ -300,4 +333,5 @@ const sys = lAssets.find((a) => a.name === 'System Configuration');
 await w('POST', `/api/plugins/telemetry/ASSET/${idmap[sys.id.id]}/attributes/SERVER_SCOPE`, { authToken: T.token() });
 const exp = JSON.parse(Buffer.from(T.token().split('.')[1], 'base64url').toString()).exp;
 say(`authToken set on "System Configuration", valid until ${new Date(exp * 1000).toISOString().slice(0, 10)}`);
+writeFileSync(LAST_RUN, JSON.stringify({ end: Date.now() }));
 say('done. Next: AIML backfill (90 days) and, once the LLM key is on DBBLLM-CONFIG, install-native-ai.');
