@@ -176,3 +176,17 @@ key change, this is run again.
 | Dashboard | Self Service Dashboard, 20 pages |
 
 Which entity and key each page and process uses: `D:\Claude Code\iMEX App UI\docs\DATA_MAP.xlsx`.
+
+## 5. Later updates (from 9 Oct 2026)
+
+- **Widget code only:** `node scripts/mirror/push-widgets-target.mjs` (dry run) / `--go`. Copies the app's widget types
+  from local, nothing else (dashboard, rule chains, device profiles, assets and machines on the server stay as they
+  are). Widget types edited on the server since the last run are merged with git merge-file, from the base read with
+  `scripts/mirror/widget-history.mjs`; a conflict or an unknown base stops it before anything is written. Local ids in
+  widget code are replaced with the server's (`mirror-data/target-idmap.json`).
+- **9 Oct 2026:** 29 widget types updated this way; the server's hand edits kept (debug logs commented out in Machine
+  cards and Organization hierarchy, the ITHENA customer id in User management). The dashboard: only the Sites page
+  title changed to "Fleet overview" (`set-sites-title.mjs`).
+- **Reports service:** pull and rebuild on pmiserv-thg (`sh scripts/deploy.sh --pull`, commit 851be3d or later) for
+  12/24-hour times in PDFs (Configuration > Look & feel > Clock) and the app logo as the reports' last logo fallback.
+  Optional `.env` setting `APP_CONFIG_ASSET` (default "System Configuration").
