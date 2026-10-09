@@ -13,6 +13,8 @@ export class FakeTB {
   relations: { from: string; to: string }[] = [];
   telemetry = new Map<string, Record<string, { ts: number; value: any }[]>>();
   calls: string[] = [];
+  /** Every request with its query string (D-048 tests count aggregate reads by `agg`). */
+  urls: string[] = [];
   /** Active alarms for /api/alarmsQuery/find. */
   alarms: { originator: string; type: string }[] = [];
   me = { id: { id: 'u1' }, customerId: { id: 'c1' }, email: 'admin@x', authority: 'CUSTOMER_USER', firstName: 'Asha', lastName: 'Admin' };
@@ -39,6 +41,7 @@ export class FakeTB {
     const u = new URL(url, 'http://tb');
     const method = (init.method ?? 'GET').toUpperCase();
     this.calls.push(`${method} ${u.pathname}`);
+    this.urls.push(`${method} ${u.pathname}${u.search}`);
     if (this.failNext && this.failNext.match.test(u.pathname)) {
       const s = this.failNext.status;
       this.failNext = null;
@@ -85,7 +88,7 @@ export class FakeTB {
             const i = Math.floor((x.ts - st) / iv);
             b.set(i, [...(b.get(i) ?? []), Number(x.value)]);
           }
-          const f = (v: number[]) => (agg === 'MIN' ? Math.min(...v) : agg === 'MAX' ? Math.max(...v) : agg === 'SUM' ? v.reduce((p, c) => p + c, 0) : v.reduce((p, c) => p + c, 0) / v.length);
+          const f = (v: number[]) => (agg === 'COUNT' ? v.length : agg === 'MIN' ? Math.min(...v) : agg === 'MAX' ? Math.max(...v) : agg === 'SUM' ? v.reduce((p, c) => p + c, 0) : v.reduce((p, c) => p + c, 0) / v.length);
           const out = [...b.entries()].sort((x, y) => (asc ? x[0] - y[0] : y[0] - x[0])).map(([i, v]) => ({ ts: st + i * iv + Math.floor(iv / 2), value: String(+f(v).toFixed(4)) }));
           return out.slice(0, Number(u.searchParams.get('limit') ?? 1e9));
         }
@@ -149,7 +152,9 @@ export class FakeTB {
     }
     if (p === '/api/entitiesQuery/find' && method === 'POST') {
       const f = body.entityFilter;
-      const rows = (f.entityList as string[])
+      // entityList, or entityName (name starts with the filter, as ThingsBoard does)
+      const ids: string[] = f.type === 'entityName' ? [...this.entities.values()].filter((e) => e.entityType === f.entityType && e.name.startsWith(f.entityNameFilter)).map((e) => e.id) : f.entityList;
+      const rows = ids
         .map((id) => this.entities.get(id))
         .filter((e) => e && e.entityType === f.entityType)
         .map((e) => {

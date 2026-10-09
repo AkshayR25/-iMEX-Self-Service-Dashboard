@@ -9,11 +9,12 @@
  * Exports:
  * - `modal`: generic dialog with custom HTML body and buttons; returns a handle.
  * - `confirmModal`: yes/no wrapper around `modal`.
- * - `toast`: short, auto-dismissing status message.
+ * - `toast`: short, auto-dismissing status message (D-045: the iMEX app's toast when the app is on the page).
  * Used by `builder/builder.ts` (save/apply flow, templates, history, warnings) and by
  * `entries/renderer.ts` for the machine page's edit-menu dialogs (Customise, Reset, thresholds).
  */
 import { esc } from '../render/theme';
+import { kitToast } from '../render/kit';
 
 /** Handle returned by `modal()`. */
 export interface ModalHandle {
@@ -83,12 +84,15 @@ export async function confirmModal(root: HTMLElement, title: string, text: strin
 }
 
 /**
- * Shows a short message in a toast stack inside `root` (created on first use, with
+ * Shows a short message. D-045: inside the iMEX app it goes to the app's one toast stack (bottom right, themed,
+ * window.imxToast; kinds ok / warn / error), so the Builder never shows a second kind of toast there. Without the
+ * app (the stand-in app, the test harness) it uses its own stack inside `root` (created on first use, with
  * `role="status"` so screen readers announce it). Errors stay 8 s, others 4 s.
  * @param text Plain text (set via textContent, so no escaping needed).
  * @param kind 'ok' (dark), 'warn' (amber) or 'err' (red).
  */
 export function toast(root: HTMLElement, text: string, kind: 'ok' | 'warn' | 'err' = 'ok') {
+  if (kitToast(text, kind)) return;
   let host = root.querySelector('.dbb-toasts') as HTMLElement | null;
   if (!host) {
     host = document.createElement('div');

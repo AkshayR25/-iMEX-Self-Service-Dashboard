@@ -180,10 +180,19 @@ export class Grid {
     });
   }
 
-  /** Replaces the render environment (e.g. new time range or theme) and redraws every widget. */
+  /**
+   * Replaces the render environment and redraws every widget.
+   * D-043: for the same machine and user context (a new time range or theme) every card keeps what it shows and
+   * redraws in place with a hairline (WidgetHandle.update); for another machine or context the cards are made again
+   * and show their loading placeholders, so no card shows the previous machine's values under the new header.
+   */
   setEnv(env: RenderEnv) {
+    const prev = this.env;
     this.env = env;
-    this.render(this.widgets, true);
+    if (prev && prev.deviceId === env.deviceId && prev.ctx === env.ctx) {
+      for (const h of this.handles.values()) void h.update(env);
+      this.render(this.widgets);
+    } else this.render(this.widgets, true);
   }
 
   /** Merges options (selection, highlight, callbacks) and repaints selection; does not redraw widgets. */

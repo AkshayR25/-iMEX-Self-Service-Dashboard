@@ -284,11 +284,14 @@ async function buildTree(ctx: UserContext, roots: { entityId: string; entityType
   // D-037: the relations (2 calls per root) are kept for the browser session, 10 minutes, per user and root set.
   // Every page of the app loads the library again (the headless launcher is on each state), so without this a
   // user with 50 locations paid 100 relation calls on every page change. A failed call is never cached.
+  // D-046: the iMEX app's widgets (imxShell.tree, and the shift directory) read and write the same key in the same
+  // shape {at, down, up} (one list per root, in root order; theirs may add `names`), so a page after an app page
+  // needs no relation call here and the other way round. An entry of another shape is ignored.
   const cacheKey = `imex-dbb-rel:${ctx.userId}:${refs.map((r) => r.id).join(',')}`;
   let cached: { at: number; down: api.Rel[][]; up: api.Rel[][] } | null = null;
   try {
     const hit = JSON.parse(sessionStorage.getItem(cacheKey) || 'null');
-    if (hit && Date.now() - hit.at < REL_CACHE_MS && Array.isArray(hit.down) && Array.isArray(hit.up)) cached = hit;
+    if (hit && Date.now() - hit.at < REL_CACHE_MS && Array.isArray(hit.down) && Array.isArray(hit.up) && hit.down.length === refs.length && hit.up.length === refs.length && [...hit.down, ...hit.up].every(Array.isArray)) cached = hit;
   } catch {
     /* no session storage, or not JSON */
   }

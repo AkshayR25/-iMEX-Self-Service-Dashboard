@@ -43,6 +43,7 @@ export const BUILDER_CSS = `
 .dbb-btn.sm{padding:4px 9px;font-size:12px}
 .dbb-btn.on{background:color-mix(in srgb,var(--accent) 10%,#fff);border-color:var(--accent);color:var(--accent)}
 .dbb-btn.danger-fill{background:var(--danger);border-color:var(--danger)}
+.dbb-btn.icon.danger:hover:not(:disabled){background:var(--imx-bad-bg,#FEE2E2);border-color:color-mix(in srgb,var(--imx-bad-tx,#B91C1C) 30%,var(--line));color:var(--imx-bad-tx,#B91C1C)}
 .dbb-banner-row{display:flex;flex-direction:column;gap:4px;padding:8px 14px 0}
 .dbb-banner-row[hidden]{display:none}
 .dbb-main{flex:1;display:flex;min-height:0}
@@ -227,7 +228,7 @@ export const BUILDER_CSS = `
 .dbb-tpl-grid.mini .dbb-tpl .pv{height:54px}
 .dbb-busy{position:absolute;right:16px;bottom:16px;background:#1a1a19;color:#fff;border-radius:10px;padding:9px 13px;display:flex;gap:8px;align-items:center;font-size:12px;z-index:20;box-shadow:0 6px 18px rgba(0,0,0,.2)}
 .dbb-busy[hidden]{display:none}
-.dbb-spin{width:14px;height:14px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:dbbspin .8s linear infinite}
+.dbb-spin{width:14px;height:14px;border:2px solid rgba(255,255,255,.3);border-top-color:var(--accent);border-radius:50%;animation:dbbspin .8s linear infinite}
 @keyframes dbbspin{to{transform:rotate(360deg)}}
 .dbb-chat{display:flex;flex-direction:column;height:100%;gap:8px;min-height:0}
 .dbb-chat-log{flex:1;overflow:auto;display:flex;flex-direction:column;gap:8px;min-height:120px}
@@ -242,6 +243,8 @@ export const BUILDER_CSS = `
 .dbb-chat-form{display:flex;gap:6px;align-items:flex-end}
 .dbb-chat-form textarea{flex:1;font:inherit;padding:9px;border:1px solid var(--line);border-radius:12px;resize:none}
 .dbb-typing{color:var(--ink-3)}
+.dbb-msg-busy{display:flex;flex-direction:column;gap:7px;min-width:140px}
+.dbb-msg-busy .imx-prog{width:100%}
 .dbb-modal{position:absolute;inset:0;background:rgba(10,14,20,.42);backdrop-filter:blur(2px);display:flex;align-items:center;justify-content:center;z-index:30}
 .dbb-modal-box{background:#fff;border-radius:14px;min-width:360px;max-width:min(820px,94vw);max-height:86vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3);animation:dbbfade .18s ease-out}
 .dbb-modal-h{font-size:16px;font-weight:600;padding:16px 18px 6px;line-height:1.35;margin:0}
@@ -303,33 +306,36 @@ export const BUILDER_CSS = `
 .dbb-st-time{flex:none;font-size:12px;color:#8a919c;white-space:nowrap}
 .dbb-st-chev{flex:none;display:inline-flex;color:#9aa1ac}
 .dbb-st-chev svg{width:16px;height:16px}
-.dbb-st-skel{height:58px;border-bottom:1px solid #eef0f3;background:linear-gradient(90deg,#f4f5f7 25%,#eceef1 37%,#f4f5f7 63%);background-size:400% 100%;animation:dbb-st-sh 1.2s ease infinite}
-@keyframes dbb-st-sh{0%{background-position:100% 50%}100%{background-position:0 50%}}
+.dbb-st-skel{display:flex;align-items:center;gap:12px;height:58px;padding:11px 14px;border-bottom:1px solid #eef0f3}
+.dbb-st-skel:last-child{border-bottom:none}
+.dbb-st-skel .av{flex:none;width:36px;height:36px;border-radius:10px}
+.dbb-st-skel .ln{display:flex;flex-direction:column;gap:7px;flex:1;min-width:0}
+.dbb-st-skel .ln .imx-skel{height:11px;width:45%}
+.dbb-st-skel .ln .imx-skel+.imx-skel{width:70%}
 .dbb-st-none{padding:18px;text-align:center;font-size:13px;color:#6b7380}
 .dbb-st-foot{font-size:12.5px;color:#8a919c;text-align:center}
 @media (max-width:640px){.dbb-st{padding:20px 16px}.dbb-st-time{display:none}}
 .dbb-modal-box.wide{width:min(1040px,94vw);max-width:min(1040px,94vw)}
-/* D-027: Open dashboard dialog. Divs + grid (not <table>) so ThingsBoard's table styles can't change font or size. */
+/* D-027: Open dashboard dialog. Divs + grid (not <table>) so ThingsBoard's table styles can't change font or size. D-044: every header and value centred. */
 .dbb-od,.dbb-od *{font-family:Inter,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;box-sizing:border-box}
 .dbb-od-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:2px 0 12px}
 .dbb-od-count{font-size:13px;color:#5c6470}
 .dbb-od-list{border:1px solid #e6e8ec;border-radius:10px;overflow:auto;max-height:56vh}
 .dbb-od-row{display:grid;grid-template-columns:minmax(220px,2.2fr) minmax(130px,1.2fr) 80px minmax(130px,1.3fr) minmax(170px,1.4fr);column-gap:24px;align-items:center;padding:11px 18px;border-bottom:1px solid #eef0f3;font-size:13.5px;color:#1f2933;line-height:1.35}
+.dbb-od-row>*{text-align:center;min-width:0}
 .dbb-od-row:last-child{border-bottom:none}
 .dbb-od-head{position:sticky;top:0;z-index:1;background:#f7f8fa;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#6b7380;padding-top:10px;padding-bottom:10px}
 .dbb-od-body .dbb-od-row{cursor:pointer;transition:background .12s}
 .dbb-od-body .dbb-od-row:hover,.dbb-od-body .dbb-od-row:focus-visible{background:#f1f6fd;outline:none}
 .dbb-od-name{font-weight:600;color:#111827;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dbb-od-name .dbb-od-sub{font-weight:400;color:#8a919c;margin-left:6px;font-size:12px}
-.dbb-od-type{justify-self:start;display:inline-block;font-size:12px;font-weight:500;padding:3px 10px;border-radius:999px;background:#eaf2fd;color:#1d5fb8;white-space:nowrap}
+.dbb-od-type{justify-self:center;display:inline-block;font-size:12px;font-weight:500;padding:3px 10px;border-radius:999px;background:#eaf2fd;color:#1d5fb8;white-space:nowrap}
 .dbb-od-type.sa{background:#f1eefd;color:#5b3fc4}
-.dbb-od-num{text-align:right;font-variant-numeric:tabular-nums}
+.dbb-od-num{text-align:center;font-variant-numeric:tabular-nums}
 .dbb-od-muted{color:#5c6470;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dbb-od-muted small{color:#8a919c;font-size:12px}
 .dbb-od-empty{padding:28px;text-align:center;color:#6b7380;font-size:13px}
 @media (max-width:760px){.dbb-od-row{grid-template-columns:1fr auto;row-gap:4px}.dbb-od-row>:nth-child(n+3){display:none}}
-.dbb-pick tbody tr{cursor:pointer}
-.dbb-pick tbody tr:hover{background:#f3f8fe}
 .dbb-toasts{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);display:flex;flex-direction:column;gap:6px;z-index:40}
 .dbb-toast{background:#1a1a19;color:#fff;padding:9px 16px;border-radius:10px;font-size:13px;max-width:70vw;box-shadow:0 6px 18px rgba(0,0,0,.2);animation:dbbfade .2s ease-out}
 .dbb-toast.err{background:#8e2222}

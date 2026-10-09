@@ -30,7 +30,9 @@ import * as api from '../core/api';
 import * as scope from '../core/scope';
 import * as store from '../core/store';
 import type { UserContext } from '../core/scope';
-import { normalizeRange } from '../core/schema';
+import { normalizeRange, isShiftRange, rangeWindow } from '../core/schema';
+import { calendarFor, shiftWindowText } from '../core/shifts';
+import { ensureKitCss, pageBusy } from '../render/kit';
 import type { Dashboard } from '../core/schema';
 import { Grid, GRID_CSS } from '../render/grid';
 import { CSS, ensureCss, esc, STATUS, ago, agoWords, applyTheme } from '../render/theme';
@@ -65,12 +67,19 @@ const R_CSS = `
 .dbb-rtools{margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .dbb-rtools select{font:inherit;font-size:12px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink)}
 .dbb-rbody{flex:1;overflow:auto;min-height:0;padding:4px 6px}
+.dbb-rhead-skel{display:flex;align-items:center;gap:12px;flex:1;min-width:0}
+.dbb-rhead-skel .imx-skel{flex:none;height:14px}
+.dbb-dark .dbb-rhead-skel .imx-skel{--imx-skel1:rgba(255,255,255,.07);--imx-skel2:rgba(255,255,255,.13)}
 `;
+/** D-043: the header while the page loads (name, path, status and time window in the shape of the real line). */
+const HEAD_SKEL = `<div class="dbb-rhead-skel" aria-busy="true" aria-label="Loading"><span class="imx-skel" style="width:150px;height:18px"></span><span class="imx-skel" style="width:min(260px,30%)"></span><span class="imx-skel" style="width:74px;height:20px;border-radius:999px"></span><span class="imx-skel" style="margin-left:auto;width:min(220px,25%);height:24px;border-radius:999px"></span></div>`;
 
-/** D-033: time window in words for the header ("Last 8 hours", "Live · last hour"). */
+/** D-033: time window in words for the header ("Last 8 hours", "Live · last hour"; D-047 "Current shift"). */
 function windowLabel(range: string): string {
   const n = normalizeRange(range);
   if (n === 'realtime') return 'Live · last hour';
+  if (n === 'shift') return 'Current shift';
+  if (n === 'prevshift') return 'Previous shift';
   const h = parseInt(n, 10);
   return `Last ${h} hour${h === 1 ? '' : 's'}`;
 }
@@ -78,7 +87,12 @@ const CLOCK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke
 /** D-033 header items: the dashboard's time window and when its newest data point arrived (filled by the ticker). */
 function timeHtml(range: string): string {
   const live = normalizeRange(range) === 'realtime';
-  return `<span class="dbb-tw" title="${live ? 'Dashboard time window: live values (updated as they arrive); charts show the last hour' : 'Dashboard time window: charts and summaries cover this period, ending now'}"><span class="k">${CLOCK}<span>Time window</span></span><span class="v ${live ? 'live' : ''}">${esc(windowLabel(range))}</span></span><span class="dbb-upd" aria-live="off"><span class="d"></span><span class="t">Waiting for data…</span></span>`;
+  const tip = live
+    ? 'Dashboard time window: live values (updated as they arrive); charts show the last hour'
+    : isShiftRange(range)
+      ? 'Dashboard time window: charts and summaries cover this shift, from the shift settings of the machine\x27s site (Configuration › Shifts)'
+      : 'Dashboard time window: charts and summaries cover this period, ending now';
+  return `<span class="dbb-tw" title="${tip}"><span class="k">${CLOCK}<span>Time window</span></span><span class="v ${live ? 'live' : ''}">${esc(windowLabel(range))}</span></span><span class="dbb-upd" aria-live="off"><span class="d"></span><span class="t">Waiting for data…</span></span>`;
 }
 /** Counter for unique ids of renderer instances in this library copy (used as the publishActions owner). */
 let seq = 0;
@@ -98,6 +112,7 @@ export function init(tbCtx: any) {
   ensureCss('dbb-css-grid', GRID_CSS);
   ensureCss('dbb-css-builder', BUILDER_CSS);
   ensureCss('dbb-css-rend', R_CSS);
+  ensureKitCss();
   const host: HTMLElement = tbCtx.$container[0];
   const id = `r${++seq}`;
   const st: {
@@ -123,7 +138,7 @@ export function init(tbCtx: any) {
       /* ignore */
     }
   };
-  host.innerHTML = `<div class="dbb-root dbb-rend" id="${id}"><div class="dbb-rhead"><div class="dbb-ph" style="height:auto">Loading…</div></div><div class="dbb-rbody"><div class="dbb-rgrid"></div></div></div>`;
+  host.innerHTML = `<div class="dbb-root dbb-rend" id="${id}"><div class="dbb-rhead">${HEAD_SKEL}</div><div class="dbb-rbody"><div class="dbb-rgrid"></div></div></div>`;
   const root = host.querySelector('.dbb-rend') as HTMLElement;
   const head = root.querySelector('.dbb-rhead') as HTMLElement;
   const gridHost = root.querySelector('.dbb-rgrid') as HTMLElement;
@@ -139,6 +154,15 @@ export function init(tbCtx: any) {
   const load = async (force = false) => {
     const seq = (st.loadSeq = (st.loadSeq ?? 0) + 1);
     const stale = () => seq !== st.loadSeq;
+    // D-043: the app's page bar runs while the page resolves (first open, machine switch, another dashboard)
+    pageBusy(`rend-${id}`, true);
+    try {
+      await loadPage(stale, force);
+    } finally {
+      if (!stale()) pageBusy(`rend-${id}`, false);
+    }
+  };
+  const loadPage = async (stale: () => boolean, force: boolean) => {
     const { ent, standaloneId, key } = pageKey();
     if (key !== st.lastKey) {
       st.override = null;
@@ -170,11 +194,21 @@ export function init(tbCtx: any) {
     const params = n ? { entityId: { id: n.id, entityType: n.entityType }, entityName: n.label, entityLabel: n.label } : {};
     tbCtx.stateController?.openState?.(stateId, params, false);
   };
+  // D-047: the header names the shift the window shows ("Morning · 06:00–14:00"); refreshed every 30 s by the ticker
+  const shiftLabel = (ctx: UserContext, deviceId: string) => {
+    const range = st.range;
+    if (!range || !isShiftRange(range)) return;
+    void calendarFor(ctx, deviceId).then((cal) => {
+      if (st.range !== range || st.deviceId !== deviceId) return;
+      const v = head.querySelector('.dbb-tw .v');
+      if (v) v.textContent = shiftWindowText(rangeWindow(range, cal), cal?.tz);
+    });
+  };
   // Applies the dashboard theme and creates the read-only grid once, then only updates its environment.
   const ensureGrid = (ctx: UserContext, deviceId: string | null, range: string, theme?: Dashboard['theme']) => {
     const { dark } = applyTheme(root, theme);
     void body;
-    const env = { ctx, deviceId, timeRange: range, theme: theme ?? null, dark, navigate };
+    const env = { ctx, deviceId, timeRange: range, theme: theme ?? null, dark, navigate, busyKey: id };
     if (!st.grid) st.grid = new Grid(gridHost, env, { editable: false });
     else st.grid.setEnv(env);
     return st.grid;
@@ -230,6 +264,7 @@ export function init(tbCtx: any) {
       <div class="dbb-crumb" title="${esc(where)}${dash ? ` · Dashboard: ${esc(dash.name)}` : ''}">${esc(where)}${dash ? `<span class="dbb-crumb-d"> · ${esc(dash.name)}</span>` : ''}</div>
       <span class="dbb-status-pill" style="--pill:${STATUS.neutral}"><span class="dbb-dot"></span>…</span>
       ${timeHtml(range)}`;
+    shiftLabel(ctx, deviceId);
     // the built-in layout uses every key the machine type sends, not only the catalogued ones (9 Oct 2026)
     if (!dash) {
       await scope.liveKeys(ctx, [node.profile]);
@@ -370,6 +405,8 @@ export function init(tbCtx: any) {
   }, 500);
   // D-033: "Updated x ago" from the newest data point the widgets received (api data clock), every second.
   const tick = () => {
+    st.ticks = (st.ticks ?? 0) + 1;
+    if (st.ticks % 30 === 0 && st.ctx && st.deviceId) shiftLabel(st.ctx, st.deviceId);
     const el = head.querySelector('.dbb-upd') as HTMLElement | null;
     if (!el) return;
     const ts = api.lastDataTs();

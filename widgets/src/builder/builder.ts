@@ -47,7 +47,10 @@ import * as scope from '../core/scope';
 import type { UserContext } from '../core/scope';
 import * as store from '../core/store';
 import * as chat from '../core/chat';
-import { RELATIVE_MODES, Dashboard, Widget, WidgetType, WIDGET_TYPES, WIDGET_LABELS, WIDGET_CAPS, WIDGET_GROUPS, CONTENT_TYPES, DEFAULT_SIZE, TIME_RANGES, HISTORIC_RANGES, MAX_WIDGETS, MAX_KEYS, MAX_DEVICES, normalizeRange, rangeLabel, checkDashboard, dashboardKind, newId } from '../core/schema';
+import { RELATIVE_MODES, Dashboard, Widget, WidgetType, WIDGET_TYPES, WIDGET_LABELS, WIDGET_CAPS, WIDGET_GROUPS, CONTENT_TYPES, DEFAULT_SIZE, TIME_RANGES, HISTORIC_RANGES, SHIFT_RANGES, MAX_WIDGETS, MAX_KEYS, MAX_DEVICES, normalizeRange, rangeLabel, isShiftRange, rangeWindow, checkDashboard, dashboardKind, newId } from '../core/schema';
+import { calendarFor, shiftWindowText } from '../core/shifts';
+import { ensureKitCss, topProgress, progressBar } from '../render/kit';
+import type { TopProgress } from '../render/kit';
 import { Grid, GRID_CSS, firstFit, resolveCollisions } from '../render/grid';
 import { CSS, ensureCss, esc, el, applyTheme, PRESETS, loadFont, miniMarkdown as miniToHtml } from '../render/theme';
 import { bindingLabel, defaultWidgets, keyMeta } from '../render/widgets';
@@ -212,6 +215,7 @@ export function openBuilder(o: BuilderOptions) {
   ensureCss('dbb-css-core', CSS);
   ensureCss('dbb-css-grid', GRID_CSS);
   ensureCss('dbb-css-builder', BUILDER_CSS);
+  ensureKitCss();
   loadFont('Inter'); // builder chrome font (user decision 28 Sep 2026)
   // D-029: one builder at a time (a second click on the menu, or the browser's Back button while it is open,
   // must not stack a second overlay over the first); the open one is brought back instead.
@@ -301,6 +305,8 @@ class Builder {
   highlight = new Set<string>();
   /** True while a REST call or chat turn is in flight (spinner shown, chat Send disabled). */
   busy = false;
+  /** D-043: the hairline under the editor header while busy. */
+  busyBar: TopProgress | null = null;
   /** Reported to `onClose` so the host page knows to reload. */
   savedAnything = false;
   /** What the selected machine currently shows (store.resolveForDevice); drives the banner. */
@@ -817,9 +823,17 @@ class Builder {
     this.renderRight();
   }
 
-  /** Shows or hides the full-overlay spinner with `label`, and sets `busy`. */
+  /**
+   * Shows or hides the busy pill with `label`, and sets `busy`. D-043: also a theme-coloured hairline along the
+   * bottom of the editor header (kit progress bar) while busy.
+   */
   setBusy(on: boolean, label = '') {
     this.busy = on;
+    if (on && !this.busyBar) this.busyBar = topProgress(this.root.querySelector('.dbb-main') as HTMLElement, { delay: 120, label: label || 'Working' });
+    else if (!on && this.busyBar) {
+      this.busyBar.done();
+      this.busyBar = null;
+    }
     const b = this.root.querySelector('.dbb-busy') as HTMLElement;
     if (!b) return;
     b.hidden = !on;
@@ -872,7 +886,8 @@ class Builder {
   }
 
   /**
-   * Top bar: machine picker, dashboard name, time range (Realtime or Historic 1-8 h, D-020) and
+   * Top bar: machine picker, dashboard name, time range (Realtime, Historic 1-8 h, D-020, or Shift current /
+   * previous, D-047) and
    * tools (Open, Templates, Undo/Redo, Preview, History, Delete, Save as, Apply, Save, Close).
    * History, Save as and Apply appear only once the dashboard has been saved (version > 0).
    */
@@ -883,13 +898,17 @@ class Builder {
     const canDelete = d.version > 0 && (d.ownerId === this.ctx.userId || this.ctx.isAdmin);
     // Wraps SVG path markup in a 24x24 stroke icon.
     const U = (p: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
+    const shiftOn = isShiftRange(d.timeRange);
+    const histOn = d.timeRange !== 'realtime' && !shiftOn;
     top.innerHTML = `
       <label class="dbb-field"><span>Machine</span><select data-a="machine">${this.machineOptions()}</select></label>
       <label class="dbb-field grow"><span>Dashboard name</span><input data-a="name" maxlength="120" value="${esc(d.name)}"/></label>
       <div class="dbb-field"><span>Time range</span><div class="dbb-range"><div class="dbb-seg sm" role="radiogroup" aria-label="Time range">
         <button data-rng="realtime" class="${d.timeRange === 'realtime' ? 'on' : ''}" title="Latest values, updated every 10 s. Charts show a rolling last hour."><span class="dbb-live"></span>Realtime</button>
-        <button data-rng="hist" class="${d.timeRange !== 'realtime' ? 'on' : ''}" title="A fixed window ending now: 1 to 8 hours">Historic</button></div>
-        ${d.timeRange !== 'realtime' ? `<select data-a="range" aria-label="Historic duration">${HISTORIC_RANGES.map((r) => `<option value="${r}" ${r === d.timeRange ? 'selected' : ''}>Last ${r.replace('h', ' h')}</option>`).join('')}</select>` : ''}</div></div>
+        <button data-rng="hist" class="${histOn ? 'on' : ''}" title="A fixed window ending now: 1 to 8 hours">Historic</button>
+        <button data-rng="shift" class="${shiftOn ? 'on' : ''}" title="The current shift so far, or the previous shift, from the shift settings of the machine's site (Configuration › Shifts)">Shift</button></div>
+        ${histOn ? `<select data-a="range" aria-label="Historic duration">${HISTORIC_RANGES.map((r) => `<option value="${r}" ${r === d.timeRange ? 'selected' : ''}>Last ${r.replace('h', ' h')}</option>`).join('')}</select>` : ''}
+        ${shiftOn ? `<select data-a="range" aria-label="Which shift">${SHIFT_RANGES.map((r) => `<option value="${r}" ${r === d.timeRange ? 'selected' : ''}>${r === 'shift' ? 'Current' : 'Previous'}</option>`).join('')}</select>` : ''}</div></div>
       <div class="dbb-tools">
         <button class="dbb-btn" data-a="new" title="Create a new dashboard">${U('<path d="M12 5v14M5 12h14"/>')}New</button>
         <button class="dbb-btn" data-a="open" title="Open an existing dashboard">${U('<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>')}Open</button>
@@ -909,10 +928,21 @@ class Builder {
     (q('machine') as HTMLSelectElement).onchange = (e) => void this.selectMachine((e.target as HTMLSelectElement).value || null);
     (q('name') as HTMLInputElement).onchange = (e) => this.mutate((x) => (x.name = (e.target as HTMLInputElement).value.trim() || 'Untitled dashboard'));
     q('range')?.addEventListener('change', (e) => this.mutate((x) => (x.timeRange = normalizeRange((e.target as HTMLSelectElement).value))));
+    // D-047: the shift picker's tooltip names the shift the selected machine's window shows (its site's zone)
+    if (shiftOn && this.deviceId) {
+      const sel = q('range');
+      const range = d.timeRange;
+      void calendarFor(this.ctx, this.deviceId).then((cal) => {
+        if (!sel.isConnected) return;
+        sel.title = cal ? shiftWindowText(rangeWindow(range, cal), cal.tz) : "No shifts are set up for this machine's site (Configuration › Shifts)";
+      });
+    }
     top.querySelectorAll<HTMLElement>('[data-rng]').forEach((b) =>
       b.addEventListener('click', () => {
-        // Switching to Historic from Realtime starts at 1 h; clicking Historic again keeps the current range.
-        const next = b.dataset.rng === 'realtime' ? 'realtime' : this.draft.timeRange === 'realtime' ? '1h' : this.draft.timeRange;
+        // Switching to Historic starts at 1 h, to Shift at the current shift; clicking the active one again keeps the range.
+        const cur = this.draft.timeRange;
+        const next =
+          b.dataset.rng === 'realtime' ? 'realtime' : b.dataset.rng === 'shift' ? (isShiftRange(cur) ? cur : 'shift') : cur === 'realtime' || isShiftRange(cur) ? '1h' : cur;
         if (next !== this.draft.timeRange) this.mutate((x) => (x.timeRange = next));
       }),
     );
@@ -1795,7 +1825,7 @@ class Builder {
           : `<div class="dbb-hint">Describe the dashboard you want${n ? ` for ${esc(n.label)}` : ''}. The assistant edits the draft on the canvas; nothing is saved until you press Save.</div>`
       }
       ${sugg.length ? `<div class="dbb-opts">${sugg.map((s) => `<button class="dbb-btn sm" data-opt="${esc(s)}">${esc(s)}</button>`).join('')}</div>` : ''}
-      ${this.busy ? `<div class="dbb-msg assistant"><span class="dbb-typing">Working…</span></div>` : ''}
+      ${this.busy ? `<div class="dbb-msg assistant dbb-msg-busy"><span class="dbb-typing">Working…</span>${progressBar({ label: '', bare: true })}</div>` : ''}
       </div>
       <div class="dbb-chat-bar">
         ${this.preChat ? `<button class="dbb-btn sm" data-a="discard">Discard chat changes</button>` : ''}
@@ -2137,6 +2167,7 @@ class Builder {
     this.recent ??= store.listDashboards(this.ctx).catch(() => []);
     const list = (await this.recent).slice(0, 5);
     if (!host.isConnected) return;
+    host.removeAttribute('aria-busy');
     if (!list.length) {
       host.innerHTML = `<div class="dbb-st-none">No saved dashboards yet. Create the first one.</div>`;
       return;
@@ -2171,7 +2202,7 @@ class Builder {
         ${this.o.chatEnabled !== false ? tile('chat', ST_ICON.chat, 'Describe it in chat', 'The assistant builds it for you') : ''}
       </div>
       <div class="dbb-st-sec"><div class="dbb-st-sh">Recently updated</div>
-        <div class="dbb-st-list" data-recent><div class="dbb-st-skel"></div><div class="dbb-st-skel"></div><div class="dbb-st-skel"></div></div></div>
+        <div class="dbb-st-list" data-recent aria-busy="true">${'<div class="dbb-st-skel"><span class="imx-skel av"></span><span class="ln"><span class="imx-skel"></span><span class="imx-skel"></span></span></div>'.repeat(3)}</div></div>
       <div class="dbb-st-foot">…or drag widgets from the left onto the page.</div>
     </div>`;
   }

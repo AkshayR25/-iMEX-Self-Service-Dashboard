@@ -40,6 +40,7 @@ import { Dashboard, Widget, WIDGET_TYPES, WIDGET_CAPS, DEFAULT_SIZE, TIME_RANGES
 import { metaLookup, propKind } from './compat';
 import { sanitizeHtml } from '../render/rich';
 import { firstFit } from '../render/grid';
+import { watchAttribute } from './tb-socket';
 
 // ---------- catalog + aliases ----------
 
@@ -672,7 +673,7 @@ export function systemPrompt(ctx: UserContext, cat: Catalog, currentMachineAlias
     `  line (1-${MAX_KEYS} keys; agg, smooth), area (like line, filled; stacked), bar (1 key; groupBy 15m|hour|device; agg AVG|MIN|MAX|SUM), donut (1 key; donutMode "state" = time in each state of one machine, "devices" = share by machine), timeline (1 key state strip, one row per machine), heatmap (1 key; machines as rows x time buckets; heatColor blue|orange|rules),`,
     '- Property kinds (CATALOG "kind"): number, boolean (on/off), string (text states), coded (number with named states). kpi, gauge, progress, summary, line, area, bar, heatmap and donut "devices" need number or coded; status, timeline and donut "state" need boolean, string or coded; value, multivalue and table take any kind. Never put a boolean on a gauge or chart.',
     `- Limits: at most ${MAX_KEYS} properties per widget, at most ${MAX_DEVICES} machines in a "fixed" binding.`,
-    '- Time range (setTimeRange or settings.timeRange): "realtime" = latest values, updated every 10 s, charts show a rolling last hour; or historic "1h" | "2h" | "4h" | "8h". Nothing longer than 8 hours exists; if asked for more, use "8h" and say so.',
+    '- Time range (setTimeRange or settings.timeRange): "realtime" = latest values, updated every 10 s, charts show a rolling last hour; or historic "1h" | "2h" | "4h" | "8h"; or "shift" (the current shift so far) | "prevshift" (the previous shift), from the shift settings of the site of the machine. Nothing longer than 8 hours exists; if asked for more, use "8h" and say so. For "this shift", "since the shift started" or "last shift" use the shift ranges.',
     // continuation of the widget-type list above (placed after the limits lines)
     '  table (keys as columns, machines as rows), alarms (severities, alarmStatus, maxRows),',
     '  text (settings.html: simple HTML with <h1>-<h3>, <p>, <b>, <i>, <u>, <ul>/<li>, <span style="color:#hex;font-size:18px;font-family:Inter">; live values as {{propertyKey}}, {{machine}}, {{location}}, {{time}}), image (settings.url https://), link (button: title = label; settings.linkKind "state"|"url", linkState "default"(map)|"listing"|"machine", linkDevice "current"|"location"|"none", url, buttonStyle filled|outline|card, buttonColor), embed (settings.url https://). Content widgets use binding {"mode":"none"} and no keys.',
@@ -933,7 +934,10 @@ export interface Transport {
  * from the tenant-owned asset DBB-LLM-CONFIG, picks Claude / OpenAI / Gemini from the key format, calls it
  * and writes `dbb_chat_resp_<userId>` = {reqId, ok, provider, toolInput | toolInputJson | error, usage}.
  * The key never reaches the browser.
- * Polls that attribute every 1.2 s until the reqId matches or `timeoutMs` passes.
+ * D-046: the reply is pushed over ThingsBoard's WebSocket (an attribute subscription through the page's widget,
+ * core/tb-socket.ts watchAttribute), with a REST read every 10 s as a safety net. Without a ThingsBoard widget context
+ * (or when the subscription does not answer within 1.2 s) the attribute is polled every 1.2 s as before, until the
+ * reqId matches or `timeoutMs` passes.
  * Concurrent requests from different users share `dbb_chat_req` but get separate response keys;
  * an older response with another reqId is ignored. The timeout message always says 30 seconds.
  * @throws when the store is missing, the relay reports an error (e.g. missing API key), or on timeout.
@@ -960,27 +964,58 @@ function oneRelayCall(ctx: UserContext, timeoutMs: number): (body: unknown) => P
     if (!ctx.store) throw new Error('Dashboard store is missing.');
     const reqId = newId('r');
     const respKey = `dbb_chat_resp_${ctx.userId}`;
-    await api.saveAttrs(ctx.store, { dbb_chat_req: { reqId, userId: ctx.userId, body } });
-    const until = Date.now() + timeoutMs;
-    while (Date.now() < until) {
-      await new Promise((r) => setTimeout(r, 1200));
-      const a = await api.getAttrs(ctx.store, [respKey]);
-      const r = a[respKey];
-      if (r?.reqId === reqId) {
-        if (!r.ok) throw new Error(r.error || `LLM call failed (${r.status ?? 'error'})`);
-        // OpenAI returns the tool arguments as a JSON string (toolInputJson); Claude and Gemini as an object.
-        let toolInput = r.toolInput;
-        if (toolInput == null && r.toolInputJson) {
-          try {
-            toolInput = JSON.parse(r.toolInputJson);
-          } catch {
-            throw new Error('The assistant returned an unreadable answer. Try again.');
+    // subscribed before the request is written, so the reply can't be missed
+    let pushed: any = null;
+    let heard = false;
+    let failed = false;
+    let wake: (() => void) | null = null;
+    const watch = watchAttribute(
+      ctx.store,
+      respKey,
+      (raw) => {
+        heard = true;
+        const v = api.parseMaybeJson(raw);
+        if (v?.reqId === reqId) pushed = v;
+        wake?.();
+      },
+      () => {
+        failed = true;
+        wake?.();
+      },
+    );
+    const pause = (ms: number) =>
+      new Promise<void>((res) => {
+        const t = setTimeout(() => res(), Math.max(0, ms));
+        wake = () => {
+          clearTimeout(t);
+          res();
+        };
+      });
+    try {
+      await api.saveAttrs(ctx.store, { dbb_chat_req: { reqId, userId: ctx.userId, body } });
+      const until = Date.now() + timeoutMs;
+      while (Date.now() < until) {
+        if (!pushed) await pause(Math.min(until - Date.now(), watch && heard && !failed ? 10000 : 1200));
+        wake = null;
+        const r = pushed ?? (await api.getAttrs(ctx.store, [respKey]))[respKey];
+        if (r?.reqId === reqId) {
+          if (!r.ok) throw new Error(r.error || `LLM call failed (${r.status ?? 'error'})`);
+          // OpenAI returns the tool arguments as a JSON string (toolInputJson); Claude and Gemini as an object.
+          let toolInput = r.toolInput;
+          if (toolInput == null && r.toolInputJson) {
+            try {
+              toolInput = JSON.parse(r.toolInputJson);
+            } catch {
+              throw new Error('The assistant returned an unreadable answer. Try again.');
+            }
           }
+          return { toolInput, usage: r.usage };
         }
-        return { toolInput, usage: r.usage };
       }
+      throw new Error('The assistant did not answer within 30 seconds. Your draft is unchanged.');
+    } finally {
+      watch?.stop();
     }
-    throw new Error('The assistant did not answer within 30 seconds. Your draft is unchanged.');
   };
 }
 

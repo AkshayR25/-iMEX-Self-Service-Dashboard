@@ -231,10 +231,13 @@ export const CSS = `
 .dbb-dark .dbb-delta.up{color:#57d157}.dbb-dark .dbb-delta.down{color:#f08a8a}
 .dbb-spark{flex:1;min-height:24px;margin-top:4px}
 .dbb-prog{display:flex;flex-direction:column;justify-content:var(--card-justify,center);height:100%;gap:8px}
-.dbb-prog-track{position:relative;background:var(--grid);border-radius:999px;overflow:hidden}
-.dbb-prog-fill{position:absolute;left:0;bottom:0;border-radius:999px;transition:width .4s,height .4s}
+.dbb-prog-track{position:relative;background:color-mix(in srgb,var(--accent) 12%,var(--grid));border-radius:999px;overflow:hidden}
+.dbb-prog-fill{position:absolute;left:0;bottom:0;border-radius:999px;transition:width .5s ease,height .5s ease}
 .dbb-prog-tick{position:absolute;background:var(--ink-3);opacity:.7}
 .dbb-prog.vert{flex-direction:row;align-items:stretch;justify-content:center;gap:14px}
+.dbb-root .dbb-card .dbb-meter{--imx-meter-h:12px}
+.dbb-root .dbb-card .dbb-meter>.tr{position:relative;background:color-mix(in srgb,var(--accent) 12%,var(--grid))}
+.dbb-dark .dbb-card .dbb-meter>.tr{background:rgba(255,255,255,.12)}
 .dbb-mv{display:flex;flex-direction:column;gap:2px;height:100%;overflow:auto;justify-content:var(--card-justify,flex-start)}
 .dbb-card.al-center .dbb-mv-row .k{flex:0 1 auto}.dbb-card.al-center .dbb-mv-row{justify-content:center}.dbb-card.al-right .dbb-mv-row .k{text-align:right}
 .dbb-mv-row{display:flex;align-items:center;gap:8px;padding:6px 2px;border-bottom:1px solid var(--grid)}
@@ -260,11 +263,9 @@ export const CSS = `
 .dbb-tip{position:absolute;pointer-events:none;background:#1a1a19;color:#fff;font-size:11px;padding:6px 8px;border-radius:8px;white-space:nowrap;z-index:5;box-shadow:0 4px 14px rgba(0,0,0,.22)}
 .dbb-tip b{font-weight:600}
 .dbb-table{width:100%;border-collapse:collapse;font-size:12px}
-.dbb-table th{text-align:left;color:var(--ink-3);font-weight:500;padding:6px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--card-bg,var(--surface));font-size:11px;text-transform:uppercase;letter-spacing:.03em}
-.dbb-table td{padding:6px;border-bottom:1px solid var(--grid);font-variant-numeric:tabular-nums}
+.dbb-table th{text-align:center;vertical-align:middle;color:var(--ink-3);font-weight:500;padding:6px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--card-bg,var(--surface));font-size:11px;text-transform:uppercase;letter-spacing:.03em}
+.dbb-table td{padding:6px;border-bottom:1px solid var(--grid);font-variant-numeric:tabular-nums;text-align:center;vertical-align:middle;font-size:12px;line-height:1.4;font-family:inherit;color:inherit}
 .dbb-table tbody tr:hover td{background:var(--hover)}
-.dbb-table :is(td,th).num{text-align:center}
-.dbb-table :is(td,th).txt{text-align:right}
 .dbb-table td .cell{display:inline-block;border-radius:6px;padding:1px 7px}
 .dbb-scroll{height:100%;overflow:auto}
 .dbb-md{height:100%;overflow:auto;line-height:1.45;word-wrap:break-word}
@@ -301,6 +302,15 @@ export const CSS = `
 .dbb-banner.warn{background:#fff5e0;color:#7a5200}
 .dbb-banner.err{background:#fdecec;color:#8e2222}
 .dbb-dark .dbb-banner{background:#1c2c44;color:#b7d3f6}
+.dbb-skel{height:100%;display:flex;flex-direction:column;justify-content:center;gap:8px;overflow:hidden}
+.dbb-skel-kpi{display:flex;flex-direction:column;gap:9px;align-items:var(--card-align-items,flex-start)}
+.dbb-skel-round{display:flex;align-items:center;justify-content:center;height:100%}
+.dbb-skel-ring{width:min(96px,70%);aspect-ratio:1;border-radius:50%!important}
+.dbb-skel-chart{flex:1;height:auto!important;min-height:40px;padding:4px 4px 0!important;border-bottom-color:var(--line)!important}
+.dbb-skel-sum{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.dbb-skel .imx-skel-row{height:30px;padding:0 4px;gap:10px}
+.dbb-dark .dbb-skel .imx-skel,.dbb-dark .dbb-st-skel .imx-skel{--imx-skel1:rgba(255,255,255,.07);--imx-skel2:rgba(255,255,255,.13)}
+.dbb-dark .dbb-skel .imx-skel-row{border-top-color:rgba(255,255,255,.07)}
 @keyframes dbbfade{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}
 .dbb-card-b.dbb-first>*{animation:dbbfade .25s ease-out}
 `;

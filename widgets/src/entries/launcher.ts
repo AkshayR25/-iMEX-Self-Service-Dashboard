@@ -34,6 +34,7 @@ import * as store from '../core/store';
 import { CSS, ensureCss, esc, loadFont } from '../render/theme';
 import { userContext, userContextFor, stateEntity, notifyChanged, currentState, currentActions, ACTIONS_EVENT, EditAction, RSTATE_KEY, CHANGED_EVENT, liveLend, liveRelease } from './common';
 import * as scope from '../core/scope';
+import { ensureKitCss, withBusy, kitToast, skeletonRows } from '../render/kit';
 
 const MENU_ICONS: Record<string, string> = {
   edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
@@ -213,6 +214,7 @@ export function init(tbCtx: any) {
   ensureCss('dbb-css-core', CSS);
   ensureCss('dbb-css-launch', BTN_CSS);
   ensureCss('dbb-css-emenu', MENU_CSS);
+  ensureKitCss();
   loadFont('Inter');
   const s = tbCtx.settings ?? {};
   const host: HTMLElement = tbCtx.$container[0];
@@ -320,14 +322,12 @@ export function init(tbCtx: any) {
     })
     .catch(() => btn.remove());
   // Errors (e.g. non-admin) are shown as a temporary toast at the top of the page.
+  // D-043: the button is busy (disabled, kit bar) while the builder opens
   const openBuilderFromMenu = async (startNew = false) => {
-    btn.disabled = true;
     try {
-      await open(tbCtx, { startNew });
+      await withBusy(btn, () => open(tbCtx, { startNew }));
     } catch (e: any) {
       alertInline(host, `Could not open the builder: ${e.message ?? e}`);
-    } finally {
-      btn.disabled = false;
     }
   };
   let menu: HTMLElement | null = null;
@@ -557,10 +557,22 @@ const initials = (n: string) =>
 export async function dashboardList(tbCtx: any, editor: boolean, host?: HTMLElement): Promise<{ destroy: () => void } | void> {
   ensureCss('dbb-css-dlist', DL_CSS);
   registerPlacement(tbCtx);
-  const ctx = await userContext(tbCtx);
-  // D-033: editors also see machine-type dashboards (e.g. one saved with "Don't apply now", which otherwise
-  // could only be found through the builder's Open dialog); everyone else sees overviews only.
-  const all = (await store.listDashboards(ctx)).filter((d) => d.kind === 'standalone' || (editor && d.profile));
+  // D-043: the page shows placeholder rows while the dashboards load (the list replaces them)
+  if (host) {
+    ensureKitCss();
+    host.innerHTML = `<div class="dbb-dl dbb-dl-inline" aria-busy="true" aria-label="Loading dashboards"><div class="box"><div class="list">${skeletonRows(5, 3)}</div></div></div>`;
+  }
+  let ctx: Awaited<ReturnType<typeof userContext>>;
+  let all: Awaited<ReturnType<typeof store.listDashboards>>;
+  try {
+    ctx = await userContext(tbCtx);
+    // D-033: editors also see machine-type dashboards (e.g. one saved with "Don't apply now", which otherwise
+    // could only be found through the builder's Open dialog); everyone else sees overviews only.
+    all = (await store.listDashboards(ctx, store.LIST_REUSE_MS)).filter((d) => d.kind === 'standalone' || (editor && d.profile));
+  } catch (e) {
+    if (host) host.innerHTML = '<div class="dbb-dl dbb-dl-inline"><div class="box"><div class="empty"><b>Could not load the dashboards</b>Reload the page to try again.</div></div></div>';
+    throw e;
+  }
   // Whether a machine-type dashboard is applied anywhere: any assignment (machine, location, customer) naming it.
   let applied: ((id: string) => boolean) | null = null;
   if (editor && all.some((d) => d.kind !== 'standalone'))
@@ -785,8 +797,12 @@ function rendererState(tbCtx: any): string {
   return 'machine';
 }
 
-/** Shows `msg` as a red toast at the top of the page for 6 s (appended to <body>). */
+/**
+ * Shows `msg` as an error: D-045, the iMEX app's toast when the app is on the page; else a red toast at the top of
+ * the page for 6 s (appended to <body>).
+ */
 function alertInline(host: HTMLElement, msg: string) {
+  if (kitToast(msg, 'err')) return;
   const d = document.createElement('div');
   d.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);background:#8e2222;color:#fff;padding:8px 14px;border-radius:8px;z-index:10001;font:13px Inter,Roboto,Arial';
   d.textContent = msg;

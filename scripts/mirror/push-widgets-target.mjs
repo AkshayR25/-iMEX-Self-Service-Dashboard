@@ -16,6 +16,9 @@ import { CDN_MAP } from './cdn-map.mjs';
 
 const GO = process.argv.includes('--go');
 const OUR_WIDGET = /^(imex_|aiml_)/;
+// Never pushed: the developers replaced these pages on the server with their own widgets (Akshay, 9 Oct 2026). The
+// server's alert_history state uses tenant.imex_v5_alert_history_page, not the local imex_alert_history.
+const NEVER_PUSH = new Set(['imex_alert_history']);
 const LAST_RUN = 'mirror-data/target-last-run.json';
 // the save each hand edit on the server started from (UTC, from the audit log; 9 Oct 2026):
 //   machine cards 09:18 and org hierarchy 09:19 / 11:21 (debug logs commented out) on top of the 07:53 run;
@@ -61,6 +64,7 @@ const plan = [];
 let stop = false;
 for (const t of await L.all('/api/widgetTypes?tenantOnly=true')) {
   if (!OUR_WIDGET.test(t.fqn)) continue;
+  if (NEVER_PUSH.has(t.fqn)) { say(`skip ${t.fqn}: the server uses the developers' own widget for this page`); continue; }
   const loc = await L.api('GET', `/api/widgetType/${t.id.id}`);
   const mine = JSON.parse(toServerIds(toServerLibs(JSON.stringify(loc.descriptor))));
   const cur = await T.api('GET', `/api/widgetType?fqn=tenant.${t.fqn}`, undefined, { allow404: true });

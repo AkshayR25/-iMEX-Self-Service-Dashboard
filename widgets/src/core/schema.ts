@@ -10,7 +10,7 @@
 //     name, ownerId, ownerName,         // owner = ThingsBoard user id / display name
 //     kind: 'device' | 'standalone',    // 'device' when any widget uses a machine-relative binding
 //     profile: string | null,           // machine type (device profile) a 'device' dashboard is for
-//     timeRange: 'realtime'|'1h'|'2h'|'4h'|'8h',
+//     timeRange: 'realtime'|'1h'|'2h'|'4h'|'8h'|'shift'|'prevshift',   // shift ranges: D-047
 //     theme?: DashboardTheme,           // optional (D-019); absent in older saves
 //     widgets: Widget[],                // see Widget below
 //     version, updatedAt, updatedBy,    // optimistic concurrency (store.saveDashboard)
@@ -260,7 +260,7 @@ export const WidgetSettings = z
     agg: z.enum(['NONE', 'AVG', 'MIN', 'MAX', 'SUM']).optional(),
     /** 'day' is legacy (drawn per hour). */
     groupBy: z.enum(['15m', 'hour', 'day', 'device']).optional(),
-    /** Per-widget override of the dashboard time range ('realtime' | '1h' | '2h' | '4h' | '8h'). */
+    /** Per-widget override of the dashboard time range ('realtime' | '1h' | '2h' | '4h' | '8h' | 'shift' | 'prevshift'). */
     timeRange: z.string().optional(),
     showLegend: z.boolean().optional(),
     severities: z.array(z.enum(['CRITICAL', 'MAJOR', 'MINOR', 'WARNING', 'INDETERMINATE'])).optional(),
@@ -325,12 +325,19 @@ export type Widget = z.infer<typeof Widget>;
 
 /**
  * Allowed time ranges (D-020). 'realtime' = latest values, refreshed every 10 s; charts show a
- * rolling last hour. The others are historic windows ending now, refreshed every 60 s.
+ * rolling last hour. '1h' to '8h' are historic windows ending now, refreshed every 60 s.
+ * D-047: 'shift' = the current shift so far, 'prevshift' = the last shift that has ended, both from the shift
+ * calendar of the dashboard's machine (or the widget's first machine) and its site (rangeWindow, core/shifts.ts).
+ * Older builds read the shift ranges as 'realtime' (normalizeRange), so a saved dashboard still opens there.
  */
-export const TIME_RANGES = ['realtime', '1h', '2h', '4h', '8h'] as const;
+export const TIME_RANGES = ['realtime', '1h', '2h', '4h', '8h', 'shift', 'prevshift'] as const;
 export type TimeRange = (typeof TIME_RANGES)[number];
-/** Time ranges other than realtime (for pickers). */
+/** Fixed windows ending now (for pickers). */
 export const HISTORIC_RANGES = ['1h', '2h', '4h', '8h'] as const;
+/** D-047: windows from the shift calendar (for pickers). */
+export const SHIFT_RANGES = ['shift', 'prevshift'] as const;
+/** True for 'shift' and 'prevshift'. */
+export const isShiftRange = (r: unknown): r is (typeof SHIFT_RANGES)[number] => r === 'shift' || r === 'prevshift';
 /**
  * Maps any stored/legacy range to an allowed one: allowed values pass through, 'live' -> 'realtime',
  * any other '<n>h' / '<n>d' (e.g. '24h', '7d') -> '8h', anything else -> 'realtime'.
@@ -343,9 +350,11 @@ export function normalizeRange(r: unknown): TimeRange {
   if (r === 'live') return 'realtime';
   return /^\d+[hd]$/.test(r) ? '8h' : 'realtime';
 }
-/** Display label: 'Realtime' or 'Last 8 h'. */
+/** Display label: 'Realtime', 'Last 8 h', 'Current shift' or 'Previous shift'. */
 export function rangeLabel(r: string): string {
   const n = normalizeRange(r);
+  if (n === 'shift') return 'Current shift';
+  if (n === 'prevshift') return 'Previous shift';
   return n === 'realtime' ? 'Realtime' : `Last ${n.replace('h', ' h')}`;
 }
 
@@ -409,10 +418,47 @@ export function dashboardKind(widgets: Widget[]): 'device' | 'standalone' {
   return widgets.some((w) => RELATIVE_MODES.has(w.binding.mode)) ? 'device' : 'standalone';
 }
 
-/** Window length of a range in ms. Realtime charts use a rolling hour. */
+/**
+ * Window length of a fixed range in ms. Realtime charts use a rolling hour. The shift ranges have no fixed length:
+ * this gives 8 h for them (use rangeWindow for the real window).
+ */
 export function rangeMs(r: string): number {
   const n = normalizeRange(r);
+  if (isShiftRange(n)) return 8 * 3600e3;
   return n === 'realtime' ? 3600e3 : Number(n.replace('h', '')) * 3600e3;
+}
+
+/** The part of a shift calendar (core/shiftcal.ts ShiftCalendar) that rangeWindow needs. */
+export interface ShiftSource {
+  current(now: number): { start: number; end: number; name: string } | null;
+  previous(now: number): { start: number; end: number; name: string } | null;
+}
+
+/** A resolved time window. `shift` is the shift it shows (shift ranges only). */
+export interface RangeWindow {
+  startTs: number;
+  endTs: number;
+  shift?: { name: string; start: number; end: number; ended: boolean };
+  /** 'shift' between two shifts: the previous one is shown instead. */
+  between?: boolean;
+}
+
+/**
+ * D-047: the window of a range at `now`. Fixed ranges end now. 'shift' runs from the current shift's start to now
+ * (between shifts: the previous shift, marked `between`); 'prevshift' is the last shift that has ended.
+ * @returns null for a shift range when `cal` is null (no shifts set up for the machine) or has no such shift.
+ */
+export function rangeWindow(r: string, cal: ShiftSource | null, now = Date.now()): RangeWindow | null {
+  const n = normalizeRange(r);
+  if (!isShiftRange(n)) return { startTs: now - rangeMs(n), endTs: now };
+  if (!cal) return null;
+  if (n === 'shift') {
+    const cur = cal.current(now);
+    if (cur) return { startTs: cur.start, endTs: now, shift: { name: cur.name, start: cur.start, end: cur.end, ended: false } };
+  }
+  const prev = cal.previous(now);
+  if (!prev) return null;
+  return { startTs: prev.start, endTs: Math.min(prev.end, now), shift: { name: prev.name, start: prev.start, end: prev.end, ended: true }, between: n === 'shift' };
 }
 
 /** Metadata lookup for a widget's property (for type checks). Undefined = unknown, not checked. */

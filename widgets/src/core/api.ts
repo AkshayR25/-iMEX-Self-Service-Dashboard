@@ -19,7 +19,8 @@
 //   latest / series               device timeseries (latest values, windowed history). Both read the
 //                                 WebSocket live cache (core/live.ts, D-021) first and use REST only until
 //                                 the subscription is ready or while the socket is down.
-//   getCached                     GET with a time-to-live while the socket is live (window aggregates)
+//   getCached                     GET with a time-to-live while the socket is live (bar buckets, heatmap, alarms)
+//   windowAgg                     MIN/MAX/AVG/SUM of a window; kept current from pushed points while live (D-048)
 //   alarms                        alarm list of an entity (/api/v2/alarm); 15 s cache while live
 //   childrenOf / parentsOf        relations (default type `Contains`, the hierarchy relation)
 //   devicesByIds / assetsByIds    bulk entity lookup (chunks of 100 ids)
@@ -53,6 +54,8 @@
 
 /** Minimal ThingsBoard entity id: `{ id: uuid, entityType: 'DEVICE' | 'ASSET' | 'USER' | ... }`. */
 import { liveHub } from './live';
+import { watchAlarmCounts } from './tb-socket';
+import type { CountSpec, CountWatch } from './tb-socket';
 
 export interface EntityRef {
   id: string;
@@ -86,7 +89,9 @@ export function bindWidgetContext(ctx: any) {
   refreshHook = () =>
     new Promise<void>((resolve) => {
       try {
-        ctx.http.get('/api/auth/user').subscribe({ next: () => resolve(), error: () => resolve() });
+        // D-045: quiet (no ThingsBoard toast or loading bar); the 401 refresh still runs in its interceptor
+        const opts = ctx.httpUtils?.defaultHttpOptionsFromConfig?.({ ignoreErrors: true, ignoreLoading: true }) ?? {};
+        ctx.http.get('/api/auth/user', opts).subscribe({ next: () => resolve(), error: () => resolve() });
       } catch {
         resolve();
       }
@@ -172,13 +177,21 @@ export async function getAttrs(e: EntityRef, keys?: string[], scope = 'SERVER_SC
  * permission checks (UI-only enforcement).
  */
 export function saveAttrs(e: EntityRef, attrs: Record<string, unknown>, scope = 'SERVER_SCOPE') {
-  return post(`/api/plugins/telemetry/${e.entityType}/${e.id}/attributes/${scope}`, attrs);
+  writes++;
+  return post(`/api/plugins/telemetry/${e.entityType}/${e.id}/attributes/${scope}`, attrs).finally(() => writes++);
 }
 
 /** Deletes attribute keys from an entity in the given scope (default SERVER_SCOPE). */
 export function deleteAttrs(e: EntityRef, keys: string[], scope = 'SERVER_SCOPE') {
-  return request('DELETE', `/api/plugins/telemetry/${e.entityType}/${e.id}/${scope}?keys=${encodeURIComponent(keys.join(','))}`);
+  writes++;
+  return request('DELETE', `/api/plugins/telemetry/${e.entityType}/${e.id}/${scope}?keys=${encodeURIComponent(keys.join(','))}`).finally(() => writes++);
 }
+
+// D-046: counts attribute writes (at the start and at the end of each), so a short read cache can tell that
+// nothing was written in between (core/store.ts listDashboards).
+let writes = 0;
+/** Changes whenever an attribute write starts or ends. */
+export const writeEpoch = () => writes;
 
 /**
  * Returns `v` parsed as JSON when it is a string that looks like an object or array
@@ -260,6 +273,7 @@ export type Agg = 'NONE' | 'AVG' | 'MIN' | 'MAX' | 'SUM';
  * points, and always passes `limit` (TB returns only 100 points without it).
  * Raw data (`agg` NONE) is switched to AVG when the span is long (more than maxPoints x 10 s),
  * to avoid huge responses.
+ * @param opts.fixedStart the window grows from a fixed start to now (the D-047 'shift' range).
  * @returns key -> points; a key with no data maps to an empty array. Non-numeric values are kept as
  *          they come (typed as number for the charts).
  */
@@ -270,6 +284,7 @@ export async function series(
   endTs: number,
   agg: Agg = 'AVG',
   maxPoints = 500,
+  opts: { fixedStart?: boolean } = {},
 ): Promise<Record<string, { ts: number; value: number }[]>> {
   if (!keys.length) return {};
   // Cache + live append (D-021). A window ending "now" with AVG/NONE aggregation is fetched over REST once,
@@ -279,8 +294,13 @@ export async function series(
   const L = liveHub();
   const now = Date.now();
   const offsetMin = Math.round((now - endTs) / 60e3);
-  const ck = `s|${deviceId}|${keys.join(',')}|${agg}|${maxPoints}|${Math.round((endTs - startTs) / 60e3)}|${offsetMin}`;
   const appendable = !!L && (agg === 'AVG' || agg === 'NONE') && offsetMin <= 1;
+  // D-047: windows that don't slide with the clock are keyed by where they are, not by their length: a past window
+  // (the previous shift) by its start and end, a window growing from a fixed start (the current shift so far) by
+  // its start, so it is extended with live points instead of being read again each minute as its length changes.
+  const at = (t: number) => Math.floor(t / 60e3);
+  const win = offsetMin > 1 ? `${at(startTs)}-${at(endTs)}` : opts.fixedStart ? `@${at(startTs)}` : `${Math.round((endTs - startTs) / 60e3)}|${offsetMin}`;
+  const ck = `s|${deviceId}|${keys.join(',')}|${agg}|${maxPoints}|${win}`;
   if (L && appendable) L.want(deviceId, keys);
   if (L?.isLive()) {
     const c = seriesCache.get(ck);
@@ -323,6 +343,8 @@ function noteSeries<T extends Record<string, { ts: number }[]>>(d: T): T {
 // ---------- caches used while the WebSocket is live (D-021) ----------
 
 const seriesCache = new Map<string, { fetchedAt: number; data: Record<string, { ts: number; value: number }[]> }>();
+/** Alarm lists read while the entity's counts are pushed (D-046): kept while the counts (sig) are the same. */
+const gatedCache = new Map<string, { fetchedAt: number; sig: string; data: any }>();
 const getCache = new Map<string, { fetchedAt: number; data: any }>();
 
 /** Map insert with a 300-entry cap (oldest dropped first). */
@@ -334,7 +356,8 @@ function cachePut<V>(m: Map<string, V>, k: string, v: V) {
 
 /**
  * GET with a time-to-live, for window queries the WebSocket can't keep current (bar buckets, heatmap,
- * state timeline, window aggregates, alarms). `key` must identify the query without its exact timestamps.
+ * state timeline, alarms; window aggregates use windowAgg). `key` must identify the query without its exact
+ * timestamps.
  * While the socket is down the cache is bypassed, so behaviour is the same as a plain `get`.
  */
 export async function getCached<T = any>(key: string, path: string, ttlMs: number): Promise<T> {
@@ -346,10 +369,102 @@ export async function getCached<T = any>(key: string, path: string, ttlMs: numbe
   return data;
 }
 
+/**
+ * Window aggregates read while the WebSocket is live (D-048): the REST value, the window end it was read for, and for
+ * AVG the sample count (null when it was not read), so pushed points can be folded in without another read.
+ */
+const aggCache = new Map<string, { fetchedAt: number; readEnd: number; value: number | null; count: number | null }>();
+
+/** Reads one aggregate bucket covering the whole window; null when the window has no data. */
+async function readAgg(deviceId: string, key: string, startTs: number, endTs: number, agg: string): Promise<number | null> {
+  const r = await get<any>(
+    `/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries?keys=${encodeURIComponent(key)}&startTs=${startTs}&endTs=${endTs}&agg=${agg}&interval=${Math.max(1, endTs - startTs)}&limit=10`,
+  );
+  const v = r?.[key]?.[0]?.value;
+  return v == null || v === '' || !Number.isFinite(Number(v)) ? null : Number(v);
+}
+
+/**
+ * One aggregate (MIN / MAX / AVG / SUM) of a key over a whole window (D-048).
+ * REST: GET .../values/timeseries with interval = window length, so ThingsBoard returns one bucket.
+ *
+ * While the WebSocket is live and the key's live history is complete since the read, a window that ends now is read
+ * once and then kept current from the pushed points (MIN / MAX / SUM folded in exactly; AVG through the sample count
+ * read next to it), so the 60 s safety redraw makes no REST call. It is read again once the window has slid far
+ * enough for points to drop out at its start (1/12 of its length, between 1 and 5 minutes); a window growing from a
+ * fixed start (the current shift) loses no points and is read again after 5 minutes. A past window (the previous
+ * shift) is kept 5 minutes. Before a read it waits up to 1.5 s for the key's subscription to become ready (D-049: the
+ * page's first draw), so the first read is already one that is kept current. Without a complete live history for the
+ * key (subscription still not ready) it is the old 60 s cache; with the socket down, a plain REST read every time.
+ * @param opts.fixedStart the window grows from a fixed start to now (the D-047 'shift' range).
+ * @returns The number, or null when there is no data in the window.
+ */
+export async function windowAgg(
+  deviceId: string,
+  key: string,
+  startTs: number,
+  endTs: number,
+  agg: 'MIN' | 'MAX' | 'AVG' | 'SUM',
+  opts: { fixedStart?: boolean } = {},
+): Promise<number | null> {
+  const L = liveHub();
+  const now = Date.now();
+  const offsetMin = Math.round((now - endTs) / 60e3);
+  const ending = offsetMin <= 1;
+  const at = (t: number) => Math.floor(t / 60e3);
+  const win = !ending ? `${at(startTs)}-${at(endTs)}` : opts.fixedStart ? `@${at(startTs)}` : `${Math.round((endTs - startTs) / 60e3)}|${offsetMin}`;
+  const ck = `a|${deviceId}|${key}|${agg}|${win}`;
+  if (L && ending) L.want(deviceId, [key]);
+  let live = !!L?.isLive();
+  let since = live && ending ? L!.liveSince(deviceId, [key]) : null;
+  const c = live ? aggCache.get(ck) : undefined;
+  if (c) {
+    const age = now - c.fetchedAt;
+    if (!ending) {
+      if (age < 5 * 60e3) return c.value;
+    } else if (since != null && since <= c.fetchedAt) {
+      const slide = opts.fixedStart ? 5 * 60e3 : Math.min(5 * 60e3, Math.max(60e3, (endTs - startTs) / 12));
+      if (age < slide && (agg !== 'AVG' || c.count != null)) {
+        const pts = (L!.since(deviceId, key, c.readEnd) ?? []).map((p) => Number(p.value)).filter((v) => Number.isFinite(v));
+        if (!pts.length) return c.value;
+        const sum = pts.reduce((a, b) => a + b, 0);
+        if (agg === 'MIN') return Math.min(c.value ?? Infinity, ...pts);
+        if (agg === 'MAX') return Math.max(c.value ?? -Infinity, ...pts);
+        if (agg === 'SUM') return (c.value ?? 0) + sum;
+        const n = c.value == null ? 0 : (c.count as number);
+        return ((c.value ?? 0) * n + sum) / (n + pts.length);
+      }
+    } else if (age < 60e3) return c.value;
+  }
+  // QA round 2 (D-049): on a page's first draw the key's subscription is usually still being added (or the socket still
+  // opening). Wait for its first reply, at most 1.5 s as D-022 does for latest values, so that this read can be kept
+  // current. Without the wait the read was not covered, and MIN / AVG / COUNT / MAX were all read again on the first
+  // 60 s safety redraw. waitReady resolves at once when the socket is down or the subscription failed.
+  if (L && ending && since == null && typeof L.waitReady === 'function' && (await L.waitReady(deviceId, [key], 1500))) {
+    live = L.isLive();
+    since = live ? L.liveSince(deviceId, [key]) : null;
+  }
+  // An AVG that is to be kept current needs the window's sample count too: one extra read per refresh instead of an
+  // AVG read every minute.
+  const withCount = agg === 'AVG' && live && ending && since != null;
+  // fetchedAt is taken after the wait, so it is never before the subscription's readyAt (the cover check above).
+  const readAt = Date.now();
+  const [value, count] = await Promise.all([
+    readAgg(deviceId, key, startTs, endTs, agg),
+    withCount ? readAgg(deviceId, key, startTs, endTs, 'COUNT') : Promise.resolve(null),
+  ]);
+  if (L) cachePut(aggCache, ck, { fetchedAt: readAt, readEnd: endTs, value, count: withCount ? (count ?? 0) : null });
+  return value;
+}
+
 /** Clears the caches (tests). */
 export function clearCaches() {
   seriesCache.clear();
+  aggCache.clear();
   getCache.clear();
+  gatedCache.clear();
+  for (const c of countWatches.values()) c.w.stop();
+  countWatches.clear();
 }
 
 /**
@@ -369,6 +484,49 @@ function toNum(v: any): number | string {
 }
 
 // ---------- alarms ----------
+
+// ---- pushed alarm counts (D-046, core/tb-socket.ts watchAlarmCounts) ----
+/** Machine sets larger than this read their counts over REST (one count datasource per machine otherwise). */
+const MAX_COUNT_IDS = 50;
+const countWatches = new Map<string, { w: CountWatch; used: number }>();
+const one = (entityType: string, id: string) => ({ type: 'singleEntity', singleEntity: { entityType, id } });
+
+/**
+ * A page-wide count watch per signature: made on first use through the current ThingsBoard widget, kept while used
+ * (dropped after 3 minutes without use, or when its widget went: then made again through the next one).
+ * null without a ThingsBoard widget context (tests, the harness, another platform version).
+ */
+function countWatch(key: string, specs: () => CountSpec[]): CountWatch | null {
+  const now = Date.now();
+  for (const [k, c] of countWatches)
+    if (!c.w.alive() || now - c.used > 3 * 60e3) {
+      c.w.stop();
+      countWatches.delete(k);
+    }
+  let c = countWatches.get(key);
+  if (!c) {
+    const w = watchAlarmCounts(specs());
+    if (!w) return null;
+    c = { w, used: now };
+    countWatches.set(key, c);
+  }
+  c.used = now;
+  return c.w;
+}
+
+/**
+ * The alarm "signature" of an entity: its pushed counts of active, unacknowledged and all alarms as one string, or
+ * null while they are not there (no ThingsBoard context, or not received yet).
+ */
+function alarmGate(e: EntityRef): string | null {
+  const w = countWatch(`ag|${e.entityType}|${e.id}`, () => [
+    { name: 'active', filter: one(e.entityType, e.id), status: ['ACTIVE'] },
+    { name: 'unack', filter: one(e.entityType, e.id), status: ['UNACK'] },
+    { name: 'all', filter: one(e.entityType, e.id), status: [] },
+  ]);
+  const c = w?.counts();
+  return c ? `${c.active}|${c.unack}|${c.all}` : null;
+}
 
 /** Flattened alarm as used by the alarm-list widget. */
 export interface AlarmRow {
@@ -392,17 +550,30 @@ export interface AlarmRow {
  * @param opts.severities severity filter, e.g. ['CRITICAL', 'MAJOR'].
  * @param opts.limit      page size (default 20).
  * @param opts.startTs    only alarms from this time (ms).
+ * @param opts.endTs      only alarms until this time (ms; a past window such as the previous shift, D-047).
  */
 export async function alarms(
   e: EntityRef,
-  opts: { status?: 'ACTIVE' | 'CLEARED' | 'ANY'; severities?: string[]; limit?: number; startTs?: number } = {},
+  opts: { status?: 'ACTIVE' | 'CLEARED' | 'ANY'; severities?: string[]; limit?: number; startTs?: number; endTs?: number } = {},
 ): Promise<AlarmRow[]> {
   const status = opts.status && opts.status !== 'ANY' ? `&statusList=${opts.status}` : '';
   const sev = opts.severities?.length ? `&severityList=${opts.severities.join(',')}` : '';
-  const start = opts.startTs ? `&startTime=${opts.startTs}` : '';
+  const start = (opts.startTs ? `&startTime=${opts.startTs}` : '') + (opts.endTs ? `&endTime=${opts.endTs}` : '');
   // Alarms are not pushed over the socket; while it is live they are re-read at most every 15 s per query.
+  // D-046: with ThingsBoard's alarm counts for the entity pushed (active, unacknowledged, all), the list is re-read
+  // only when one of them changed, or after a minute (the window's start moves on).
   const path = `/api/v2/alarm/${e.entityType}/${e.id}?pageSize=${opts.limit ?? 20}&page=0&sortProperty=createdTime&sortOrder=DESC${status}${sev}`;
-  const r = await getCached<any>(`a|${path}|${opts.startTs ? Math.round((Date.now() - opts.startTs) / 60e3) : ''}`, path + start, 15e3);
+  const gate = alarmGate(e);
+  const ck = `a|${path}|${opts.startTs ? Math.round((Date.now() - opts.startTs) / 60e3) : ''}|${opts.endTs ? Math.round((Date.now() - opts.endTs) / 60e3) : ''}`;
+  let r: any;
+  if (gate) {
+    const hit = gatedCache.get(ck);
+    if (hit && hit.sig === gate && Date.now() - hit.fetchedAt < 60e3) r = hit.data;
+    else {
+      r = await get<any>(path + start);
+      cachePut(gatedCache, ck, { fetchedAt: Date.now(), sig: gate, data: r });
+    }
+  } else r = await getCached<any>(ck, path + start, 15e3);
   return (r?.data ?? []).map((a: any) => ({
     id: a.id.id,
     type: a.type,
@@ -585,6 +756,15 @@ export async function activeAlarmCounts(deviceIds: string[]): Promise<Map<string
   if (!deviceIds.length) return out;
   const ids = [...new Set(deviceIds)].sort();
   const key = `ac|${ids.join(',')}`;
+  // D-046: ThingsBoard pushes the count per machine (one subscription for the set); REST only without it
+  const cw = ids.length <= MAX_COUNT_IDS ? countWatch(key, () => ids.map((id) => ({ name: id, filter: one('DEVICE', id), status: ['ACTIVE'] }))) : null;
+  if (cw && (cw.counts() || (await cw.waitReady(LIVE_WAIT_MS)))) {
+    const c = cw.counts();
+    if (c) {
+      for (const id of ids) if ((c[id] ?? 0) > 0) out.set(id, c[id]);
+      return out;
+    }
+  }
   const L = liveHub();
   const hit = getCache.get(key);
   let data: any;
@@ -604,4 +784,58 @@ export async function activeAlarmCounts(deviceIds: string[]): Promise<Map<string
     if (id) out.set(id, (out.get(id) ?? 0) + 1);
   }
   return out;
+}
+
+// ---------- shift settings (D-047) ----------
+
+/** The shift settings of one entity: its own `imexShifts` document and `imexTimeZone` (SERVER_SCOPE), when set. */
+export interface ShiftAttrs {
+  name: string;
+  shifts?: unknown;
+  tz?: string;
+}
+
+/**
+ * `imexShifts` (and for assets `imexTimeZone`) of the given assets and devices: one Entity Data Query per entity
+ * type (entityList filter). The iMEX App UI's Configuration › Shifts writes them (docs/SHIFTS.md in that repo).
+ * The developers' `shift` attribute is never read. Ids the user can't read are left out.
+ */
+export async function shiftAttrs(assetIds: string[], deviceIds: string[]): Promise<Map<string, ShiftAttrs>> {
+  const [assets, devices] = await Promise.all([
+    assetIds.length ? entityData('ASSET', assetIds, { fields: ['name', 'label'], attrs: ['imexShifts', 'imexTimeZone'] }) : Promise.resolve([] as EntityRow[]),
+    deviceIds.length ? entityData('DEVICE', deviceIds, { fields: ['name', 'label'], attrs: ['imexShifts'] }) : Promise.resolve([] as EntityRow[]),
+  ]);
+  const out = new Map<string, ShiftAttrs>();
+  for (const r of [...assets, ...devices]) {
+    const a: ShiftAttrs = { name: r.fields.label || r.fields.name || '' };
+    if (r.attrs.imexShifts != null && r.attrs.imexShifts !== '') a.shifts = r.attrs.imexShifts;
+    if (r.entityType === 'ASSET' && typeof r.attrs.imexTimeZone === 'string' && r.attrs.imexTimeZone) a.tz = r.attrs.imexTimeZone;
+    out.set(r.id, a);
+  }
+  return out;
+}
+
+/**
+ * The app's configuration asset (System Configuration) with its `imexShifts`, the last level of every shift chain:
+ * the iMEX side menu's asset when it is on the page (`window.__imexApp.asset`), else the asset named
+ * "System Configuration" (one Entity Data Query). null when the user can't see one.
+ */
+export async function systemConfigShifts(): Promise<{ id: string; name: string; shifts?: unknown } | null> {
+  const app = typeof window !== 'undefined' ? (window as any).__imexApp?.asset : null;
+  if (app?.id) {
+    const id = typeof app.id === 'string' ? app.id : app.id.id;
+    const m = await shiftAttrs([id], []);
+    const a = m.get(id);
+    return a ? { id, name: a.name || app.name || 'System Configuration', shifts: a.shifts } : null;
+  }
+  const r = await post<any>('/api/entitiesQuery/find', {
+    entityFilter: { type: 'entityName', entityType: 'ASSET', entityNameFilter: 'System Configuration' },
+    pageLink: { page: 0, pageSize: 10 },
+    entityFields: [{ type: 'ENTITY_FIELD', key: 'name' }],
+    latestValues: [{ type: 'SERVER_ATTRIBUTE', key: 'imexShifts' }],
+  });
+  const hit = (r?.data ?? []).find((d: any) => d?.latest?.ENTITY_FIELD?.name?.value === 'System Configuration');
+  if (!hit) return null;
+  const v = hit.latest?.SERVER_ATTRIBUTE?.imexShifts;
+  return { id: hit.entityId.id, name: 'System Configuration', shifts: v && v.ts > 0 && v.value !== '' ? parseMaybeJson(v.value) : undefined };
 }

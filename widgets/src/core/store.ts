@@ -100,8 +100,28 @@ function requireStore(ctx: UserContext): api.EntityRef {
  * with the number of dashboards). Documents that fail the schema are skipped silently; private
  * dashboards of other users are hidden (UI-only, D-012).
  */
-export async function listDashboards(ctx: UserContext): Promise<(Dashboard & { visibility: string })[]> {
+export async function listDashboards(ctx: UserContext, maxAgeMs = 0): Promise<(Dashboard & { visibility: string })[]> {
   const store = requireStore(ctx);
+  // D-046: with maxAgeMs (the Dashboard list / Dashboards page, which is asked for twice in a row) a list read less
+  // than maxAgeMs ago is served again, unless anything was written meanwhile through this page (api.writeEpoch).
+  // Everyone else reads fresh, as before.
+  const key = `${store.id}|${ctx.userId}`;
+  const ep = api.writeEpoch();
+  if (maxAgeMs > 0 && listCache && listCache.key === key && listCache.epoch === ep && Date.now() - listCache.at < maxAgeMs) return (await listCache.p).slice();
+  const entry = { key, epoch: ep, at: Date.now(), p: readDashboards(ctx, store) };
+  listCache = entry;
+  entry.p.catch(() => {
+    if (listCache === entry) listCache = null;
+  });
+  return (await entry.p).slice();
+}
+
+/** How long the Dashboard list may reuse a list it has just read (ms; listDashboards maxAgeMs). */
+export const LIST_REUSE_MS = 5000;
+let listCache: { key: string; epoch: number; at: number; p: Promise<(Dashboard & { visibility: string })[]> } | null = null;
+
+/** Reads every dashboard of the store (see listDashboards). */
+async function readDashboards(ctx: UserContext, store: api.EntityRef): Promise<(Dashboard & { visibility: string })[]> {
   const keys = await api.get<string[]>(`/api/plugins/telemetry/ASSET/${store.id}/keys/attributes/SERVER_SCOPE`);
   const want = keys.filter((k) => k.startsWith('dbb_d_') || k.startsWith('dbb_vis_'));
   if (!want.length) return [];

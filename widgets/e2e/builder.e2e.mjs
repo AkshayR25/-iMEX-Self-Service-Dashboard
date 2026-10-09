@@ -389,16 +389,15 @@ test('D-033: background image: status for bad addresses, upload, fit; shown on t
   ok(!(await t.draft()).theme?.bgImage, 'removed');
 });
 
-test('D-033: table centres numeric columns and right-aligns text columns', async (t) => {
+test('D-044: table centres every column, header and value (supersedes D-033)', async (t) => {
   await t.addWidget('table');
   await t.page.waitForTimeout(1000);
   const cols = await t.b(() => {
     const tb = document.querySelector('.dbb-canvas .dbb-table');
-    return [...tb.querySelectorAll('thead th')].slice(1).map((th, i) => ({ cls: th.className, th: getComputedStyle(th).textAlign, td: getComputedStyle(tb.querySelector(`tbody tr td:nth-child(${i + 2})`)).textAlign }));
+    return [...tb.querySelectorAll('thead th')].map((th, i) => ({ name: th.textContent.trim(), th: getComputedStyle(th).textAlign, td: getComputedStyle(tb.querySelector(`tbody tr td:nth-child(${i + 1})`)).textAlign }));
   });
-  ok(cols.length > 0, 'has value columns');
-  for (const c of cols) eq([c.th, c.td], c.cls === 'num' ? ['center', 'center'] : ['right', 'right'], `column ${c.cls}`);
-  ok(cols.some((c) => c.cls === 'num'), 'numeric column present');
+  ok(cols.length > 1, 'has the machine column and value columns');
+  for (const c of cols) eq([c.th, c.td], ['center', 'center'], `column ${c.name}`);
 });
 
 // ------------------------------------------------------------------ style, colours, theme

@@ -42,9 +42,12 @@
  * - nodeQuery: all devices of a profile below a given asset node.
  * Scope is the user's `selectedNodes` subtree (D-011) and is enforced in the UI only (D-012).
  *
- * TIME RANGE (schema TIME_RANGES / normalizeRange / rangeMs, D-020)
+ * TIME RANGE (schema TIME_RANGES / normalizeRange / rangeWindow, D-020, D-047)
  * 'realtime' = latest values; time-based widgets use a rolling last hour. Historic '1h' | '2h' |
  * '4h' | '8h' = fixed window ending now. Longer stored ranges are read as '8h' by normalizeRange.
+ * 'shift' = the current shift so far, 'prevshift' = the last ended shift, from the shift calendar of the
+ * dashboard's machine (env.deviceId), else the widget's first machine (core/shifts.ts calendarFor). No shifts
+ * set up there: time-based widgets say so instead of guessing a window.
  * A widget's settings.timeRange overrides the dashboard's env.timeRange.
  *
  * LIMITS (core/schema)
@@ -57,6 +60,11 @@
  * wins. settings.colorTarget chooses what a card-level match colours: 'background' (tint + accent
  * bar, default), 'accent', 'icon' or 'value'. Charts draw number rules as threshold lines, gauges
  * as zones, tables colour cells.
+ *
+ * LOADING (D-043)
+ * Until the first draw a data widget shows a placeholder in the shape of its type (kit skeleton, cardSkeleton) and,
+ * with env.busyKey, counts for the app's page bar. A redraw for a new time range or theme (handle.update) shows a
+ * 2 px hairline on the card while it loads; live pushes and timer redraws (handle.refresh) stay silent.
  *
  * REFRESH MODEL (D-021)
  * The caller decides when to redraw: entries/renderer.ts calls Grid.refreshAll() when the WebSocket
@@ -81,7 +89,9 @@ import * as api from '../core/api';
 import * as scope from '../core/scope';
 import type { UserContext, Node } from '../core/scope';
 import type { KeyMeta } from '../core/types';
-import { Widget, Binding, WIDGET_CAPS, WIDGET_LABELS, CONTENT_TYPES, MAX_SERIES, MAX_WIDGETS, rangeMs, rangeLabel, normalizeRange, CardStyle, DashboardTheme, ColorRule } from '../core/schema';
+import { Widget, Binding, WIDGET_CAPS, WIDGET_LABELS, CONTENT_TYPES, MAX_SERIES, MAX_WIDGETS, rangeWindow, isShiftRange, normalizeRange, CardStyle, DashboardTheme, ColorRule } from '../core/schema';
+import { calendarFor } from '../core/shifts';
+import { cardSkeleton, topProgress, pageBusy } from './kit';
 import { compatible } from '../core/compat';
 import { SERIES, SERIES_DARK, STATUS, SEVERITY_COLOR, RAMP_BLUE, RAMP_ORANGE, esc, fmtNum, ago, miniMarkdown, fontStack, loadFont, safeUrl } from './theme';
 import { lineChart, barChart, gauge, sparkline, donut, stateTimeline, heatmap, Slice, TimelineRow, HeatRow } from './charts';
@@ -104,6 +114,8 @@ export interface RenderEnv {
   editing?: boolean;
   /** Opens a dashboard state (link widgets). nodeId: machine or location to open it for. */
   navigate?(stateId: string, nodeId: string | null): void;
+  /** D-043: first draws count for the app's page bar under this key (machine page, Dashboard Overview). */
+  busyKey?: string;
 }
 
 /** Result of resolving a widget's Binding. */
@@ -184,9 +196,17 @@ export function bindingLabel(ctx: UserContext, b: Binding): string {
 export interface WidgetHandle {
   /** Re-fetches data over REST and redraws the body. Never rejects: errors are shown in the card. No-op after destroy(). */
   refresh(): Promise<void>;
+  /**
+   * D-043: redraws for a new environment (time range, theme) keeping the shown content until the new one is drawn,
+   * with a 2 px hairline on the card meanwhile. Not for another machine (Grid re-creates the cards then).
+   */
+  update(env: RenderEnv): Promise<void>;
   /** Stops further refreshes and empties the container. */
   destroy(): void;
 }
+
+/** Unique part of the page-bar keys of cards (D-043). */
+let cardSeq = 0;
 
 /** Replaces a widget body with a centred grey message. */
 /**
@@ -346,6 +366,16 @@ export function renderWidget(container: HTMLElement, w: Widget, env: RenderEnv, 
   // (the fade on every refresh was the flicker seen when new values arrived).
   body.classList.add('dbb-first');
   let drawn = false;
+  // D-043: a data widget shows a placeholder in its own shape until the first draw (and counts for the page bar).
+  // Only after 150 ms: a draw served from the live cache (most redraws while editing) shows no flash.
+  const skel = !content;
+  const skelTimer = skel
+    ? setTimeout(() => {
+        if (alive && !drawn && !body.firstElementChild) body.innerHTML = cardSkeleton(w.type);
+      }, 150)
+    : null;
+  const busyKey = env.busyKey && skel ? `${env.busyKey}:${w.id}:${++cardSeq}` : null;
+  if (busyKey) pageBusy(busyKey, true);
   // D-028: one draw at a time per widget; a refresh asked for while one is running runs once afterwards
   // (on a slow server, overlapping refreshes would otherwise pile up requests).
   let running: Promise<void> | null = null;
@@ -362,31 +392,55 @@ export function renderWidget(container: HTMLElement, w: Widget, env: RenderEnv, 
       return refresh();
     }
   };
+  const firstDone = () => {
+    if (drawn) return;
+    drawn = true;
+    if (busyKey) pageBusy(busyKey, false);
+    setTimeout(() => body.classList.remove('dbb-first'), 400);
+  };
   const drawOnce = async () => {
     if (!alive) return;
     try {
       const rule = await draw(body, w, env);
-      if (!drawn) {
-        drawn = true;
-        setTimeout(() => body.classList.remove('dbb-first'), 400);
-      }
+      if (!alive) return;
+      // a type that drew nothing must not keep its placeholder
+      if (body.firstElementChild?.classList.contains('dbb-skel')) body.innerHTML = '';
+      firstDone();
       // undefined = this widget type doesn't colour the card; null = clear any previous rule colour.
       if (rule !== undefined) applyRuleToCard(card, w, rule);
     } catch (e: any) {
+      if (!alive) return;
+      firstDone();
       placeholder(body, `Could not load data (${e?.status ?? ''} ${e?.message?.slice(0, 80) ?? e})`);
     }
   };
   void refresh();
   return {
     refresh,
+    async update(next: RenderEnv) {
+      env = next;
+      if (!alive) return;
+      // a card still on its placeholder needs no hairline
+      const bar = drawn && !content ? topProgress(card, { height: 2, cls: 'dbb-hair', label: 'Updating' }) : null;
+      await refresh();
+      bar?.done();
+    },
     destroy() {
       alive = false;
+      if (skelTimer) clearTimeout(skelTimer);
+      if (busyKey && !drawn) pageBusy(busyKey, false);
       container.innerHTML = '';
     },
   };
 }
 
 // ---------- data helpers ----------
+
+/**
+ * Cache-key part for a window: its length and how long ago it ended, in minutes (D-047: a shift window that ended
+ * earlier must not share a cache entry with a window of the same length ending now).
+ */
+const winKey = (startTs: number, endTs: number) => `${Math.round((endTs - startTs) / 60e3)}|${Math.max(0, Math.round((Date.now() - endTs) / 60e3))}`;
 
 /**
  * Raw (not aggregated) points of one key, oldest first. Used for state segments (donut "state", timeline).
@@ -396,7 +450,7 @@ export function renderWidget(container: HTMLElement, w: Widget, env: RenderEnv, 
 async function rawSeries(deviceId: string, key: string, startTs: number, endTs: number): Promise<{ ts: number; value: string }[]> {
   // 60 s cache while the WebSocket is live (D-021); plain REST otherwise.
   const r = await api.getCached<Record<string, { ts: number; value: string }[]>>(
-    `raw|${deviceId}|${key}|${Math.round((endTs - startTs) / 60e3)}`,
+    `raw|${deviceId}|${key}|${winKey(startTs, endTs)}`,
     `/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries?keys=${encodeURIComponent(key)}&startTs=${startTs}&endTs=${endTs}&agg=NONE&orderBy=ASC&limit=5000`,
     60e3,
   );
@@ -404,18 +458,12 @@ async function rawSeries(deviceId: string, key: string, startTs: number, endTs: 
 }
 
 /**
- * One aggregate (MIN / MAX / AVG / SUM) of a key over the whole window.
- * REST: GET .../values/timeseries with interval = window length, so ThingsBoard returns a single bucket.
+ * One aggregate (MIN / MAX / AVG / SUM) of a key over the whole window: core/api.ts windowAgg (D-048), which keeps a
+ * window ending now current from the pushed live points instead of a REST read on every 60 s redraw.
  * @returns The number, or null when there is no data in the window.
  */
-async function aggValue(deviceId: string, key: string, startTs: number, endTs: number, agg: string): Promise<number | null> {
-  const r = await api.getCached<any>(
-    `agg|${deviceId}|${key}|${agg}|${Math.round((endTs - startTs) / 60e3)}`,
-    `/api/plugins/telemetry/DEVICE/${deviceId}/values/timeseries?keys=${encodeURIComponent(key)}&startTs=${startTs}&endTs=${endTs}&agg=${agg}&interval=${endTs - startTs}&limit=10`,
-    60e3,
-  );
-  const v = r?.[key]?.[0]?.value;
-  return v == null ? null : Number(v);
+function aggValue(deviceId: string, key: string, startTs: number, endTs: number, agg: string, fixedStart = false): Promise<number | null> {
+  return api.windowAgg(deviceId, key, startTs, endTs, agg as 'MIN' | 'MAX' | 'AVG' | 'SUM', { fixedStart });
 }
 
 /** State segments: a value holds until the next point; gaps longer than max(3x median step, 15 min) are "no data". */
@@ -457,6 +505,9 @@ function ruleLabelPill(rule: ColorRule | null): string {
 }
 
 /** Formats numeric values with `dec` decimals; anything else (text, booleans, empty) is escaped as is ('—' for null). Returns HTML. */
+/** Widget types that show latest values only: they need no time window (D-047). */
+const LATEST_ONLY = new Set(['value', 'gauge', 'status', 'progress', 'multivalue', 'table']);
+
 const fmtVal = (raw: unknown, dec: number) => (Number.isFinite(Number(raw)) && raw !== '' && raw !== null && typeof raw !== 'boolean' ? fmtNum(raw, dec) : esc(String(raw ?? '—')));
 
 // ---------- drawing ----------
@@ -467,7 +518,8 @@ const fmtVal = (raw: unknown, dec: number) => (Number.isFinite(Number(raw)) && r
  * Data calls (all through core/api with the user's JWT):
  * - api.latest: WebSocket live cache; REST GET .../values/timeseries?keys=... only until the subscription is ready
  * - api.series: REST once, then extended with live points (AVG/NONE windows ending now); re-fetched every 5 min
- * - aggValue, rawSeries and the bar/heatmap queries: REST via api.getCached (60 s while live)
+ * - aggValue: api.windowAgg, kept current from pushed points while live (D-048; re-read after 1-5 min)
+ * - rawSeries and the bar/heatmap queries: REST via api.getCached (60 s while live)
  * - api.alarms: REST GET /api/v2/alarm/DEVICE/{id}?... (15 s cache while live)
  * Multi-device widgets issue one request per device (in parallel, except line/area which go in sequence).
  * Throws on REST errors; renderWidget's refresh() turns them into a placeholder.
@@ -505,16 +557,28 @@ async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<Color
   // Single-device types use only the first device; multi-device types stop at MAX_SERIES devices.
   const devices = cap.multiDevice ? bound.devices.slice(0, MAX_SERIES) : bound.devices.slice(0, 1);
   const moreDevices = cap.multiDevice ? Math.max(0, bound.devices.length - MAX_SERIES) : 0;
-  // Per-widget range overrides the dashboard's; 'realtime' becomes a rolling 1 h window (rangeMs).
+  // Per-widget range overrides the dashboard's; 'realtime' becomes a rolling 1 h window (rangeWindow).
   const range = normalizeRange(s.timeRange ?? env.timeRange);
-  const endTs = Date.now();
-  const startTs = endTs - rangeMs(range);
   // Property kind vs widget type (plain rules; see core/compat). Older dashboards may still hold a mismatch.
   for (const k of w.keys) {
     const c = compatible(w.type, keyMeta(ctx, bound.devices[0].profile, k), { donutMode: s.donutMode ?? (devices.length > 1 ? 'devices' : 'state') });
     if (!c.ok) return void placeholder(body, `${c.reason} Choose another property or widget type.`);
   }
   const d0 = devices[0];
+  // The time window (D-047). Widgets that show latest values need none, so a shift range without a calendar only
+  // stops the time-based ones.
+  let startTs = Date.now() - 3600e3;
+  let endTs = Date.now();
+  let ended = false;
+  if (!LATEST_ONLY.has(w.type)) {
+    const cal = isShiftRange(range) ? await calendarFor(ctx, env.deviceId ?? d0.id) : null;
+    const win = rangeWindow(range, cal);
+    if (!win) return void placeholder(body, cal ? (range === 'shift' ? 'No shift now or in the last 14 days.' : 'No shift has ended in the last 14 days.') : "No shifts are set up for this machine's site. An admin sets them in Configuration › Shifts.");
+    ({ startTs, endTs } = win);
+    ended = !!win.shift?.ended;
+  }
+  // The current shift so far grows from the shift start: its series are cached by that start (api.series).
+  const fixedStart = isShiftRange(range) && !ended;
   // Sub-line under a value: machine name (unless it is the current machine) and data age.
   const sub =(d: Node, ts: number) => `${w.binding.mode !== 'current' ? esc(d.label) + ' · ' : ''}${ago(ts)}`;
 
@@ -555,13 +619,16 @@ async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<Color
         .join('');
       // The fill bar already shows the rule colour, so a 'background' target doesn't tint the card too.
       const txt = `<div class="dbb-value" style="height:auto"><div><span class="v">${fmtVal(lv.value, dec)}</span><span class="u">${esc(unit)}</span></div>${ruleLabelPill(rule)}<div class="s">${fmtNum(pct, 0)}% of ${fmtNum(max, 0)} ${esc(unit)} · ${ago(lv.ts)}</div></div>`;
+      // D-043: the iMEX value meter (kit .imx-meter): rounded track, a fill fading from the colour to a lighter tone
+      const col2 = `color-mix(in srgb, ${col} 62%, #ffffff)`;
+      const aria = `role="meter" aria-valuemin="${esc(min)}" aria-valuemax="${esc(max)}" aria-valuenow="${esc(v)}" aria-label="${esc(`${w.title || meta.displayName}: ${fmtNum(pct, 0)}%`)}"`;
       body.innerHTML = vert
-        ? `<div class="dbb-prog vert"><div class="dbb-prog-track" style="width:${Math.max(28, Math.min(64, body.clientWidth / 4))}px;height:100%;border-radius:10px"><div class="dbb-prog-fill" style="width:100%;height:${pct}%;background:${col};border-radius:8px"></div>${ticks}</div>${txt}</div>`
-        : `<div class="dbb-prog">${txt}<div class="dbb-prog-track" style="height:12px"><div class="dbb-prog-fill" style="height:100%;width:${pct}%;background:${col}"></div>${ticks}</div></div>`;
+        ? `<div class="dbb-prog vert"><div class="dbb-prog-track" ${aria} style="width:${Math.max(28, Math.min(64, body.clientWidth / 4))}px;height:100%;border-radius:10px"><div class="dbb-prog-fill" style="width:100%;height:${pct}%;background:linear-gradient(0deg,${col},${col2});border-radius:8px"></div>${ticks}</div>${txt}</div>`
+        : `<div class="dbb-prog">${txt}<div class="imx-meter dbb-meter" ${aria} style="--m:${col};--m2:${col2}"><span class="tr"><i style="--v:${pct.toFixed(1)}%"></i>${ticks}</span></div></div>`;
       return (s.colorTarget ?? 'background') === 'background' ? null : rule;
     }
     if (w.type === 'kpi') {
-      const data = s.sparkline === false && s.compare === 'none' ? {} : await api.series(d0.id, [key], startTs, endTs, 'AVG', 120);
+      const data = s.sparkline === false && s.compare === 'none' ? {} : await api.series(d0.id, [key], startTs, endTs, 'AVG', 120, { fixedStart });
       const pts = (data as any)[key] ?? [];
       // % change of the latest value vs the first averaged point of the window; upIsGood=false swaps the colours.
       let delta = '';
@@ -572,7 +639,7 @@ async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<Color
         const good = s.upIsGood === false ? (dir === 'up' ? 'down' : dir === 'down' ? 'up' : 'flat') : dir;
         delta = `<span class="dbb-delta ${good}" title="Change since the start of the time range">${dir === 'up' ? '▲' : dir === 'down' ? '▼' : '■'} ${fmtNum(Math.abs(ch), 1)}%</span>`;
       }
-      body.innerHTML = `<div class="dbb-kpi"><div class="dbb-value" style="height:auto"><div class="row"><span><span class="v">${fmtVal(lv.value, dec)}</span><span class="u">${esc(unit)}</span></span>${delta}</div>${ruleLabelPill(rule)}<div class="s">${sub(d0, lv.ts)} · vs ${range === 'realtime' ? '1 h' : esc(range.replace('h', ' h'))} ago</div></div>${s.sparkline !== false ? '<div class="dbb-spark"></div>' : ''}</div>`;
+      body.innerHTML = `<div class="dbb-kpi"><div class="dbb-value" style="height:auto"><div class="row"><span><span class="v">${fmtVal(lv.value, dec)}</span><span class="u">${esc(unit)}</span></span>${delta}</div>${ruleLabelPill(rule)}<div class="s">${sub(d0, lv.ts)} · ${isShiftRange(range) ? (ended ? 'vs the start of that shift' : 'vs the shift start') : `vs ${range === 'realtime' ? '1 h' : esc(range.replace('h', ' h'))} ago`}</div></div>${s.sparkline !== false ? '<div class="dbb-spark"></div>' : ''}</div>`;
       const sp = body.querySelector('.dbb-spark') as HTMLElement | null;
       // Next frame, so the sparkline host has its laid-out size.
       if (sp) requestAnimationFrame(() => sparkline(sp, pts, rule?.color ?? palette[0]));
@@ -628,9 +695,9 @@ async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<Color
     const dec = s.decimals ?? meta.decimals;
     const unit = s.unit ?? meta.unit;
     const [mn, av, mx, lv] = await Promise.all([
-      aggValue(d0.id, key, startTs, endTs, 'MIN'),
-      aggValue(d0.id, key, startTs, endTs, 'AVG'),
-      aggValue(d0.id, key, startTs, endTs, 'MAX'),
+      aggValue(d0.id, key, startTs, endTs, 'MIN', fixedStart),
+      aggValue(d0.id, key, startTs, endTs, 'AVG', fixedStart),
+      aggValue(d0.id, key, startTs, endTs, 'MAX', fixedStart),
       api.latest(d0.id, [key]).then((l) => l[key]),
     ]);
     const cell = (k: string, v: number | string | null | undefined) => {
@@ -647,7 +714,7 @@ async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<Color
     const series: Parameters<typeof lineChart>[1] = [];
     let slot = 0;
     for (const d of devices) {
-      const data = await api.series(d.id, w.keys, startTs, endTs, agg, 500);
+      const data = await api.series(d.id, w.keys, startTs, endTs, agg, 500, { fixedStart });
       for (const k of w.keys) {
         if (series.length >= MAX_SERIES) break;
         const meta = keyMeta(ctx, d.profile, k);
@@ -677,7 +744,7 @@ async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<Color
     const agg = s.agg && s.agg !== 'NONE' ? s.agg : 'AVG';
     // Grouping: stored 'day' draws per hour (D-020); default is by machine for several devices,
     // else per 15 min up to 2 h and per hour beyond.
-    const group = s.groupBy === 'day' ? 'hour' : s.groupBy ?? (devices.length > 1 ? 'device' : rangeMs(range) <= 2 * 3600e3 ? '15m' : 'hour');
+    const group = s.groupBy === 'day' ? 'hour' : s.groupBy ?? (devices.length > 1 ? 'device' : endTs - startTs <= 2 * 3600e3 ? '15m' : 'hour');
     const meta = keyMeta(ctx, d0.profile, key);
     const dec = s.decimals ?? meta.decimals;
     // Bar colour: matching rule colour, else the series colour.
@@ -686,7 +753,7 @@ async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<Color
     if (group === 'device') {
       const bars = await Promise.all(
         devices.map(async (d, i) => {
-          const v = await aggValue(d.id, key, startTs, endTs, agg);
+          const v = await aggValue(d.id, key, startTs, endTs, agg, fixedStart);
           return { label: d.label, value: v, color: col(v, palette[i % palette.length]), detail: `${d.label} · ${agg.toLowerCase()} ${meta.displayName}` };
         }),
       );
@@ -694,7 +761,7 @@ async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<Color
     } else {
       const step = group === '15m' ? 15 * 60e3 : 3600e3;
       const r = await api.getCached<any>(
-        `bar|${d0.id}|${key}|${agg}|${step}|${Math.round((endTs - startTs) / 60e3)}`,
+        `bar|${d0.id}|${key}|${agg}|${step}|${winKey(startTs, endTs)}`,
         `/api/plugins/telemetry/DEVICE/${d0.id}/values/timeseries?keys=${encodeURIComponent(key)}&startTs=${startTs}&endTs=${endTs}&agg=${agg}&interval=${step}&limit=1000&orderBy=ASC`,
         60e3,
       );
@@ -716,7 +783,7 @@ async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<Color
     // 'devices' = share of an aggregate by machine; 'state' = hours spent in each state of one machine.
     if (mode === 'devices') {
       const agg = s.agg && s.agg !== 'NONE' ? s.agg : 'AVG';
-      const vals = await Promise.all(devices.map((d) => aggValue(d.id, key, startTs, endTs, agg)));
+      const vals = await Promise.all(devices.map((d) => aggValue(d.id, key, startTs, endTs, agg, fixedStart)));
       const slices: Slice[] = devices.map((d, i) => ({ label: d.label, value: Math.max(0, vals[i] ?? 0), color: palette[i % palette.length], detail: `${d.label} · ${agg.toLowerCase()} ${meta.displayName}` }));
       donut(body, slices, { unit: s.unit ?? meta.unit, decimals: s.decimals ?? meta.decimals });
     } else {
@@ -807,15 +874,11 @@ async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<Color
     const rows = await Promise.all(devices.map(async (d) => ({ d, v: await api.latest(d.id, w.keys) })));
     // Column headers use the first device's profile; rows are machines, cells are latest values.
     const metas = w.keys.map((k) => keyMeta(ctx, devices[0].profile, k));
-    // D-033 (user request): numeric columns centred, text columns right-aligned. A column is numeric when
-    // every value it shows is a number (missing values don't count).
-    const colCls = w.keys.map((k, i) => {
-      const vals = rows.map((r) => r.v[k]).filter(Boolean);
-      return vals.length && vals.every((x) => valueType(metas[i], x!.value) === 'number') ? 'num' : 'txt';
-    });
+    // D-044 (user rule, 9 Oct 2026): every header and value centred (supersedes D-033's centred numbers and
+    // right-aligned text), in the CSS of .dbb-table (theme.ts).
     body.innerHTML =
       `<div class="dbb-scroll"><table class="dbb-table"><thead><tr><th>Machine</th>${metas
-        .map((m, i) => `<th class="${colCls[i]}">${esc(m.displayName)}${m.unit ? ` (${esc(m.unit)})` : ''}</th>`)
+        .map((m) => `<th>${esc(m.displayName)}${m.unit ? ` (${esc(m.unit)})` : ''}</th>`)
         .join('')}</tr></thead><tbody>` +
       rows
         .map(
@@ -823,11 +886,11 @@ async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<Color
             `<tr><td>${esc(d.label)}</td>${w.keys
               .map((k, i) => {
                 const x = v[k];
-                if (!x) return `<td class="${colCls[i]}"><span title="Not available on this device">—</span></td>`;
+                if (!x) return `<td><span title="Not available on this device">—</span></td>`;
                 const r = matchRule(rules, x.value, k);
                 const vt = valueType(metas[i], x.value);
                 const txt = vt === 'number' ? fmtVal(x.value, s.decimals ?? metas[i].decimals) : esc(stateLabel(x.value, rules, metas[i], k));
-                return `<td class="${colCls[i]}">${r ? `<span class="cell" style="background:color-mix(in srgb, ${r.color} 18%, transparent);box-shadow:inset 3px 0 0 ${r.color}" title="${esc(r.label ?? '')}">${txt}</span>` : txt}</td>`;
+                return `<td>${r ? `<span class="cell" style="background:color-mix(in srgb, ${r.color} 18%, transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb, ${r.color} 45%, transparent)" title="${esc(r.label ?? '')}">${txt}</span>` : txt}</td>`;
               })
               .join('')}</tr>`,
         )
@@ -838,7 +901,7 @@ async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<Color
 
   if (w.type === 'alarms') {
     // Alarms raised since the window start, per device, merged newest first and cut to maxRows.
-    const lists = await Promise.all(devices.map((d) => api.alarms({ id: d.id, entityType: 'DEVICE' }, { status: s.alarmStatus ?? 'ANY', severities: s.severities, limit: s.maxRows ?? 20, startTs })));
+    const lists = await Promise.all(devices.map((d) => api.alarms({ id: d.id, entityType: 'DEVICE' }, { status: s.alarmStatus ?? 'ANY', severities: s.severities, limit: s.maxRows ?? 20, startTs, endTs: ended ? endTs : undefined })));
     const all = lists
       .flat()
       .sort((a, b) => b.startTs - a.startTs)
