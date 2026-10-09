@@ -1,0 +1,1501 @@
+{
+ "about": "iMEX shift calendar test vectors (docs/SHIFTS.md). Timestamps: ISO-8601; compare as instants. Instance fields not listed in an expectation are not checked. validate.expectCodes is compared as a sorted set of codes.",
+ "cases": [
+  {
+   "name": "Asia/Kolkata 3x8 (no DST), night crossing midnight",
+   "tz": "Asia/Kolkata",
+   "chain": [
+    null,
+    {
+     "v": 1,
+     "rev": 1791500000000,
+     "versions": [
+      {
+       "id": "v1",
+       "from": null,
+       "inherit": false,
+       "template": "3x8",
+       "shifts": [
+        {"id":"a","name":"Morning","start":"06:00","end":"14:00"},
+        {"id":"b","name":"Afternoon","start":"14:00","end":"22:00"},
+        {"id":"c","name":"Night","start":"22:00","end":"06:00"}
+       ],
+       "by": "u-test",
+       "byName": "Test",
+       "at": 1791500000000
+      }
+     ],
+     "by": "u-test",
+     "at": 1791500000000
+    },
+    null,
+    null
+   ],
+   "queries": [
+    {
+     "fn": "at",
+     "ts": "2026-10-09T10:00:00+05:30",
+     "expect": {"name":"Morning","start":"2026-10-09T00:30:00Z","end":"2026-10-09T08:30:00Z","productionDay":"2026-10-09","versionId":"v1"}
+    },
+    {
+     "fn": "at",
+     "ts": "2026-10-09T14:00:00+05:30",
+     "expect": {"name":"Afternoon","start":"2026-10-09T08:30:00Z","end":"2026-10-09T16:30:00Z","productionDay":"2026-10-09","versionId":"v1"}
+    },
+    {
+     "fn": "at",
+     "ts": "2026-10-09T13:59:59+05:30",
+     "expect": {"name":"Morning","start":"2026-10-09T00:30:00Z","end":"2026-10-09T08:30:00Z","productionDay":"2026-10-09","versionId":"v1"}
+    },
+    {
+     "fn": "at",
+     "ts": "2026-10-09T23:30:00+05:30",
+     "expect": {"name":"Night","start":"2026-10-09T16:30:00Z","end":"2026-10-10T00:30:00Z","productionDay":"2026-10-09","versionId":"v1"}
+    },
+    {
+     "fn": "at",
+     "ts": "2026-10-10T02:00:00+05:30",
+     "expect": {"name":"Night","start":"2026-10-09T16:30:00Z","end":"2026-10-10T00:30:00Z","productionDay":"2026-10-09","versionId":"v1"}
+    },
+    {"fn":"productionDay","ts":"2026-10-10T05:59:00+05:30","expect":"2026-10-09"},
+    {"fn":"productionDay","ts":"2026-10-10T06:00:00+05:30","expect":"2026-10-10"},
+    {
+     "fn": "previous",
+     "ts": "2026-10-09T15:00:00+05:30",
+     "expect": {"name":"Morning","start":"2026-10-09T00:30:00Z","end":"2026-10-09T08:30:00Z","productionDay":"2026-10-09","versionId":"v1"}
+    },
+    {
+     "fn": "previous",
+     "ts": "2026-10-09T14:00:00+05:30",
+     "expect": {"name":"Morning","start":"2026-10-09T00:30:00Z","end":"2026-10-09T08:30:00Z","productionDay":"2026-10-09","versionId":"v1"}
+    },
+    {
+     "fn": "next",
+     "ts": "2026-10-09T15:00:00+05:30",
+     "expect": {"name":"Night","start":"2026-10-09T16:30:00Z","end":"2026-10-10T00:30:00Z","productionDay":"2026-10-09","versionId":"v1"}
+    },
+    {
+     "fn": "next",
+     "ts": "2026-10-09T14:00:00+05:30",
+     "expect": {"name":"Night","start":"2026-10-09T16:30:00Z","end":"2026-10-10T00:30:00Z","productionDay":"2026-10-09","versionId":"v1"}
+    },
+    {
+     "fn": "between",
+     "from": "2026-10-09T00:00:00+05:30",
+     "to": "2026-10-10T00:00:00+05:30",
+     "expect": [
+      {"name":"Night","start":"2026-10-08T16:30:00Z","end":"2026-10-09T00:30:00Z","productionDay":"2026-10-08","versionId":"v1"},
+      {"name":"Morning","start":"2026-10-09T00:30:00Z","end":"2026-10-09T08:30:00Z","productionDay":"2026-10-09","versionId":"v1"},
+      {"name":"Afternoon","start":"2026-10-09T08:30:00Z","end":"2026-10-09T16:30:00Z","productionDay":"2026-10-09","versionId":"v1"},
+      {"name":"Night","start":"2026-10-09T16:30:00Z","end":"2026-10-10T00:30:00Z","productionDay":"2026-10-09","versionId":"v1"}
+     ]
+    },
+    {
+     "fn": "between",
+     "from": "2026-10-09T06:00:00+05:30",
+     "to": "2026-10-09T14:00:00+05:30",
+     "expect": [{"name":"Morning","start":"2026-10-09T00:30:00Z","end":"2026-10-09T08:30:00Z","productionDay":"2026-10-09","versionId":"v1"}]
+    },
+    {
+     "fn": "boundaries",
+     "from": "2026-10-09T00:00:00+05:30",
+     "to": "2026-10-10T00:00:00+05:30",
+     "expect": ["2026-10-09T00:30:00Z","2026-10-09T08:30:00Z","2026-10-09T16:30:00Z"]
+    },
+    {"fn":"boundaries","from":"2026-10-09T06:00:00+05:30","to":"2026-10-09T14:00:00+05:30","expect":["2026-10-09T00:30:00Z","2026-10-09T08:30:00Z"]}
+   ]
+  },
+  {
+   "name": "Saturday-only shift, Friday night into Saturday, Sunday off",
+   "tz": "Asia/Kolkata",
+   "chain": [
+    null,
+    {
+     "v": 1,
+     "rev": 1791500000000,
+     "versions": [
+      {
+       "id": "w1",
+       "from": null,
+       "inherit": false,
+       "template": "custom",
+       "shifts": [
+        {"id":"d","name":"Day","start":"08:00","end":"17:00","days":[1,2,3,4,5]},
+        {"id":"s","name":"Saturday","start":"08:00","end":"13:00","days":[6]},
+        {"id":"n","name":"Night","start":"22:00","end":"06:00","days":[1,2,3,4,5]}
+       ],
+       "by": "u-test",
+       "byName": "Test",
+       "at": 1791500000000
+      }
+     ],
+     "by": "u-test",
+     "at": 1791500000000
+    },
+    null,
+    null
+   ],
+   "queries": [
+    {
+     "fn": "at",
+     "ts": "2026-10-10T10:00:00+05:30",
+     "expect": {"name":"Saturday","start":"2026-10-10T02:30:00Z","end":"2026-10-10T07:30:00Z","productionDay":"2026-10-10","versionId":"w1"}
+    },
+    {"fn":"at","ts":"2026-10-10T14:00:00+05:30","expect":null},
+    {"fn":"at","ts":"2026-10-11T10:00:00+05:30","expect":null},
+    {
+     "fn": "at",
+     "ts": "2026-10-10T03:00:00+05:30",
+     "expect": {"name":"Night","start":"2026-10-09T16:30:00Z","end":"2026-10-10T00:30:00Z","productionDay":"2026-10-09","versionId":"w1"}
+    },
+    {"fn":"at","ts":"2026-10-11T03:00:00+05:30","expect":null},
+    {"fn":"at","ts":"2026-10-12T03:00:00+05:30","expect":null},
+    {"fn":"at","ts":"2026-10-09T18:00:00+05:30","expect":null},
+    {"fn":"productionDay","ts":"2026-10-11T10:00:00+05:30","expect":"2026-10-11"},
+    {"fn":"productionDay","ts":"2026-10-10T05:00:00+05:30","expect":"2026-10-09"},
+    {
+     "fn": "previous",
+     "ts": "2026-10-11T12:00:00+05:30",
+     "expect": {"name":"Saturday","start":"2026-10-10T02:30:00Z","end":"2026-10-10T07:30:00Z","productionDay":"2026-10-10","versionId":"w1"}
+    },
+    {
+     "fn": "previous",
+     "ts": "2026-10-12T07:00:00+05:30",
+     "expect": {"name":"Saturday","start":"2026-10-10T02:30:00Z","end":"2026-10-10T07:30:00Z","productionDay":"2026-10-10","versionId":"w1"}
+    },
+    {
+     "fn": "next",
+     "ts": "2026-10-11T12:00:00+05:30",
+     "expect": {"name":"Day","start":"2026-10-12T02:30:00Z","end":"2026-10-12T11:30:00Z","productionDay":"2026-10-12","versionId":"w1"}
+    },
+    {
+     "fn": "next",
+     "ts": "2026-10-10T13:00:00+05:30",
+     "expect": {"name":"Day","start":"2026-10-12T02:30:00Z","end":"2026-10-12T11:30:00Z","productionDay":"2026-10-12","versionId":"w1"}
+    },
+    {
+     "fn": "next",
+     "ts": "2026-10-09T18:00:00+05:30",
+     "expect": {"name":"Night","start":"2026-10-09T16:30:00Z","end":"2026-10-10T00:30:00Z","productionDay":"2026-10-09","versionId":"w1"}
+    },
+    {
+     "fn": "between",
+     "from": "2026-10-10T00:00:00+05:30",
+     "to": "2026-10-12T00:00:00+05:30",
+     "expect": [
+      {"name":"Night","start":"2026-10-09T16:30:00Z","end":"2026-10-10T00:30:00Z","productionDay":"2026-10-09","versionId":"w1"},
+      {"name":"Saturday","start":"2026-10-10T02:30:00Z","end":"2026-10-10T07:30:00Z","productionDay":"2026-10-10","versionId":"w1"}
+     ]
+    }
+   ]
+  },
+  {
+   "name": "America/New_York 3x8: 7 h and 9 h night shifts",
+   "tz": "America/New_York",
+   "chain": [
+    null,
+    {
+     "v": 1,
+     "rev": 1791500000000,
+     "versions": [
+      {
+       "id": "n1",
+       "from": null,
+       "inherit": false,
+       "template": "3x8",
+       "shifts": [
+        {"id":"a","name":"Morning","start":"06:00","end":"14:00"},
+        {"id":"b","name":"Afternoon","start":"14:00","end":"22:00"},
+        {"id":"c","name":"Night","start":"22:00","end":"06:00"}
+       ],
+       "by": "u-test",
+       "byName": "Test",
+       "at": 1791500000000
+      }
+     ],
+     "by": "u-test",
+     "at": 1791500000000
+    },
+    null,
+    null
+   ],
+   "queries": [
+    {
+     "fn": "at",
+     "ts": "2026-03-08T01:30:00-05:00",
+     "expect": {"name":"Night","start":"2026-03-08T03:00:00Z","end":"2026-03-08T10:00:00Z","productionDay":"2026-03-07","versionId":"n1"}
+    },
+    {
+     "fn": "at",
+     "ts": "2026-03-08T03:30:00-04:00",
+     "expect": {"name":"Night","start":"2026-03-08T03:00:00Z","end":"2026-03-08T10:00:00Z","productionDay":"2026-03-07","versionId":"n1"}
+    },
+    {
+     "fn": "at",
+     "ts": "2026-03-07T23:00:00-05:00",
+     "expect": {"name":"Night","start":"2026-03-08T03:00:00Z","end":"2026-03-08T10:00:00Z","productionDay":"2026-03-07","versionId":"n1"}
+    },
+    {
+     "fn": "at",
+     "ts": "2026-03-08T07:00:00-04:00",
+     "expect": {"name":"Morning","start":"2026-03-08T10:00:00Z","end":"2026-03-08T18:00:00Z","productionDay":"2026-03-08","versionId":"n1"}
+    },
+    {
+     "fn": "at",
+     "ts": "2026-11-01T01:30:00-04:00",
+     "expect": {"name":"Night","start":"2026-11-01T02:00:00Z","end":"2026-11-01T11:00:00Z","productionDay":"2026-10-31","versionId":"n1"}
+    },
+    {
+     "fn": "at",
+     "ts": "2026-11-01T01:30:00-05:00",
+     "expect": {"name":"Night","start":"2026-11-01T02:00:00Z","end":"2026-11-01T11:00:00Z","productionDay":"2026-10-31","versionId":"n1"}
+    },
+    {"fn":"productionDay","ts":"2026-11-01T05:59:00-05:00","expect":"2026-10-31"},
+    {
+     "fn": "previous",
+     "ts": "2026-11-01T07:00:00-05:00",
+     "expect": {"name":"Night","start":"2026-11-01T02:00:00Z","end":"2026-11-01T11:00:00Z","productionDay":"2026-10-31","versionId":"n1"}
+    },
+    {"fn":"boundaries","from":"2026-10-31T21:00:00-04:00","to":"2026-11-01T07:00:00-05:00","expect":["2026-11-01T02:00:00Z","2026-11-01T11:00:00Z"]},
+    {
+     "fn": "between",
+     "from": "2026-03-08T00:00:00-05:00",
+     "to": "2026-03-09T00:00:00-04:00",
+     "expect": [
+      {"name":"Night","start":"2026-03-08T03:00:00Z","end":"2026-03-08T10:00:00Z","productionDay":"2026-03-07","versionId":"n1"},
+      {"name":"Morning","start":"2026-03-08T10:00:00Z","end":"2026-03-08T18:00:00Z","productionDay":"2026-03-08","versionId":"n1"},
+      {"name":"Afternoon","start":"2026-03-08T18:00:00Z","end":"2026-03-09T02:00:00Z","productionDay":"2026-03-08","versionId":"n1"},
+      {"name":"Night","start":"2026-03-09T02:00:00Z","end":"2026-03-09T10:00:00Z","productionDay":"2026-03-08","versionId":"n1"}
+     ]
+    }
+   ]
+  },
+  {
+   "name": "America/New_York shift starting inside the spring gap",
+   "tz": "America/New_York",
+   "chain": [
+    null,
+    {
+     "v": 1,
+     "rev": 1791500000000,
+     "versions": [
+      {
+       "id": "g1",
+       "from": null,
+       "inherit": false,
+       "shifts": [
+        {"id":"e","name":"Early","start":"02:30","end":"10:30"},
+        {"id":"d","name":"Day","start":"10:30","end":"18:30"},
+        {"id":"n","name":"Night","start":"18:30","end":"02:30"}
+       ],
+       "by": "u-test",
+       "byName": "Test",
+       "at": 1791500000000
+      }
+     ],
+     "by": "u-test",
+     "at": 1791500000000
+    },
+    null,
+    null
+   ],
+   "queries": [
+    {
+     "fn": "at",
+     "ts": "2026-03-08T03:00:00-04:00",
+     "expect": {"name":"Night","start":"2026-03-07T23:30:00Z","end":"2026-03-08T07:30:00Z","productionDay":"2026-03-07","versionId":"g1"}
+    },
+    {
+     "fn": "at",
+     "ts": "2026-03-08T01:59:00-05:00",
+     "expect": {"name":"Night","start":"2026-03-07T23:30:00Z","end":"2026-03-08T07:30:00Z","productionDay":"2026-03-07","versionId":"g1"}
+    },
+    {
+     "fn": "at",
+     "ts": "2026-03-08T03:30:00-04:00",
+     "expect": {"name":"Early","start":"2026-03-08T07:30:00Z","end":"2026-03-08T14:30:00Z","productionDay":"2026-03-08","versionId":"g1"}
+    },
+    {
+     "fn": "next",
+     "ts": "2026-03-08T01:00:00-05:00",
+     "expect": {"name":"Early","start":"2026-03-08T07:30:00Z","end":"2026-03-08T14:30:00Z","productionDay":"2026-03-08","versionId":"g1"}
+    },
+    {
+     "fn": "at",
+     "ts": "2026-11-01T02:45:00-05:00",
+     "expect": {"name":"Early","start":"2026-11-01T07:30:00Z","end":"2026-11-01T15:30:00Z","productionDay":"2026-11-01","versionId":"g1"}
+    },
+    {
+     "fn": "at",
+     "ts": "2026-11-01T01:30:00-05:00",
+     "expect": {"name":"Night","start":"2026-10-31T22:30:00Z","end":"2026-11-01T07:30:00Z","productionDay":"2026-10-31","versionId":"g1"}
+    }
+   ]
+  },
+  {
+   "name": "America/New_York ambiguous boundary takes the first occurrence",
+   "tz": "America/New_York",
+   "chain": [
+    {
+     "v": 1,
+     "rev": 1791500000000,
+     "versions": [
+      {
+       "id": "f1",
+       "from": null,
+       "inherit": false,
+       "shifts": [
+        {"id":"a","name":"A","start":"01:30","end":"09:30"},
+        {"id":"b","name":"B","start":"09:30","end":"17:30"},
+        {"id":"c","name":"C","start":"17:30","end":"01:30"}
+       ],
+       "by": "u-test",
+       "byName": "Test",
+       "at": 1791500000000
+      }
+     ],
+     "by": "u-test",
+     "at": 1791500000000
+    }
+   ],
+   "queries": [
+    {
+     "fn": "at",
+     "ts": "2026-11-01T01:45:00-05:00",
+     "expect": {"name":"A","start":"2026-11-01T05:30:00Z","end":"2026-11-01T14:30:00Z","productionDay":"2026-11-01","versionId":"f1"}
+    },
+    {
+     "fn": "at",
+     "ts": "2026-11-01T01:15:00-05:00",
+     "expect": {"name":"A","start":"2026-11-01T05:30:00Z","end":"2026-11-01T14:30:00Z","productionDay":"2026-11-01","versionId":"f1"}
+    },
+    {
+     "fn": "at",
+     "ts": "2026-11-01T01:15:00-04:00",
+     "expect": {"name":"C","start":"2026-10-31T21:30:00Z","end":"2026-11-01T05:30:00Z","productionDay":"2026-10-31","versionId":"f1"}
+    }
+   ]
+  },
+  {
+   "name": "Europe/Berlin 2x12 with breaks over both changes",
+   "tz": "Europe/Berlin",
+   "chain": [
+    null,
+    {
+     "v": 1,
+     "rev": 1791500000000,
+     "versions": [
+      {
+       "id": "b1",
+       "from": null,
+       "inherit": false,
+       "template": "2x12",
+       "shifts": [
+        {"id":"d","name":"Day","start":"06:00","end":"18:00","breaks":[{"name":"Lunch","start":"12:00","end":"12:30"}]},
+        {
+         "id": "n",
+         "name": "Night",
+         "start": "18:00",
+         "end": "06:00",
+         "breaks": [{"name":"Dinner","start":"22:00","end":"22:30"},{"name":"Meal","start":"02:00","end":"02:30"}]
+        }
+       ],
+       "by": "u-test",
+       "byName": "Test",
+       "at": 1791500000000
+      }
+     ],
+     "by": "u-test",
+     "at": 1791500000000
+    },
+    null,
+    null
+   ],
+   "queries": [
+    {
+     "fn": "at",
+     "ts": "2026-03-29T03:30:00+02:00",
+     "expect": {
+      "name": "Night",
+      "start": "2026-03-28T17:00:00Z",
+      "end": "2026-03-29T04:00:00Z",
+      "productionDay": "2026-03-28",
+      "versionId": "b1",
+      "breaks": [
+       {"name":"Dinner","start":"2026-03-28T21:00:00Z","end":"2026-03-28T21:30:00Z"},
+       {"name":"Meal","start":"2026-03-29T01:00:00Z","end":"2026-03-29T01:30:00Z"}
+      ],
+      "inBreak": false
+     }
+    },
+    {
+     "fn": "at",
+     "ts": "2026-03-29T03:15:00+02:00",
+     "expect": {
+      "name": "Night",
+      "start": "2026-03-28T17:00:00Z",
+      "end": "2026-03-29T04:00:00Z",
+      "productionDay": "2026-03-28",
+      "versionId": "b1",
+      "breaks": [
+       {"name":"Dinner","start":"2026-03-28T21:00:00Z","end":"2026-03-28T21:30:00Z"},
+       {"name":"Meal","start":"2026-03-29T01:00:00Z","end":"2026-03-29T01:30:00Z"}
+      ],
+      "inBreak": true
+     }
+    },
+    {
+     "fn": "at",
+     "ts": "2026-03-29T06:00:00+02:00",
+     "expect": {
+      "name": "Day",
+      "start": "2026-03-29T04:00:00Z",
+      "end": "2026-03-29T16:00:00Z",
+      "productionDay": "2026-03-29",
+      "versionId": "b1",
+      "breaks": [{"name":"Lunch","start":"2026-03-29T10:00:00Z","end":"2026-03-29T10:30:00Z"}],
+      "inBreak": false
+     }
+    },
+    {
+     "fn": "at",
+     "ts": "2026-10-25T02:15:00+02:00",
+     "expect": {
+      "name": "Night",
+      "start": "2026-10-24T16:00:00Z",
+      "end": "2026-10-25T05:00:00Z",
+      "productionDay": "2026-10-24",
+      "versionId": "b1",
+      "breaks": [
+       {"name":"Dinner","start":"2026-10-24T20:00:00Z","end":"2026-10-24T20:30:00Z"},
+       {"name":"Meal","start":"2026-10-25T00:00:00Z","end":"2026-10-25T00:30:00Z"}
+      ],
+      "inBreak": true
+     }
+    },
+    {
+     "fn": "at",
+     "ts": "2026-10-25T02:15:00+01:00",
+     "expect": {
+      "name": "Night",
+      "start": "2026-10-24T16:00:00Z",
+      "end": "2026-10-25T05:00:00Z",
+      "productionDay": "2026-10-24",
+      "versionId": "b1",
+      "breaks": [
+       {"name":"Dinner","start":"2026-10-24T20:00:00Z","end":"2026-10-24T20:30:00Z"},
+       {"name":"Meal","start":"2026-10-25T00:00:00Z","end":"2026-10-25T00:30:00Z"}
+      ],
+      "inBreak": false
+     }
+    },
+    {
+     "fn": "at",
+     "ts": "2026-10-25T12:10:00+01:00",
+     "expect": {
+      "name": "Day",
+      "start": "2026-10-25T05:00:00Z",
+      "end": "2026-10-25T17:00:00Z",
+      "productionDay": "2026-10-25",
+      "versionId": "b1",
+      "breaks": [{"name":"Lunch","start":"2026-10-25T11:00:00Z","end":"2026-10-25T11:30:00Z"}],
+      "inBreak": true
+     }
+    },
+    {
+     "fn": "between",
+     "from": "2026-10-25T00:00:00+02:00",
+     "to": "2026-10-26T00:00:00+01:00",
+     "expect": [
+      {"name":"Night","start":"2026-10-24T16:00:00Z","end":"2026-10-25T05:00:00Z","productionDay":"2026-10-24","versionId":"b1"},
+      {"name":"Day","start":"2026-10-25T05:00:00Z","end":"2026-10-25T17:00:00Z","productionDay":"2026-10-25","versionId":"b1"},
+      {"name":"Night","start":"2026-10-25T17:00:00Z","end":"2026-10-26T05:00:00Z","productionDay":"2026-10-25","versionId":"b1"}
+     ]
+    },
+    {"fn":"boundaries","from":"2026-03-28T12:00:00+01:00","to":"2026-03-29T12:00:00+02:00","expect":["2026-03-28T17:00:00Z","2026-03-29T04:00:00Z"]}
+   ]
+  },
+  {
+   "name": "Version switch 2x12 -> 3x8 with switch-over clipping",
+   "tz": "Asia/Kolkata",
+   "chain": [
+    null,
+    {
+     "v": 1,
+     "rev": 1791500000000,
+     "versions": [
+      {
+       "id": "v1",
+       "from": null,
+       "inherit": false,
+       "template": "2x12",
+       "shifts": [{"id":"d","name":"Day","start":"07:00","end":"19:00"},{"id":"n","name":"Night","start":"19:00","end":"07:00"}],
+       "by": "u-test",
+       "byName": "Test",
+       "at": 1791500000000
+      },
+      {
+       "id": "v2",
+       "from": "2026-10-15",
+       "inherit": false,
+       "template": "3x8",
+       "shifts": [
+        {"id":"a","name":"Morning","start":"06:00","end":"14:00"},
+        {"id":"b","name":"Afternoon","start":"14:00","end":"22:00"},
+        {"id":"c","name":"Night","start":"22:00","end":"06:00"}
+       ],
+       "by": "u-test",
+       "byName": "Test",
+       "at": 1791500000000
+      }
+     ],
+     "by": "u-test",
+     "at": 1791500000000
+    },
+    null,
+    null
+   ],
+   "queries": [
+    {
+     "fn": "at",
+     "ts": "2026-10-15T05:30:00+05:30",
+     "expect": {"name":"Night","start":"2026-10-14T13:30:00Z","end":"2026-10-15T00:30:00Z","productionDay":"2026-10-14","versionId":"v1"}
+    },
+    {
+     "fn": "at",
+     "ts": "2026-10-15T06:30:00+05:30",
+     "expect": {"name":"Morning","start":"2026-10-15T00:30:00Z","end":"2026-10-15T08:30:00Z","productionDay":"2026-10-15","versionId":"v2"}
+    },
+    {
+     "fn": "at",
+     "ts": "2026-10-14T12:00:00+05:30",
+     "expect": {"name":"Day","start":"2026-10-14T01:30:00Z","end":"2026-10-14T13:30:00Z","productionDay":"2026-10-14","versionId":"v1"}
+    },
+    {
+     "fn": "at",
+     "ts": "2026-10-13T23:00:00+05:30",
+     "expect": {"name":"Night","start":"2026-10-13T13:30:00Z","end":"2026-10-14T01:30:00Z","productionDay":"2026-10-13","versionId":"v1"}
+    },
+    {
+     "fn": "previous",
+     "ts": "2026-10-15T07:00:00+05:30",
+     "expect": {"name":"Night","start":"2026-10-14T13:30:00Z","end":"2026-10-15T00:30:00Z","productionDay":"2026-10-14","versionId":"v1"}
+    },
+    {"fn":"productionDay","ts":"2026-10-15T06:10:00+05:30","expect":"2026-10-15"},
+    {
+     "fn": "between",
+     "from": "2026-10-14T00:00:00+05:30",
+     "to": "2026-10-16T00:00:00+05:30",
+     "expect": [
+      {"name":"Night","start":"2026-10-13T13:30:00Z","end":"2026-10-14T01:30:00Z","productionDay":"2026-10-13","versionId":"v1"},
+      {"name":"Day","start":"2026-10-14T01:30:00Z","end":"2026-10-14T13:30:00Z","productionDay":"2026-10-14","versionId":"v1"},
+      {"name":"Night","start":"2026-10-14T13:30:00Z","end":"2026-10-15T00:30:00Z","productionDay":"2026-10-14","versionId":"v1"},
+      {"name":"Morning","start":"2026-10-15T00:30:00Z","end":"2026-10-15T08:30:00Z","productionDay":"2026-10-15","versionId":"v2"},
+      {"name":"Afternoon","start":"2026-10-15T08:30:00Z","end":"2026-10-15T16:30:00Z","productionDay":"2026-10-15","versionId":"v2"},
+      {"name":"Night","start":"2026-10-15T16:30:00Z","end":"2026-10-16T00:30:00Z","productionDay":"2026-10-15","versionId":"v2"}
+     ]
+    },
+    {
+     "fn": "boundaries",
+     "from": "2026-10-14T00:00:00+05:30",
+     "to": "2026-10-16T00:00:00+05:30",
+     "expect": ["2026-10-14T01:30:00Z","2026-10-14T13:30:00Z","2026-10-15T00:30:00Z","2026-10-15T08:30:00Z","2026-10-15T16:30:00Z"]
+    }
+   ]
+  },
+  {
+   "name": "Past-dated version from 2026-09-01, month boundary",
+   "tz": "Asia/Kolkata",
+   "chain": [
+    null,
+    {
+     "v": 1,
+     "rev": 1791500000000,
+     "versions": [
+      {
+       "id": "v2",
+       "from": "2026-09-01",
+       "inherit": false,
+       "template": "2x12",
+       "shifts": [{"id":"d","name":"Day","start":"06:00","end":"18:00"},{"id":"n","name":"Night","start":"18:00","end":"06:00"}],
+       "by": "u-test",
+       "byName": "Test",
+       "at": 1791500000000
+      },
+      {
+       "id": "v1",
+       "from": null,
+       "inherit": false,
+       "template": "3x8",
+       "shifts": [
+        {"id":"a","name":"Morning","start":"06:00","end":"14:00"},
+        {"id":"b","name":"Afternoon","start":"14:00","end":"22:00"},
+        {"id":"c","name":"Night","start":"22:00","end":"06:00"}
+       ],
+       "by": "u-test",
+       "byName": "Test",
+       "at": 1791500000000
+      }
+     ],
+     "by": "u-test",
+     "at": 1791500000000
+    },
+    null,
+    null
+   ],
+   "queries": [
+    {
+     "fn": "at",
+     "ts": "2026-08-31T10:00:00+05:30",
+     "expect": {"name":"Morning","start":"2026-08-31T00:30:00Z","end":"2026-08-31T08:30:00Z","productionDay":"2026-08-31","versionId":"v1"}
+    },
+    {
+     "fn": "at",
+     "ts": "2026-08-31T23:00:00+05:30",
+     "expect": {"name":"Night","start":"2026-08-31T16:30:00Z","end":"2026-09-01T00:30:00Z","productionDay":"2026-08-31","versionId":"v1"}
+    },
+    {
+     "fn": "at",
+     "ts": "2026-09-01T03:00:00+05:30",
+     "expect": {"name":"Night","start":"2026-08-31T16:30:00Z","end":"2026-09-01T00:30:00Z","productionDay":"2026-08-31","versionId":"v1"}
+    },
+    {
+     "fn": "at",
+     "ts": "2026-09-01T10:00:00+05:30",
+     "expect": {"name":"Day","start":"2026-09-01T00:30:00Z","end":"2026-09-01T12:30:00Z","productionDay":"2026-09-01","versionId":"v2"}
+    },
+    {
+     "fn": "between",
+     "from": "2026-08-31T20:00:00+05:30",
+     "to": "2026-09-01T08:00:00+05:30",
+     "expect": [
+      {"name":"Afternoon","start":"2026-08-31T08:30:00Z","end":"2026-08-31T16:30:00Z","productionDay":"2026-08-31","versionId":"v1"},
+      {"name":"Night","start":"2026-08-31T16:30:00Z","end":"2026-09-01T00:30:00Z","productionDay":"2026-08-31","versionId":"v1"},
+      {"name":"Day","start":"2026-09-01T00:30:00Z","end":"2026-09-01T12:30:00Z","productionDay":"2026-09-01","versionId":"v2"}
+     ]
+    }
+   ]
+  },
+  {
+   "name": "Site inherit:true falls back to the organisation, then System Configuration",
+   "tz": "Asia/Kolkata",
+   "chain": [
+    null,
+    {
+     "v": 1,
+     "rev": 1791500000000,
+     "versions": [
+      {"id":"s1","from":null,"inherit":true,"shifts":[],"by":"u-test","byName":"Test","at":1791500000000},
+      {
+       "id": "s2",
+       "from": "2026-11-02",
+       "inherit": false,
+       "template": "2x12",
+       "shifts": [{"id":"d","name":"Day","start":"06:00","end":"18:00"},{"id":"n","name":"Night","start":"18:00","end":"06:00"}],
+       "by": "u-test",
+       "byName": "Test",
+       "at": 1791500000000
+      }
+     ],
+     "by": "u-test",
+     "at": 1791500000000
+    },
+    {
+     "v": 1,
+     "rev": 1791500000000,
+     "versions": [
+      {
+       "id": "o1",
+       "from": "2026-10-01",
+       "inherit": false,
+       "template": "day",
+       "shifts": [{"id":"d","name":"Day","start":"08:00","end":"17:00","days":[1,2,3,4,5]}],
+       "by": "u-test",
+       "byName": "Test",
+       "at": 1791500000000
+      }
+     ],
+     "by": "u-test",
+     "at": 1791500000000
+    },
+    {
+     "v": 1,
+     "rev": 1791500000000,
+     "versions": [
+      {
+       "id": "y1",
+       "from": null,
+       "inherit": false,
+       "template": "3x8",
+       "shifts": [
+        {"id":"a","name":"Morning","start":"06:00","end":"14:00"},
+        {"id":"b","name":"Afternoon","start":"14:00","end":"22:00"},
+        {"id":"c","name":"Night","start":"22:00","end":"06:00"}
+       ],
+       "by": "u-test",
+       "byName": "Test",
+       "at": 1791500000000
+      }
+     ],
+     "by": "u-test",
+     "at": 1791500000000
+    }
+   ],
+   "queries": [
+    {
+     "fn": "at",
+     "ts": "2026-10-09T10:00:00+05:30",
+     "expect": {"name":"Day","start":"2026-10-09T02:30:00Z","end":"2026-10-09T11:30:00Z","productionDay":"2026-10-09","versionId":"o1"}
+    },
+    {"fn":"at","ts":"2026-10-10T10:00:00+05:30","expect":null},
+    {
+     "fn": "at",
+     "ts": "2026-09-15T10:00:00+05:30",
+     "expect": {"name":"Morning","start":"2026-09-15T00:30:00Z","end":"2026-09-15T08:30:00Z","productionDay":"2026-09-15","versionId":"y1"}
+    },
+    {
+     "fn": "at",
+     "ts": "2026-10-01T05:00:00+05:30",
+     "expect": {"name":"Night","start":"2026-09-30T16:30:00Z","end":"2026-10-01T00:30:00Z","productionDay":"2026-09-30","versionId":"y1"}
+    },
+    {
+     "fn": "at",
+     "ts": "2026-11-02T10:00:00+05:30",
+     "expect": {"name":"Day","start":"2026-11-02T00:30:00Z","end":"2026-11-02T12:30:00Z","productionDay":"2026-11-02","versionId":"s2"}
+    },
+    {"fn":"at","ts":"2026-11-02T05:00:00+05:30","expect":null},
+    {
+     "fn": "next",
+     "ts": "2026-10-30T18:00:00+05:30",
+     "expect": {"name":"Day","start":"2026-11-02T00:30:00Z","end":"2026-11-02T12:30:00Z","productionDay":"2026-11-02","versionId":"s2"}
+    },
+    {
+     "fn": "previous",
+     "ts": "2026-11-02T05:00:00+05:30",
+     "expect": {"name":"Day","start":"2026-10-30T02:30:00Z","end":"2026-10-30T11:30:00Z","productionDay":"2026-10-30","versionId":"o1"}
+    }
+   ]
+  },
+  {
+   "name": "Machine override over the site, from a date",
+   "tz": "Asia/Kolkata",
+   "chain": [
+    {
+     "v": 1,
+     "rev": 1791500000000,
+     "versions": [
+      {
+       "id": "m1",
+       "from": "2026-10-12",
+       "inherit": false,
+       "template": "2x12",
+       "shifts": [{"id":"d","name":"Day","start":"05:00","end":"17:00"},{"id":"n","name":"Night","start":"17:00","end":"05:00"}],
+       "by": "u-test",
+       "byName": "Test",
+       "at": 1791500000000
+      }
+     ],
+     "by": "u-test",
+     "at": 1791500000000
+    },
+    {
+     "v": 1,
+     "rev": 1791500000000,
+     "versions": [
+      {
+       "id": "p1",
+       "from": null,
+       "inherit": false,
+       "template": "3x8",
+       "shifts": [
+        {"id":"a","name":"Morning","start":"06:00","end":"14:00"},
+        {"id":"b","name":"Afternoon","start":"14:00","end":"22:00"},
+        {"id":"c","name":"Night","start":"22:00","end":"06:00"}
+       ],
+       "by": "u-test",
+       "byName": "Test",
+       "at": 1791500000000
+      }
+     ],
+     "by": "u-test",
+     "at": 1791500000000
+    },
+    null,
+    null
+   ],
+   "queries": [
+    {
+     "fn": "at",
+     "ts": "2026-10-09T10:00:00+05:30",
+     "expect": {"name":"Morning","start":"2026-10-09T00:30:00Z","end":"2026-10-09T08:30:00Z","productionDay":"2026-10-09","versionId":"p1"}
+    },
+    {
+     "fn": "at",
+     "ts": "2026-10-12T04:00:00+05:30",
+     "expect": {"name":"Night","start":"2026-10-11T16:30:00Z","end":"2026-10-11T23:30:00Z","productionDay":"2026-10-11","versionId":"p1"}
+    },
+    {
+     "fn": "at",
+     "ts": "2026-10-12T05:30:00+05:30",
+     "expect": {"name":"Day","start":"2026-10-11T23:30:00Z","end":"2026-10-12T11:30:00Z","productionDay":"2026-10-12","versionId":"m1"}
+    },
+    {
+     "fn": "at",
+     "ts": "2026-10-12T20:00:00+05:30",
+     "expect": {"name":"Night","start":"2026-10-12T11:30:00Z","end":"2026-10-12T23:30:00Z","productionDay":"2026-10-12","versionId":"m1"}
+    }
+   ]
+  },
+  {
+   "name": "24-hour shift (end == start)",
+   "tz": "America/New_York",
+   "chain": [
+    null,
+    {
+     "v": 1,
+     "rev": 1791500000000,
+     "versions": [
+      {
+       "id": "c1",
+       "from": null,
+       "inherit": false,
+       "template": "custom",
+       "shifts": [{"id":"x","name":"Continuous","start":"06:00","end":"06:00"}],
+       "by": "u-test",
+       "byName": "Test",
+       "at": 1791500000000
+      }
+     ],
+     "by": "u-test",
+     "at": 1791500000000
+    },
+    null,
+    null
+   ],
+   "queries": [
+    {
+     "fn": "at",
+     "ts": "2026-03-08T05:00:00-04:00",
+     "expect": {"name":"Continuous","start":"2026-03-07T11:00:00Z","end":"2026-03-08T10:00:00Z","productionDay":"2026-03-07","versionId":"c1"}
+    },
+    {
+     "fn": "at",
+     "ts": "2026-03-08T06:00:00-04:00",
+     "expect": {"name":"Continuous","start":"2026-03-08T10:00:00Z","end":"2026-03-09T10:00:00Z","productionDay":"2026-03-08","versionId":"c1"}
+    },
+    {"fn":"productionDay","ts":"2026-11-01T05:30:00-05:00","expect":"2026-10-31"},
+    {
+     "fn": "between",
+     "from": "2026-11-01T00:00:00-04:00",
+     "to": "2026-11-02T00:00:00-05:00",
+     "expect": [
+      {"name":"Continuous","start":"2026-10-31T10:00:00Z","end":"2026-11-01T11:00:00Z","productionDay":"2026-10-31","versionId":"c1"},
+      {"name":"Continuous","start":"2026-11-01T11:00:00Z","end":"2026-11-02T11:00:00Z","productionDay":"2026-11-01","versionId":"c1"}
+     ]
+    },
+    {"fn":"boundaries","from":"2026-11-01T00:00:00-04:00","to":"2026-11-02T00:00:00-05:00","expect":["2026-11-01T11:00:00Z"]}
+   ]
+  },
+  {
+   "name": "Holidays (union over the chain), year boundary",
+   "tz": "Asia/Kolkata",
+   "chain": [
+    {"v":1,"rev":1791500000000,"versions":[],"holidays":[{"date":"2026-12-25","name":"Christmas"}],"by":"u-test","at":1791500000000},
+    {
+     "v": 1,
+     "rev": 1791500000000,
+     "versions": [
+      {
+       "id": "h1",
+       "from": null,
+       "inherit": false,
+       "template": "3x8",
+       "shifts": [
+        {"id":"a","name":"Morning","start":"06:00","end":"14:00"},
+        {"id":"b","name":"Afternoon","start":"14:00","end":"22:00"},
+        {"id":"c","name":"Night","start":"22:00","end":"06:00"}
+       ],
+       "by": "u-test",
+       "byName": "Test",
+       "at": 1791500000000
+      }
+     ],
+     "holidays": [{"date":"2026-11-08","name":"Diwali"}],
+     "by": "u-test",
+     "at": 1791500000000
+    },
+    {
+     "v": 1,
+     "rev": 1791500000000,
+     "versions": [
+      {
+       "id": "o9",
+       "from": null,
+       "inherit": false,
+       "shifts": [{"id":"d","name":"Day","start":"09:00","end":"17:00"}],
+       "by": "u-test",
+       "byName": "Test",
+       "at": 1791500000000
+      }
+     ],
+     "holidays": [{"date":"2027-01-01","name":"New Year"}],
+     "by": "u-test",
+     "at": 1791500000000
+    },
+    null
+   ],
+   "queries": [
+    {"fn":"at","ts":"2026-11-08T10:00:00+05:30","expect":null},
+    {
+     "fn": "at",
+     "ts": "2026-11-08T03:00:00+05:30",
+     "expect": {"name":"Night","start":"2026-11-07T16:30:00Z","end":"2026-11-08T00:30:00Z","productionDay":"2026-11-07","versionId":"h1"}
+    },
+    {"fn":"at","ts":"2026-11-08T23:00:00+05:30","expect":null},
+    {"fn":"at","ts":"2026-11-09T03:00:00+05:30","expect":null},
+    {
+     "fn": "at",
+     "ts": "2026-11-09T07:00:00+05:30",
+     "expect": {"name":"Morning","start":"2026-11-09T00:30:00Z","end":"2026-11-09T08:30:00Z","productionDay":"2026-11-09","versionId":"h1"}
+    },
+    {
+     "fn": "previous",
+     "ts": "2026-11-08T12:00:00+05:30",
+     "expect": {"name":"Night","start":"2026-11-07T16:30:00Z","end":"2026-11-08T00:30:00Z","productionDay":"2026-11-07","versionId":"h1"}
+    },
+    {
+     "fn": "next",
+     "ts": "2026-11-08T12:00:00+05:30",
+     "expect": {"name":"Morning","start":"2026-11-09T00:30:00Z","end":"2026-11-09T08:30:00Z","productionDay":"2026-11-09","versionId":"h1"}
+    },
+    {"fn":"productionDay","ts":"2026-11-09T03:00:00+05:30","expect":"2026-11-09"},
+    {"fn":"at","ts":"2026-12-25T10:00:00+05:30","expect":null},
+    {
+     "fn": "at",
+     "ts": "2026-12-31T23:30:00+05:30",
+     "expect": {"name":"Night","start":"2026-12-31T16:30:00Z","end":"2027-01-01T00:30:00Z","productionDay":"2026-12-31","versionId":"h1"}
+    },
+    {"fn":"at","ts":"2027-01-01T10:00:00+05:30","expect":null},
+    {
+     "fn": "next",
+     "ts": "2026-12-31T23:30:00+05:30",
+     "expect": {"name":"Morning","start":"2027-01-02T00:30:00Z","end":"2027-01-02T08:30:00Z","productionDay":"2027-01-02","versionId":"h1"}
+    },
+    {"fn":"productionDay","ts":"2027-01-01T03:00:00+05:30","expect":"2026-12-31"},
+    {
+     "fn": "between",
+     "from": "2026-12-31T00:00:00+05:30",
+     "to": "2027-01-02T00:00:00+05:30",
+     "expect": [
+      {"name":"Night","start":"2026-12-30T16:30:00Z","end":"2026-12-31T00:30:00Z","productionDay":"2026-12-30","versionId":"h1"},
+      {"name":"Morning","start":"2026-12-31T00:30:00Z","end":"2026-12-31T08:30:00Z","productionDay":"2026-12-31","versionId":"h1"},
+      {"name":"Afternoon","start":"2026-12-31T08:30:00Z","end":"2026-12-31T16:30:00Z","productionDay":"2026-12-31","versionId":"h1"},
+      {"name":"Night","start":"2026-12-31T16:30:00Z","end":"2027-01-01T00:30:00Z","productionDay":"2026-12-31","versionId":"h1"}
+     ]
+    },
+    {
+     "fn": "boundaries",
+     "from": "2026-12-31T00:00:00+05:30",
+     "to": "2027-01-02T00:00:00+05:30",
+     "expect": ["2026-12-31T00:30:00Z","2026-12-31T08:30:00Z","2026-12-31T16:30:00Z","2027-01-01T00:30:00Z"]
+    }
+   ]
+  },
+  {
+   "name": "Empty chain; explicit zero-shift version does not inherit",
+   "tz": "Asia/Kolkata",
+   "chain": [
+    null,
+    {
+     "v": 1,
+     "rev": 1791500000000,
+     "versions": [{"id":"z1","from":null,"inherit":false,"shifts":[],"by":"u-test","byName":"Test","at":1791500000000}],
+     "by": "u-test",
+     "at": 1791500000000
+    },
+    {
+     "v": 1,
+     "rev": 1791500000000,
+     "versions": [
+      {
+       "id": "o1",
+       "from": null,
+       "inherit": false,
+       "shifts": [
+        {"id":"a","name":"Morning","start":"06:00","end":"14:00"},
+        {"id":"b","name":"Afternoon","start":"14:00","end":"22:00"},
+        {"id":"c","name":"Night","start":"22:00","end":"06:00"}
+       ],
+       "by": "u-test",
+       "byName": "Test",
+       "at": 1791500000000
+      }
+     ],
+     "by": "u-test",
+     "at": 1791500000000
+    },
+    null
+   ],
+   "queries": [
+    {"fn":"at","ts":"2026-10-09T10:00:00+05:30","expect":null},
+    {"fn":"next","ts":"2026-10-09T10:00:00+05:30","expect":null},
+    {"fn":"previous","ts":"2026-10-09T10:00:00+05:30","expect":null},
+    {"fn":"productionDay","ts":"2026-10-09T02:00:00+05:30","expect":"2026-10-09"},
+    {"fn":"between","from":"2026-10-09T00:00:00+05:30","to":"2026-10-10T00:00:00+05:30","expect":[]},
+    {"fn":"boundaries","from":"2026-10-09T00:00:00+05:30","to":"2026-10-10T00:00:00+05:30","expect":[]}
+   ]
+  },
+  {
+   "name": "America/New_York spring gap: a shift inside the gap is dropped and the night shift is cut (never overlapping)",
+   "tz": "America/New_York",
+   "chain": [
+    null,
+    {
+     "v": 1,
+     "versions": [
+      {
+       "id": "g2",
+       "from": null,
+       "inherit": false,
+       "template": "custom",
+       "shifts": [
+        {"id":"n","name":"Night","start":"18:30","end":"02:30"},
+        {"id":"s","name":"Short","start":"02:30","end":"03:15"},
+        {"id":"e","name":"Early","start":"03:15","end":"10:30"},
+        {"id":"d","name":"Day","start":"10:30","end":"18:30"}
+       ]
+      }
+     ]
+    },
+    null,
+    null
+   ],
+   "queries": [
+    {
+     "fn": "between",
+     "from": "2026-03-07T12:00:00-05:00",
+     "to": "2026-03-08T12:00:00-04:00",
+     "expect": [
+      {"name":"Day","start":"2026-03-07T15:30:00Z","end":"2026-03-07T23:30:00Z","productionDay":"2026-03-07","versionId":"g2"},
+      {"name":"Night","start":"2026-03-07T23:30:00Z","end":"2026-03-08T07:15:00Z","productionDay":"2026-03-07","versionId":"g2"},
+      {"name":"Early","start":"2026-03-08T07:15:00Z","end":"2026-03-08T14:30:00Z","productionDay":"2026-03-08","versionId":"g2"},
+      {"name":"Day","start":"2026-03-08T14:30:00Z","end":"2026-03-08T22:30:00Z","productionDay":"2026-03-08","versionId":"g2"}
+     ]
+    },
+    {"fn":"at","ts":"2026-03-08T03:10:00-04:00","expect":{"name":"Night","start":"2026-03-07T23:30:00Z","end":"2026-03-08T07:15:00Z","productionDay":"2026-03-07","versionId":"g2"}},
+    {"fn":"at","ts":"2026-03-08T03:20:00-04:00","expect":{"name":"Early","start":"2026-03-08T07:15:00Z","end":"2026-03-08T14:30:00Z","productionDay":"2026-03-08","versionId":"g2"}},
+    {"fn":"previous","ts":"2026-03-08T03:20:00-04:00","expect":{"name":"Night","start":"2026-03-07T23:30:00Z","end":"2026-03-08T07:15:00Z","productionDay":"2026-03-07","versionId":"g2"}},
+    {"fn":"next","ts":"2026-03-08T03:10:00-04:00","expect":{"name":"Early","start":"2026-03-08T07:15:00Z","end":"2026-03-08T14:30:00Z","productionDay":"2026-03-08","versionId":"g2"}},
+    {"fn":"next","ts":"2026-03-08T01:59:00-05:00","expect":{"name":"Early","start":"2026-03-08T07:15:00Z","end":"2026-03-08T14:30:00Z","productionDay":"2026-03-08","versionId":"g2"}},
+    {"fn":"boundaries","from":"2026-03-08T06:00:00Z","to":"2026-03-08T08:00:00Z","expect":["2026-03-08T07:15:00Z"]},
+    {"fn":"productionDay","ts":"2026-03-08T03:10:00-04:00","expect":"2026-03-07"},
+    {
+     "fn": "between",
+     "from": "2026-03-15T02:00:00-04:00",
+     "to": "2026-03-15T04:00:00-04:00",
+     "expect": [
+      {"name":"Night","start":"2026-03-14T22:30:00Z","end":"2026-03-15T06:30:00Z","productionDay":"2026-03-14","versionId":"g2"},
+      {"name":"Short","start":"2026-03-15T06:30:00Z","end":"2026-03-15T07:15:00Z","productionDay":"2026-03-15","versionId":"g2"},
+      {"name":"Early","start":"2026-03-15T07:15:00Z","end":"2026-03-15T14:30:00Z","productionDay":"2026-03-15","versionId":"g2"}
+     ]
+    }
+   ]
+  },
+  {
+   "name": "America/New_York spring gap: a shift starting in the gap gives way to the next one (never overlapping)",
+   "tz": "America/New_York",
+   "chain": [
+    null,
+    {
+     "v": 1,
+     "versions": [
+      {
+       "id": "g3",
+       "from": null,
+       "inherit": false,
+       "template": "custom",
+       "shifts": [
+        {"id":"m","name":"Main","start":"03:00","end":"02:00"},
+        {"id":"g","name":"Gap","start":"02:00","end":"02:30"}
+       ]
+      }
+     ]
+    },
+    null,
+    null
+   ],
+   "queries": [
+    {
+     "fn": "between",
+     "from": "2026-03-07T12:00:00-05:00",
+     "to": "2026-03-08T12:00:00-04:00",
+     "expect": [
+      {"name":"Main","start":"2026-03-07T08:00:00Z","end":"2026-03-08T07:00:00Z","productionDay":"2026-03-07","versionId":"g3"},
+      {"name":"Main","start":"2026-03-08T07:00:00Z","end":"2026-03-09T06:00:00Z","productionDay":"2026-03-08","versionId":"g3"}
+     ]
+    },
+    {"fn":"at","ts":"2026-03-08T07:10:00Z","expect":{"name":"Main","start":"2026-03-08T07:00:00Z","end":"2026-03-09T06:00:00Z","productionDay":"2026-03-08","versionId":"g3"}},
+    {"fn":"at","ts":"2026-03-08T06:59:00Z","expect":{"name":"Main","start":"2026-03-07T08:00:00Z","end":"2026-03-08T07:00:00Z","productionDay":"2026-03-07","versionId":"g3"}},
+    {"fn":"next","ts":"2026-03-08T01:59:00-05:00","expect":{"name":"Main","start":"2026-03-08T07:00:00Z","end":"2026-03-09T06:00:00Z","productionDay":"2026-03-08","versionId":"g3"}},
+    {"fn":"previous","ts":"2026-03-08T07:10:00Z","expect":{"name":"Main","start":"2026-03-07T08:00:00Z","end":"2026-03-08T07:00:00Z","productionDay":"2026-03-07","versionId":"g3"}},
+    {"fn":"boundaries","from":"2026-03-08T06:00:00Z","to":"2026-03-08T08:00:00Z","expect":["2026-03-08T07:00:00Z"]},
+    {"fn":"productionDay","ts":"2026-03-08T07:00:00Z","expect":"2026-03-08"},
+    {
+     "fn": "between",
+     "from": "2026-03-09T05:00:00Z",
+     "to": "2026-03-09T08:00:00Z",
+     "expect": [
+      {"name":"Main","start":"2026-03-08T07:00:00Z","end":"2026-03-09T06:00:00Z","productionDay":"2026-03-08","versionId":"g3"},
+      {"name":"Gap","start":"2026-03-09T06:00:00Z","end":"2026-03-09T06:30:00Z","productionDay":"2026-03-09","versionId":"g3"},
+      {"name":"Main","start":"2026-03-09T07:00:00Z","end":"2026-03-10T06:00:00Z","productionDay":"2026-03-09","versionId":"g3"}
+     ]
+    }
+   ]
+  },
+  {
+   "name": "Australia/Lord_Howe 30-minute spring gap: an empty shift is dropped, the night shift and its break are cut",
+   "tz": "Australia/Lord_Howe",
+   "chain": [
+    null,
+    {
+     "v": 1,
+     "versions": [
+      {
+       "id": "lh1",
+       "from": null,
+       "inherit": false,
+       "template": "custom",
+       "shifts": [
+        {"id":"n","name":"Night","start":"20:00","end":"02:15","breaks":[{"name":"Meal","start":"01:50","end":"02:10"}]},
+        {"id":"s","name":"Short","start":"02:15","end":"02:35"},
+        {"id":"d","name":"Day","start":"02:35","end":"20:00","breaks":[{"name":"Lunch","start":"12:00","end":"12:30"}]}
+       ]
+      }
+     ]
+    },
+    null,
+    null
+   ],
+   "queries": [
+    {
+     "fn": "between",
+     "from": "2026-10-03T12:00:00Z",
+     "to": "2026-10-03T18:00:00Z",
+     "expect": [
+      {"name":"Night","start":"2026-10-03T09:30:00Z","end":"2026-10-03T15:35:00Z","productionDay":"2026-10-03","versionId":"lh1","breaks":[{"name":"Meal","start":"2026-10-03T15:20:00Z","end":"2026-10-03T15:35:00Z"}]},
+      {"name":"Day","start":"2026-10-03T15:35:00Z","end":"2026-10-04T09:00:00Z","productionDay":"2026-10-04","versionId":"lh1","breaks":[{"name":"Lunch","start":"2026-10-04T01:00:00Z","end":"2026-10-04T01:30:00Z"}]}
+     ]
+    },
+    {"fn":"at","ts":"2026-10-03T15:30:00Z","expect":{"name":"Night","start":"2026-10-03T09:30:00Z","end":"2026-10-03T15:35:00Z","productionDay":"2026-10-03","versionId":"lh1","inBreak":true}},
+    {"fn":"at","ts":"2026-10-03T15:40:00Z","expect":{"name":"Day","start":"2026-10-03T15:35:00Z","end":"2026-10-04T09:00:00Z","productionDay":"2026-10-04","versionId":"lh1","inBreak":false}},
+    {"fn":"previous","ts":"2026-10-03T15:40:00Z","expect":{"name":"Night","start":"2026-10-03T09:30:00Z","end":"2026-10-03T15:35:00Z","productionDay":"2026-10-03","versionId":"lh1"}},
+    {"fn":"next","ts":"2026-10-03T15:30:00Z","expect":{"name":"Day","start":"2026-10-03T15:35:00Z","end":"2026-10-04T09:00:00Z","productionDay":"2026-10-04","versionId":"lh1"}},
+    {"fn":"boundaries","from":"2026-10-03T15:00:00Z","to":"2026-10-03T16:00:00Z","expect":["2026-10-03T15:35:00Z"]},
+    {"fn":"productionDay","ts":"2026-10-03T15:40:00Z","expect":"2026-10-04"},
+    {
+     "fn": "between",
+     "from": "2026-10-10T15:00:00Z",
+     "to": "2026-10-10T16:00:00Z",
+     "expect": [
+      {"name":"Night","start":"2026-10-10T09:00:00Z","end":"2026-10-10T15:15:00Z","productionDay":"2026-10-10","versionId":"lh1","breaks":[{"name":"Meal","start":"2026-10-10T14:50:00Z","end":"2026-10-10T15:10:00Z"}]},
+      {"name":"Short","start":"2026-10-10T15:15:00Z","end":"2026-10-10T15:35:00Z","productionDay":"2026-10-11","versionId":"lh1","breaks":[]},
+      {"name":"Day","start":"2026-10-10T15:35:00Z","end":"2026-10-11T09:00:00Z","productionDay":"2026-10-11","versionId":"lh1","breaks":[{"name":"Lunch","start":"2026-10-11T01:00:00Z","end":"2026-10-11T01:30:00Z"}]}
+     ]
+    }
+   ]
+  }
+ ],
+ "validate": [
+  {
+   "name": "3x8 is valid",
+   "version": {
+    "id": "x",
+    "from": null,
+    "inherit": false,
+    "shifts": [
+     {"id":"a","name":"Morning","start":"06:00","end":"14:00"},
+     {"id":"b","name":"Afternoon","start":"14:00","end":"22:00"},
+     {"id":"c","name":"Night","start":"22:00","end":"06:00"}
+    ]
+   },
+   "expectCodes": []
+  },
+  {
+   "name": "2x12 with breaks incl. a break after midnight is valid",
+   "version": {
+    "id": "x",
+    "from": null,
+    "inherit": false,
+    "shifts": [
+     {"id":"d","name":"Day","start":"06:00","end":"18:00","breaks":[{"name":"Lunch","start":"12:00","end":"12:30"}]},
+     {
+      "id": "n",
+      "name": "Night",
+      "start": "18:00",
+      "end": "06:00",
+      "breaks": [{"name":"Dinner","start":"22:00","end":"22:30"},{"name":"Meal","start":"02:00","end":"02:30"},{"name":"Late","start":"23:50","end":"00:10"}]
+     }
+    ]
+   },
+   "expectCodes": []
+  },
+  {"name":"zero shifts is valid","version":{"id":"x","from":null,"inherit":false,"shifts":[]},"expectCodes":[]},
+  {
+   "name": "touching shifts are valid",
+   "version": {
+    "id": "x",
+    "from": null,
+    "inherit": false,
+    "shifts": [{"id":"a","name":"A","start":"06:00","end":"14:00"},{"id":"b","name":"B","start":"14:00","end":"22:00"}]
+   },
+   "expectCodes": []
+  },
+  {
+   "name": "same hours on different days are valid",
+   "version": {
+    "id": "x",
+    "from": null,
+    "inherit": false,
+    "shifts": [{"id":"a","name":"Week","start":"08:00","end":"17:00","days":[1,2,3,4,5]},{"id":"b","name":"Sat","start":"08:00","end":"13:00","days":[6]}]
+   },
+   "expectCodes": []
+  },
+  {
+   "name": "overlap on the same day",
+   "version": {
+    "id": "x",
+    "from": null,
+    "inherit": false,
+    "shifts": [{"id":"a","name":"Morning","start":"06:00","end":"14:00"},{"id":"b","name":"Day","start":"08:00","end":"17:00"}]
+   },
+   "expectCodes": ["OVERLAP"]
+  },
+  {
+   "name": "Friday night overlaps a Saturday-only early shift",
+   "version": {
+    "id": "x",
+    "from": null,
+    "inherit": false,
+    "shifts": [{"id":"n","name":"Night","start":"22:00","end":"06:00","days":[5]},{"id":"s","name":"Sat","start":"05:00","end":"13:00","days":[6]}]
+   },
+   "expectCodes": ["OVERLAP"]
+  },
+  {
+   "name": "Sunday night overlaps Monday early (week wrap)",
+   "version": {
+    "id": "x",
+    "from": null,
+    "inherit": false,
+    "shifts": [{"id":"n","name":"Night","start":"22:00","end":"06:00","days":[7]},{"id":"e","name":"Early","start":"05:00","end":"10:00","days":[1]}]
+   },
+   "expectCodes": ["OVERLAP"]
+  },
+  {
+   "name": "Sunday night touching Monday early is valid",
+   "version": {
+    "id": "x",
+    "from": null,
+    "inherit": false,
+    "shifts": [{"id":"n","name":"Night","start":"22:00","end":"06:00","days":[7]},{"id":"e","name":"Early","start":"06:00","end":"10:00","days":[1]}]
+   },
+   "expectCodes": []
+  },
+  {
+   "name": "24-hour shift with another shift overlaps",
+   "version": {
+    "id": "x",
+    "from": null,
+    "inherit": false,
+    "shifts": [{"id":"x","name":"All day","start":"06:00","end":"06:00"},{"id":"a","name":"A","start":"10:00","end":"12:00","days":[3]}]
+   },
+   "expectCodes": ["OVERLAP"]
+  },
+  {
+   "name": "24-hour shift alone is valid, break touching its end",
+   "version": {
+    "id": "x",
+    "from": null,
+    "inherit": false,
+    "shifts": [{"id":"x","name":"All day","start":"06:00","end":"06:00","breaks":[{"name":"B","start":"05:30","end":"06:00"}]}]
+   },
+   "expectCodes": []
+  },
+  {
+   "name": "empty name",
+   "version": {"id":"x","from":null,"inherit":false,"shifts":[{"id":"a","name":"  ","start":"06:00","end":"14:00"}]},
+   "expectCodes": ["NAME_INVALID"]
+  },
+  {
+   "name": "name longer than 40",
+   "version": {"id":"x","from":null,"inherit":false,"shifts":[{"id":"a","name":"NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN","start":"06:00","end":"14:00"}]},
+   "expectCodes": ["NAME_INVALID"]
+  },
+  {
+   "name": "name of exactly 40 is valid",
+   "version": {"id":"x","from":null,"inherit":false,"shifts":[{"id":"a","name":"NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN","start":"06:00","end":"14:00"}]},
+   "expectCodes": []
+  },
+  {
+   "name": "duplicate names (case-insensitive)",
+   "version": {
+    "id": "x",
+    "from": null,
+    "inherit": false,
+    "shifts": [{"id":"a","name":"Morning","start":"06:00","end":"14:00"},{"id":"b","name":"morning ","start":"14:00","end":"22:00"}]
+   },
+   "expectCodes": ["NAME_DUPLICATE"]
+  },
+  {
+   "name": "time off the 5-minute grid",
+   "version": {"id":"x","from":null,"inherit":false,"shifts":[{"id":"a","name":"A","start":"06:03","end":"14:00"}]},
+   "expectCodes": ["TIME_GRID"]
+  },
+  {
+   "name": "hour 25",
+   "version": {"id":"x","from":null,"inherit":false,"shifts":[{"id":"a","name":"A","start":"25:00","end":"14:00"}]},
+   "expectCodes": ["TIME_INVALID"]
+  },
+  {
+   "name": "one-digit hour",
+   "version": {"id":"x","from":null,"inherit":false,"shifts":[{"id":"a","name":"A","start":"6:00","end":"14:00"}]},
+   "expectCodes": ["TIME_INVALID"]
+  },
+  {
+   "name": "nine shifts",
+   "version": {
+    "id": "x",
+    "from": null,
+    "inherit": false,
+    "shifts": [
+     {"id":"0","name":"S0","start":"00:00","end":"01:00"},
+     {"id":"1","name":"S1","start":"01:00","end":"02:00"},
+     {"id":"2","name":"S2","start":"02:00","end":"03:00"},
+     {"id":"3","name":"S3","start":"03:00","end":"04:00"},
+     {"id":"4","name":"S4","start":"04:00","end":"05:00"},
+     {"id":"5","name":"S5","start":"05:00","end":"06:00"},
+     {"id":"6","name":"S6","start":"06:00","end":"07:00"},
+     {"id":"7","name":"S7","start":"07:00","end":"08:00"},
+     {"id":"8","name":"S8","start":"08:00","end":"09:00"}
+    ]
+   },
+   "expectCodes": ["TOO_MANY_SHIFTS"]
+  },
+  {
+   "name": "eight shifts is valid",
+   "version": {
+    "id": "x",
+    "from": null,
+    "inherit": false,
+    "shifts": [
+     {"id":"0","name":"S0","start":"00:00","end":"01:00"},
+     {"id":"1","name":"S1","start":"01:00","end":"02:00"},
+     {"id":"2","name":"S2","start":"02:00","end":"03:00"},
+     {"id":"3","name":"S3","start":"03:00","end":"04:00"},
+     {"id":"4","name":"S4","start":"04:00","end":"05:00"},
+     {"id":"5","name":"S5","start":"05:00","end":"06:00"},
+     {"id":"6","name":"S6","start":"06:00","end":"07:00"},
+     {"id":"7","name":"S7","start":"07:00","end":"08:00"}
+    ]
+   },
+   "expectCodes": []
+  },
+  {
+   "name": "break outside its shift",
+   "version": {
+    "id": "x",
+    "from": null,
+    "inherit": false,
+    "shifts": [{"id":"a","name":"A","start":"06:00","end":"14:00","breaks":[{"name":"Late","start":"13:45","end":"14:15"}]}]
+   },
+   "expectCodes": ["BREAK_OUTSIDE"]
+  },
+  {
+   "name": "break before the shift start",
+   "version": {
+    "id": "x",
+    "from": null,
+    "inherit": false,
+    "shifts": [{"id":"a","name":"A","start":"06:00","end":"14:00","breaks":[{"name":"Early","start":"05:00","end":"05:30"}]}]
+   },
+   "expectCodes": ["BREAK_OUTSIDE"]
+  },
+  {
+   "name": "breaks overlapping",
+   "version": {
+    "id": "x",
+    "from": null,
+    "inherit": false,
+    "shifts": [
+     {
+      "id": "a",
+      "name": "A",
+      "start": "06:00",
+      "end": "14:00",
+      "breaks": [{"name":"L1","start":"10:00","end":"10:30"},{"name":"L2","start":"10:15","end":"10:45"}]
+     }
+    ]
+   },
+   "expectCodes": ["BREAK_OVERLAP"]
+  },
+  {
+   "name": "break time off grid",
+   "version": {
+    "id": "x",
+    "from": null,
+    "inherit": false,
+    "shifts": [{"id":"a","name":"A","start":"06:00","end":"14:00","breaks":[{"name":"L","start":"10:02","end":"10:30"}]}]
+   },
+   "expectCodes": ["TIME_GRID"]
+  },
+  {
+   "name": "days with 0 and 8",
+   "version": {"id":"x","from":null,"inherit":false,"shifts":[{"id":"a","name":"A","start":"06:00","end":"14:00","days":[0,8]}]},
+   "expectCodes": ["DAYS_INVALID"]
+  },
+  {
+   "name": "empty days",
+   "version": {"id":"x","from":null,"inherit":false,"shifts":[{"id":"a","name":"A","start":"06:00","end":"14:00","days":[]}]},
+   "expectCodes": ["DAYS_INVALID"]
+  },
+  {
+   "name": "duplicate days",
+   "version": {"id":"x","from":null,"inherit":false,"shifts":[{"id":"a","name":"A","start":"06:00","end":"14:00","days":[1,1]}]},
+   "expectCodes": ["DAYS_INVALID"]
+  },
+  {
+   "name": "duplicate shift ids",
+   "version": {
+    "id": "x",
+    "from": null,
+    "inherit": false,
+    "shifts": [{"id":"a","name":"A","start":"06:00","end":"14:00"},{"id":"a","name":"B","start":"14:00","end":"22:00"}]
+   },
+   "expectCodes": ["ID_INVALID"]
+  },
+  {"name":"inherit:true without shifts is valid","version":{"id":"x","from":null,"inherit":true,"shifts":[]},"expectCodes":[]},
+  {
+   "name": "bad from date",
+   "version": {
+    "id": "x",
+    "from": "2026-02-30",
+    "inherit": false,
+    "shifts": [
+     {"id":"a","name":"Morning","start":"06:00","end":"14:00"},
+     {"id":"b","name":"Afternoon","start":"14:00","end":"22:00"},
+     {"id":"c","name":"Night","start":"22:00","end":"06:00"}
+    ]
+   },
+   "expectCodes": ["FROM_INVALID"]
+  },
+  {
+   "name": "several problems at once",
+   "version": {
+    "id": "x",
+    "from": null,
+    "inherit": false,
+    "shifts": [{"id":"a","name":"","start":"06:00","end":"14:07"},{"id":"b","name":"B","start":"10:00","end":"12:00","days":[1,9]}]
+   },
+   "expectCodes": ["DAYS_INVALID","NAME_INVALID","OVERLAP","TIME_GRID"]
+  }
+ ]
+}
