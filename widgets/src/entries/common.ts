@@ -10,11 +10,11 @@
  *   - ACTIONS_EVENT (`imex-dbb:actions`) + `window.__imexDbbActions`: the renderer publishes the
  *     machine page's edit actions; the launcher's navbar edit menu shows and runs them (D-020).
  *
- * Exports: userContext, stateEntity, stateParam, currentState, CHANGED_EVENT, notifyChanged,
+ * Exports: userContext, userContextFor, stateEntity, stateParam, currentState, CHANGED_EVENT, notifyChanged,
  * EditAction, EditActions, ACTIONS_EVENT, publishActions, currentActions.
  */
 import { bindWidgetContext } from '../core/api';
-import { loadUserContext, UserContext } from '../core/scope';
+import { loadUserContext, clearRelCache, UserContext } from '../core/scope';
 import { liveHub } from '../core/live';
 import { registerLiveProvider, unregisterLiveProvider, currentProvider } from '../core/tb-socket';
 
@@ -68,6 +68,25 @@ export function userContext(tbCtx: any, force = false): Promise<UserContext> {
   };
   w.__imexDbbCtx = next;
   return next.promise;
+}
+
+/** When each machine last caused a forced reload in userContextFor (ms), so a machine outside the scope costs one. */
+const rechecked = new Map<string, number>();
+
+/**
+ * userContext for a page that shows `deviceId`. When the context does not have that machine, the scope may just be
+ * old: the relations are cached for the browser session (D-037, 10 minutes) and the context for 5 minutes, so a
+ * machine added meanwhile was refused as "outside your access". Then the cached relations are dropped and the
+ * context is loaded again with force, once per machine per minute; the caller decides on the reloaded context.
+ * @param deviceId machine the page is about to show (null/undefined = no check).
+ * @param force passed to userContext for the first load.
+ */
+export async function userContextFor(tbCtx: any, deviceId: string | null | undefined, force = false): Promise<UserContext> {
+  const ctx = await userContext(tbCtx, force);
+  if (!deviceId || ctx.nodes.has(deviceId) || Date.now() - (rechecked.get(deviceId) ?? 0) < 60e3) return ctx;
+  rechecked.set(deviceId, Date.now());
+  clearRelCache(ctx.userId);
+  return userContext(tbCtx, true);
 }
 
 /** User id claim of the current ThingsBoard JWT ('' when there is none or it can't be read). */

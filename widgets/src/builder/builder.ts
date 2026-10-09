@@ -246,6 +246,9 @@ export function openBuilder(o: BuilderOptions) {
   const b = new Builder(o);
   openNow = b;
   b.mount();
+  // 9 Oct 2026: the property lists offer every key the machines send, not only the catalogue's; the panels are
+  // drawn again once those are in (cached for the session, so later opens have them at once)
+  void scope.liveKeys(o.ctx).then(() => openNow === b && b.root?.isConnected && b.keysLoaded());
   return b;
 }
 let openNow: Builder | null = null;
@@ -394,6 +397,19 @@ class Builder {
     else if (this.deviceId) void this.selectMachine(this.deviceId);
     else this.renderAll();
     if (this.o.startNew) void this.newDashboardDialog();
+  }
+
+  /**
+   * The machines' live keys are now in `ctx.profileKeys` (scope.liveKeys): redraws the palette and the side panel,
+   * whose property lists come from it. Skipped while the user types in a field of the builder (the next redraw
+   * picks the keys up).
+   */
+  keysLoaded() {
+    const a = document.activeElement as HTMLElement | null;
+    if (a && this.root.contains(a) && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return;
+    if (a?.isContentEditable) return;
+    this.renderLeft();
+    this.renderRight();
   }
 
   /**
@@ -1693,8 +1709,9 @@ class Builder {
   }
 
   /**
-   * Properties that can be chosen for this widget's data source: the catalogue entries
-   * (`ctx.profileKeys`, from `dbb_profile_keys`, D-013) of every profile it covers, deduplicated by key.
+   * Properties that can be chosen for this widget's data source: `ctx.profileKeys` of every profile it covers
+   * (the keys the machines send, named from the `dbb_profile_keys` catalogue, D-013; see scope.liveKeys),
+   * deduplicated by key.
    */
   metasFor(w: Widget): KeyMeta[] {
     const seen = new Map<string, KeyMeta>();

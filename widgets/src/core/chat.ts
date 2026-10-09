@@ -56,7 +56,7 @@ export interface Catalog {
 
 /**
  * Builds the aliased catalogue from `ctx.nodes` (assets N1.., devices D1.., in map order) and
- * `ctx.profileKeys` (only machine types that occur in scope). Aliases are stable only within one
+ * `ctx.profileKeys` (only machine types that occur in scope; chatTurn merges the live keys in first). Aliases are stable only within one
  * call, so each turn rebuilds both the catalogue and the draft view. Pure.
  */
 export function buildCatalog(ctx: UserContext): Catalog {
@@ -1002,6 +1002,8 @@ export async function chatTurn(
   message: string,
   currentDeviceId: string | null,
 ): Promise<ChatResult & { attempts: number; usage?: any }> {
+  // the model sees every key the machines send, not only the catalogued ones (9 Oct 2026); cached after the first turn
+  await scope.liveKeys(ctx);
   const cat = buildCatalog(ctx);
   // a device dashboard opened for a machine: give the model the machine type up front
   const base = !draft.profile && currentDeviceId ? { ...draft, profile: ctx.nodes.get(currentDeviceId)?.profile ?? null } : draft;

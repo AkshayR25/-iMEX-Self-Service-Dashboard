@@ -39,7 +39,7 @@ import { openBuilder } from '../builder/builder';
 import { BUILDER_CSS } from '../builder/styles';
 import { modal, confirmModal, toast } from '../builder/ui';
 import { audit } from '../core/audit';
-import { userContext, currentEntity, currentParam, RSTATE_KEY, CHANGED_EVENT, notifyChanged, publishActions, EditAction, scheduleRedraw, liveLend, liveRelease } from './common';
+import { userContextFor, currentEntity, currentParam, RSTATE_KEY, CHANGED_EVENT, notifyChanged, publishActions, EditAction, scheduleRedraw, liveLend, liveRelease } from './common';
 
 const R_CSS = `
 .dbb-rend{height:100%;display:flex;flex-direction:column;background:var(--plane);position:relative}
@@ -146,7 +146,8 @@ export function init(tbCtx: any) {
     }
     st.lastKey = key;
     try {
-      const ctx = await userContext(tbCtx, force);
+      // a machine missing from a cached scope (added minutes ago) reloads the scope once before it is refused
+      const ctx = await userContextFor(tbCtx, ent?.entityType === 'DEVICE' ? ent.id : null, force);
       if (stale()) return;
       st.ctx = ctx;
       if (ent?.entityType === 'DEVICE') await showDevice(ctx, ent.id, stale);
@@ -182,7 +183,8 @@ export function init(tbCtx: any) {
   /**
    * Shows the machine page for `deviceId`: header (path, name, profile, status, time range) and the
    * resolved dashboard, or the built-in default layout when nothing is assigned. Devices outside the
-   * user's scope get a warning only (scope is UI-enforced, D-012).
+   * user's scope get a warning only (scope is UI-enforced, D-012); load() has already reloaded a cached scope
+   * that did not have the machine (userContextFor).
    * Status: Offline when no telemetry for 5 min, else Running/Stopped from `runStatus` (missing = Running).
    * For admins, publishes: edit, customise (shared dashboard from a location/customer assignment),
    * reset (device has a `customised` copy), thresholds, the switcher when several dashboards apply,
@@ -228,6 +230,11 @@ export function init(tbCtx: any) {
       <div class="dbb-crumb" title="${esc(where)}${dash ? ` · Dashboard: ${esc(dash.name)}` : ''}">${esc(where)}${dash ? `<span class="dbb-crumb-d"> · ${esc(dash.name)}</span>` : ''}</div>
       <span class="dbb-status-pill" style="--pill:${STATUS.neutral}"><span class="dbb-dot"></span>…</span>
       ${timeHtml(range)}`;
+    // the built-in layout uses every key the machine type sends, not only the catalogued ones (9 Oct 2026)
+    if (!dash) {
+      await scope.liveKeys(ctx, [node.profile]);
+      if (stale()) return;
+    }
     const grid = ensureGrid(ctx, deviceId, range, dash?.theme);
     grid.render(dash ? dash.widgets : defaultWidgets(ctx, node.profile));
     // Status pill after the grid has started loading (D-022): the header no longer holds up the widgets.

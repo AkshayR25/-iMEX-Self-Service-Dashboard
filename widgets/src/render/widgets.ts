@@ -927,7 +927,8 @@ function drawLink(body: HTMLElement, w: Widget, env: RenderEnv): undefined {
 
 /**
  * Default layout when no dashboard is assigned: value cards for the main properties, a trend of up to two numeric ones, active alarms. Stays within MAX_WIDGETS.
- * Built from the profile's catalogue in dbb_profile_keys (empty catalogue = alarms only). Pure: no REST calls.
+ * Built from `ctx.profileKeys[profile]`: the catalogue in dbb_profile_keys first, then the keys the machines send once
+ * scope.liveKeys has run for the type (the renderer awaits it; no keys at all = alarms only). Pure: no REST calls.
  * @param ctx User context (for the key catalogue).
  * @param profile Machine type (device profile name).
  * @returns Widgets bound to 'current', laid out 4 cards per row on the 12-column grid.

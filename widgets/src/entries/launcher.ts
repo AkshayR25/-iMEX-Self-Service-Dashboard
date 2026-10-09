@@ -32,7 +32,7 @@
 import { openBuilder, setBuilderPlacement, measureHeaderTop } from '../builder/builder';
 import * as store from '../core/store';
 import { CSS, ensureCss, esc, loadFont } from '../render/theme';
-import { userContext, stateEntity, notifyChanged, currentState, currentActions, ACTIONS_EVENT, EditAction, RSTATE_KEY, CHANGED_EVENT, liveLend, liveRelease } from './common';
+import { userContext, userContextFor, stateEntity, notifyChanged, currentState, currentActions, ACTIONS_EVENT, EditAction, RSTATE_KEY, CHANGED_EVENT, liveLend, liveRelease } from './common';
 import * as scope from '../core/scope';
 
 const MENU_ICONS: Record<string, string> = {
@@ -133,14 +133,15 @@ function roleList(s: string | undefined): string[] {
  *   (UI-only check, D-012), or when the user context can't be loaded.
  */
 export async function open(tbCtx: any, opts: { deviceId?: string | null; dashboardId?: string | null; startNew?: boolean } = {}) {
-  const ctx = await userContext(tbCtx, true);
+  const cp = currentState(tbCtx).params ?? {};
+  const ent = cp.entityId?.id ? { id: cp.entityId.id, entityType: cp.entityId.entityType } : stateEntity(tbCtx);
+  // a machine missing from the cached scope (added minutes ago) reloads the scope once instead of being dropped
+  const ctx = await userContextFor(tbCtx, opts.deviceId ?? (ent?.entityType === 'DEVICE' ? ent.id : null), true);
   const settings = tbCtx?.settings ?? {};
   if (settings.adminOnly !== false && !ctx.isAdmin) throw new Error('Only admins can build dashboards.');
   const chatRoles = roleList(settings.chatEnabledRoles);
   const chatEnabled = settings.chatEnabled !== false && (!chatRoles.length || chatRoles.includes(ctx.role.toLowerCase()));
   registerPlacement(tbCtx);
-  const cp = currentState(tbCtx).params ?? {};
-  const ent = cp.entityId?.id ? { id: cp.entityId.id, entityType: cp.entityId.entityType } : stateEntity(tbCtx);
   // On the Dashboard Overview state the builder opens the standalone dashboard shown there (D-026).
   const shown = !ent && typeof cp.dbbDashboardId === 'string' ? cp.dbbDashboardId : null;
   openBuilder({

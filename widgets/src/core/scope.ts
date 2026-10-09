@@ -2,7 +2,9 @@
 // customer's DashboardStore asset and the property catalogue (DECISIONS D-011, D-018).
 //
 // Main exports:
-//   loadUserContext()   builds a UserContext (all network I/O of this module happens here)
+//   loadUserContext()   builds a UserContext
+//   liveKeys()          merges the machines' live telemetry keys into ctx.profileKeys (the only other network I/O)
+//   clearRelCache()     drops the cached scope relations
 //   parseSelectedNodes  tolerant parser for the `selectedNodes` user attribute
 //   inScope / devicesUnder / allDevices / ancestors / pathLabel / siblings / nearest / nodesContaining
 //                       pure queries over the loaded tree (no network)
@@ -34,6 +36,9 @@
 //   Calls for a customer user with one scope root: 8, in 4 rounds (auth user; user attributes + store lookup;
 //   2 relations queries + store attributes; 2 entity queries). Before D-022 it was about 10 + 1 per asset.
 //   Problems are collected in `warnings` (shown by the UI) instead of throwing, where possible.
+//   8. Not part of the load: `liveKeys(ctx, types)` adds the keys the machines actually send to `ctx.profileKeys`
+//      (the catalogue is only an overlay for names and units, 9 Oct 2026). The builder, the chat and the default
+//      machine page await it; it is cached per browser session.
 //
 // SECURITY: in ThingsBoard CE this scope and the admin flag are enforced by the UI only (D-011,
 // D-012). A customer user can read every device of their customer through the REST API.
@@ -75,8 +80,15 @@ export interface UserContext {
   nodes: Map<string, Node>;
   /** The customer's DashboardStore asset; null = saving and chat are unavailable. */
   store: api.EntityRef | null;
-  /** Property catalogue per machine type, from the store attribute `dbb_profile_keys`. */
+  /**
+   * Properties per machine type: the catalogue (`catalogue`) plus, once `liveKeys` has run for the type, the keys
+   * its machines actually send (9 Oct 2026). Await `liveKeys` first where the full list matters.
+   */
   profileKeys: Record<string, KeyMeta[]>;
+  /** The store attribute `dbb_profile_keys` as stored: names, units, decimals and limits per machine type. */
+  catalogue: Record<string, KeyMeta[]>;
+  /** `liveKeys` loads per machine type, in flight or done (each type is merged once per context). */
+  liveLoads?: Map<string, Promise<void>>;
   /** Setup problems to show the user (missing store, empty scope, unresolved nodes...). */
   warnings: string[];
   /**
@@ -191,6 +203,7 @@ export async function loadUserContext(opts: LoadOptions = {}): Promise<UserConte
     nodes: new Map(),
     store: null,
     profileKeys: {},
+    catalogue: {},
     warnings,
   };
 
@@ -227,7 +240,9 @@ export async function loadUserContext(opts: LoadOptions = {}): Promise<UserConte
   if (st) ctx.store = st.ref;
   else if (ctx.customerId) warnings.push('Dashboard store asset (type DashboardStore) is missing; saving is disabled.');
   const sa = st?.attrs ?? {};
-  ctx.profileKeys = sa.dbb_profile_keys ?? {};
+  ctx.catalogue = sa.dbb_profile_keys && typeof sa.dbb_profile_keys === 'object' ? sa.dbb_profile_keys : {};
+  // a copy per type: liveKeys adds to these lists, the catalogue stays as stored
+  ctx.profileKeys = Object.fromEntries(Object.entries(ctx.catalogue).map(([p, ks]) => [p, Array.isArray(ks) ? [...ks] : []]));
   ctx.deployedVersion = String(sa.dbb_lib_version ?? '');
   if (ctx.assign) {
     ctx.assign.customer = sa.dbb_assign_customer ?? {};
@@ -379,6 +394,194 @@ async function buildTree(ctx: UserContext, roots: { entityId: string; entityType
   ctx.rootsAreTop = ctx.rootIds.length > 0 && [...aboveIds.values()].every((c) => c.length === 0);
   const personal = api.parseMaybeJson(userAttrs.dbb_personal);
   ctx.assign = { byId, aboveRoot, personal: personal && typeof personal === 'object' ? personal : {}, customer: {}, rev: '', at: Date.now(), stale: false };
+}
+
+/**
+ * Drops the cached scope relations (D-037) of `userId` (every user when omitted), so the next loadUserContext
+ * asks ThingsBoard again. Used when a machine is opened that the cached tree does not have yet (a machine
+ * added after the cache was filled would otherwise be refused for up to REL_CACHE_MS).
+ */
+export function clearRelCache(userId?: string) {
+  const prefix = `imex-dbb-rel:${userId ? `${userId}:` : ''}`;
+  try {
+    for (let i = sessionStorage.length - 1; i >= 0; i--) {
+      const k = sessionStorage.key(i);
+      if (k && k.startsWith(prefix)) sessionStorage.removeItem(k);
+    }
+  } catch {
+    /* no session storage */
+  }
+}
+
+// ---------- live property keys (9 Oct 2026) ----------
+// The catalogue `dbb_profile_keys` is written by DBB_DEPLOY and goes stale: a key a machine starts sending, or a
+// machine type nobody catalogued, was missing from the property picker, the default machine page and the chat.
+// The catalogue is now an overlay: the properties of a type are the keys its machines send (up to
+// LIVE_KEYS_MAX_DEVICES of them in scope), with the catalogue's names, units, decimals and limits where it has them.
+
+/** Machines of one type whose keys are listed (in parallel); the first ones in scope. */
+export const LIVE_KEYS_MAX_DEVICES = 20;
+/** How long the listed keys of a type are kept in sessionStorage. */
+export const LIVE_KEYS_CACHE_MS = 5 * 60 * 1000;
+/** Keys that are not properties: AI Insights outputs and the pre-aggregated copies of a value. */
+export const NOT_A_PROPERTY = /^aiml_|_(2min|5min|30min|2hrs|6hrs|1day)$/;
+
+/** Readable name for a key without a catalogue entry: "dischargePressure" / "discharge_pressure" -> "Discharge Pressure" / "Discharge pressure". */
+export function readableKey(key: string): string {
+  const s = key
+    .replace(/[_\s]+/g, ' ')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .trim();
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : key;
+}
+
+/** Unit suffixes of snake_case keys ("discharge_pressure_bar"), longest first. One-letter ones need 3+ parts ("motor_current_a", not "phase_a"). */
+const KEY_UNITS: [string, string][] = [
+  ['kw_m3min', 'kW/(m³/min)'],
+  ['m3min', 'm³/min'],
+  ['mm_s', 'mm/s'],
+  ['kwh', 'kWh'],
+  ['kw', 'kW'],
+  ['mbar', 'mbar'],
+  ['bar', 'bar'],
+  ['pct', '%'],
+  ['rpm', 'rpm'],
+  ['hz', 'Hz'],
+  ['lpm', 'L/min'],
+  ['c', '°C'],
+  ['f', '°F'],
+  ['v', 'V'],
+  ['a', 'A'],
+];
+
+/** Name and unit for a key nobody has named: "discharge_pressure_bar" -> {name: "Discharge pressure", unit: "bar"}. */
+export function guessKey(key: string): { name: string; unit: string } {
+  if (/^[a-z0-9]+(_[a-z0-9]+)+$/.test(key)) {
+    const parts = key.split('_').length;
+    for (const [suf, unit] of KEY_UNITS) {
+      if (!key.endsWith(`_${suf}`) || (suf.length === 1 && parts < 3)) continue;
+      return { name: readableKey(key.slice(0, -suf.length - 1)), unit };
+    }
+  }
+  return { name: readableKey(key), unit: '' };
+}
+
+/** Name and unit from a machine's `telemetryKeys` entry label, e.g. "Airflow Rate (CFM)" -> {label: "Airflow Rate", unit: "CFM"}. */
+function splitLabel(text: string): { label: string; unit: string } {
+  const m = /^(.*?)\s*\(([^()]+)\)\s*$/.exec(text);
+  return m ? { label: m[1], unit: m[2] } : { label: text, unit: '' };
+}
+
+/**
+ * Properties of one machine type: the catalogue entries first (as stored, also keys no machine sends yet, so
+ * saved widgets keep theirs), then every other live key except NOT_A_PROPERTY. Those get the name and unit of
+ * the machines' `telemetryKeys` list when it has them (in that list's order), else a readable name and the unit
+ * of a snake_case suffix (guessKey); decimals 1,
+ * range 0-100 like `keyMeta` gives unknown keys. Pure.
+ * @param named key -> name/unit from the machines' `telemetryKeys` attribute (insertion order = list order).
+ */
+export function mergeKeys(catalogue: KeyMeta[], live: string[], named: Map<string, { label: string; unit: string }> = new Map()): KeyMeta[] {
+  const have = new Set(catalogue.map((k) => k.key));
+  const extra = [...new Set(live)].filter((k) => !have.has(k) && !NOT_A_PROPERTY.test(k));
+  const order = [...named.keys()];
+  const rank = (k: string) => (named.has(k) ? order.indexOf(k) : order.length);
+  extra.sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+  return [
+    ...catalogue,
+    ...extra.map((key) => {
+      const n = named.get(key);
+      const g = guessKey(key);
+      return { key, displayName: n?.label || g.name, unit: n?.unit || g.unit, decimals: 1, min: 0, max: 100 };
+    }),
+  ];
+}
+
+/** sessionStorage entry of one type's live keys. */
+interface LiveEntry {
+  at: number;
+  keys: string[];
+  named: [string, string, string][]; // key, name, unit
+}
+
+/**
+ * Merges the live keys of the given machine types (default: every type in scope) into `ctx.profileKeys`.
+ * Per type: GET /api/plugins/telemetry/DEVICE/{id}/keys/timeseries for up to LIVE_KEYS_MAX_DEVICES of its machines
+ * in scope, plus ONE entity query (all types together) for their `telemetryKeys` attribute; kept in sessionStorage
+ * for LIVE_KEYS_CACHE_MS per user and type. Each type is loaded once per context (concurrent callers share the
+ * load). Never rejects: a failed read leaves the type's catalogue as it is (and is not cached).
+ */
+export function liveKeys(ctx: UserContext, profiles?: string[]): Promise<void> {
+  const loads = (ctx.liveLoads ??= new Map());
+  const want = [...new Set(profiles ?? allDevices(ctx).map((d) => d.profile))].filter((p) => p && !loads.has(p));
+  if (want.length) {
+    const job = loadLive(ctx, want).catch(() => undefined);
+    for (const p of want) loads.set(p, job);
+  }
+  const all = [...new Set(profiles ?? [...loads.keys()])].map((p) => loads.get(p));
+  return Promise.all(all).then(() => undefined);
+}
+
+async function loadLive(ctx: UserContext, profiles: string[]) {
+  const cacheKey = (p: string) => `imex-dbb-keys:${ctx.userId}:${p}`;
+  const fresh = new Map<string, LiveEntry>();
+  const todo: string[] = [];
+  for (const p of profiles) {
+    try {
+      const hit = JSON.parse(sessionStorage.getItem(cacheKey(p)) || 'null') as LiveEntry | null;
+      if (hit && Date.now() - hit.at < LIVE_KEYS_CACHE_MS && Array.isArray(hit.keys) && Array.isArray(hit.named)) {
+        fresh.set(p, hit);
+        continue;
+      }
+    } catch {
+      /* no session storage, or not JSON */
+    }
+    todo.push(p);
+  }
+  const devs = new Map(todo.map((p) => [p, allDevices(ctx, p).slice(0, LIVE_KEYS_MAX_DEVICES).map((d) => d.id)]));
+  const ids = [...devs.values()].flat();
+  if (ids.length) {
+    let failed = 0;
+    const [lists, rows] = await Promise.all([
+      Promise.all(
+        ids.map((id) =>
+          api.timeseriesKeys(id).catch(() => {
+            failed++;
+            return [] as string[];
+          }),
+        ),
+      ),
+      api.entityData('DEVICE', ids, { fields: [], attrs: ['telemetryKeys'] }).catch(() => {
+        failed++;
+        return [] as api.EntityRow[];
+      }),
+    ]);
+    const keysOf = new Map(ids.map((id, i) => [id, lists[i]]));
+    const tkOf = new Map(rows.map((r) => [r.id, r.attrs.telemetryKeys]));
+    for (const [p, dids] of devs) {
+      const keys = [...new Set(dids.flatMap((id) => keysOf.get(id) ?? []))];
+      const named = new Map<string, [string, string, string]>();
+      for (const id of dids) {
+        const list = api.parseMaybeJson(tkOf.get(id));
+        for (const v of Array.isArray(list) ? list : []) {
+          if (!v || typeof v.kpi !== 'string' || !v.label || named.has(v.kpi)) continue;
+          const { label, unit } = splitLabel(String(v.label));
+          named.set(v.kpi, [v.kpi, label, unit]);
+        }
+      }
+      const e: LiveEntry = { at: Date.now(), keys, named: [...named.values()] };
+      fresh.set(p, e);
+      if (!failed)
+        try {
+          sessionStorage.setItem(cacheKey(p), JSON.stringify(e));
+        } catch {
+          /* storage full or unavailable */
+        }
+    }
+  }
+  for (const [p, e] of fresh) {
+    const named = new Map(e.named.map(([k, label, unit]) => [k, { label, unit }]));
+    ctx.profileKeys[p] = mergeKeys(ctx.catalogue?.[p] ?? ctx.profileKeys[p] ?? [], e.keys, named);
+  }
 }
 
 // ---------- tree queries (pure) ----------
