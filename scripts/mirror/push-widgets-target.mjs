@@ -21,6 +21,10 @@ const OUR_WIDGET = /^(imex_|aiml_)/;
 // imex_v5_alert_history_page (the developers' widget) IS pushed since 10 Oct (Akshay's go-ahead): the UI repo's copy
 // with the 4 agreed changes, merged over their server version.
 const NEVER_PUSH = new Set(['imex_alert_history']);
+// --skip=a,b,prefix_* leaves those widget types as they are on the server for this run (e.g. the Reports and AI widgets
+// while their services on pmiserv-thg are not redeployed yet: --skip=imex_rpt_*,aiml_*)
+const SKIP = (process.argv.find((a) => a.startsWith('--skip=')) || '').slice(7).split(',').map((s) => s.trim()).filter(Boolean);
+const skipped = (fqn) => SKIP.some((p) => (p.endsWith('*') ? fqn.startsWith(p.slice(0, -1)) : fqn === p));
 const LAST_RUN = 'mirror-data/target-last-run.json';
 // the save each hand edit on the server started from (UTC, from the audit log):
 //   machine cards 09:18 and org hierarchy 09:19 / 11:21 (debug logs commented out) on top of the 07:53 run;
@@ -74,6 +78,7 @@ let stop = false;
 for (const t of await L.all('/api/widgetTypes?tenantOnly=true')) {
   if (!OUR_WIDGET.test(t.fqn)) continue;
   if (NEVER_PUSH.has(t.fqn)) { say(`skip ${t.fqn}: the server uses the developers' own widget for this page`); continue; }
+  if (skipped(t.fqn)) { say(`skip ${t.fqn}: --skip (left as it is on the server for this run)`); continue; }
   const loc = await L.api('GET', `/api/widgetType/${t.id.id}`);
   const mine = JSON.parse(toServerIds(toServerLibs(JSON.stringify(loc.descriptor))));
   const cur = await T.api('GET', `/api/widgetType?fqn=tenant.${t.fqn}`, undefined, { allow404: true });
