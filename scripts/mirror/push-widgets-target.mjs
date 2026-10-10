@@ -51,10 +51,12 @@ const L = await targetClient(); // LOCAL: read only here
 const last = JSON.parse(readFileSync(LAST_RUN, 'utf8'));
 say(`local ${L.base} -> new tenant ${T.base}   ${GO ? 'WRITING' : 'DRY RUN: nothing is written'}`);
 
-// hand edits since the last run, per widget type
+// hand edits since the last run, per widget type. The server logs the last writes of a run a moment after this script
+// noted its end (seen 10 Oct: same second), so entries up to 30 s after the end are the run's own and are not edits.
+const OWN_WRITES_MS = 30000;
 const edited = {};
 for (let p = 0; p < 20; p++) {
-  const r = await T.api('GET', `/api/audit/logs?pageSize=1000&page=${p}&startTime=${last.end + 1}&endTime=${Date.now()}&sortProperty=createdTime&sortOrder=ASC`);
+  const r = await T.api('GET', `/api/audit/logs?pageSize=1000&page=${p}&startTime=${last.end + OWN_WRITES_MS}&endTime=${Date.now()}&sortProperty=createdTime&sortOrder=ASC`);
   for (const a of r.data) if (a.entityId && a.entityId.entityType === 'WIDGET_TYPE' && a.actionType === 'UPDATED') (edited[a.entityId.id] = edited[a.entityId.id] || []).push(a);
   if (!r.hasNext) break;
 }
