@@ -18,13 +18,21 @@ const GO = process.argv.includes('--go');
 const OUR_WIDGET = /^(imex_|aiml_)/;
 // Never pushed: the developers replaced these pages on the server with their own widgets (Akshay, 9 Oct 2026). The
 // server's alert_history state uses tenant.imex_v5_alert_history_page, not the local imex_alert_history.
-// imex_v5_alert_history_page: the UI repo's copy of that widget (K11, 9 Oct). Remove it here only on Akshay's go-ahead.
-const NEVER_PUSH = new Set(['imex_alert_history', 'imex_v5_alert_history_page']);
+// imex_v5_alert_history_page (the developers' widget) IS pushed since 10 Oct (Akshay's go-ahead): the UI repo's copy
+// with the 4 agreed changes, merged over their server version.
+const NEVER_PUSH = new Set(['imex_alert_history']);
 const LAST_RUN = 'mirror-data/target-last-run.json';
-// the save each hand edit on the server started from (UTC, from the audit log; 9 Oct 2026):
+// the save each hand edit on the server started from (UTC, from the audit log):
 //   machine cards 09:18 and org hierarchy 09:19 / 11:21 (debug logs commented out) on top of the 07:53 run;
-//   user management 06:09 (the server's ITHENA customer id), put back at 09:32, on top of the 05:11 run
-const BASES = { imex_machine_cards: '2026-10-08T07:53:04', imex_org_hierarchy: '2026-10-08T07:53:05', imex_user_management: '2026-10-08T05:11:47' };
+//   user management 06:09 (the server's ITHENA customer id), put back at 09:32, on top of the 05:11 run (8 Oct)
+//   9 Oct: side menu 13:20 (the developers' AETHER assistant) and page header 12:56-13:10 on top of the 04:12-04:13 run;
+//   the developers' v5 alert history page: created 05:27, last saved 10:38:55, the version the UI repo's copy started from
+const BASES = {
+  imex_machine_cards: '2026-10-08T07:53:04', imex_org_hierarchy: '2026-10-08T07:53:05', imex_user_management: '2026-10-08T05:11:47',
+  // side menu and page header: their latest server saves (AETHER, the mcpUrl setting) were merged into the UI repo by hand
+  // on 10 Oct, so those saves are the base; any later server edit is still detected and merged
+  imex_side_menu: '2026-10-09T13:20:13', imex_page_header: '2026-10-09T13:10:59', imex_v5_alert_history_page: '2026-10-09T10:38:55',
+};
 const TEXT = ['controllerScript', 'templateHtml', 'templateCss'];
 const JSONISH = ['settingsSchema', 'dataKeySettingsSchema', 'latestDataKeySettingsSchema', 'defaultConfig', 'resources', 'sizeX', 'sizeY', 'type', 'settingsForm', 'dataKeySettingsForm', 'latestDataKeySettingsForm', 'settingsDirective', 'dataKeySettingsDirective', 'latestDataKeySettingsDirective', 'hasBasicMode', 'basicModeDirective'];
 
@@ -94,6 +102,16 @@ for (const t of await L.all('/api/widgetTypes?tenantOnly=true')) {
     for (const k of JSONISH) {
       if (same(theirs[k], base[k]) || theirs[k] === undefined) continue;
       if (same(mine[k], base[k]) || same(mine[k], theirs[k])) { descriptor[k] = theirs[k]; notes.push(`${k}: theirs`); continue; }
+      // a settings form (a list of {id, ...}) changed on both sides: ours, plus the settings the server added that the
+      // base did not have (a setting the server only re-worded keeps our wording; one we removed stays removed)
+      const isForm = (v) => Array.isArray(v) && v.every((x) => x && typeof x === 'object' && x.id);
+      if (/SettingsForm$|^settingsForm$/.test(k) && isForm(mine[k]) && isForm(theirs[k]) && isForm(base[k] || [])) {
+        const known = new Set((base[k] || []).map((x) => x.id).concat(mine[k].map((x) => x.id)));
+        const added = theirs[k].filter((x) => !known.has(x.id));
+        descriptor[k] = mine[k].concat(added);
+        notes.push(`${k}: ours + the server's new ${added.map((x) => x.id).join(', ') || '(none)'}`);
+        continue;
+      }
       say(`STOP ${t.fqn} ${k}: changed on the server and locally`); stop = true;
     }
     note = `hand-edited on the server (${hand.length}x), merged with the base of ${baseAt}: ${notes.join(', ') || 'nothing of theirs left to keep'}`;
