@@ -21,7 +21,8 @@ const attrs = await T.api('GET', `/api/plugins/telemetry/USER/${tpl.id.id}/value
 const SKIP = new Set(['firstName', 'lastName', 'email', 'phone', 'lastLoginTs', 'active', 'lastActivityTime', 'userActivated']);
 const copy = {}; for (const a of attrs) if (!SKIP.has(a.key)) copy[a.key] = a.value;
 console.log(`template ${TEMPLATE} (customer ${tpl.customerId.id}): copies ${Object.keys(copy).sort().join(', ')}`);
-const name = (e) => { const l = e.split('@')[0].replace(/[^a-z]/g, ''); return { first: l.charAt(0).toUpperCase() + l.slice(1, -1), last: l.slice(-1).toUpperCase() }; };
+// a +tag (tusharl+imex@...) is not part of the name
+const name = (e) => { const l = e.split('@')[0].split('+')[0].replace(/[^a-z]/g, ''); return { first: l.charAt(0).toUpperCase() + l.slice(1, -1), last: l.slice(-1).toUpperCase() }; };
 for (const email of emails) {
   const have = all.find((u) => u.email.toLowerCase() === email);
   const n = name(email);
