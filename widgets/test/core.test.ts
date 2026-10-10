@@ -570,7 +570,9 @@ describe('design pass for chat-built dashboards (D-026)', () => {
     const banner = ws.find((w) => w.type === 'text')!;
     expect(banner.settings.style?.gradient).toBe(true);
     expect(banner.settings.html).toMatch(/ITHENA fleet/);
-    expect(banner.settings.html).toMatch(/4 machines/);
+    // D-053: the counts are placeholders, filled per viewer (the CEO here sees all 4)
+    expect(banner.settings.html).toMatch(/\{\{machines\}\} · \{\{locations\}\} · live/);
+    expect((await import('../src/render/widgets')).fleetCounts({ ctx, deviceId: null, timeRange: '1h' }, ws).machines).toBe(4);
     expect([banner.x, banner.y, banner.w, banner.h]).toEqual([0, 0, 12, 2]);
     const comp = ws.find((w) => w.title === 'Compressors')!;
     expect(comp.h).toBeLessThanOrEqual(3); // 2 machines: header + 2 lines

@@ -249,12 +249,12 @@ export const PLACEHOLDER_RE = /\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g;
 
 /**
  * Telemetry keys referenced as `{{key}}`, de-duplicated, in first-seen order. The built-ins
- * machine, time, date, type and location are excluded (the renderer fills them itself).
+ * machine, time, date, type, location, machines and locations (D-053) are excluded (the renderer fills them itself).
  * The text widget fetches the latest values of the returned keys.
  */
 export function placeholderKeys(html: string): string[] {
   const out = new Set<string>();
-  for (const m of String(html ?? '').matchAll(PLACEHOLDER_RE)) if (!['machine', 'time', 'date', 'type', 'location'].includes(m[1])) out.add(m[1]);
+  for (const m of String(html ?? '').matchAll(PLACEHOLDER_RE)) if (!['machine', 'time', 'date', 'type', 'location', 'machines', 'locations'].includes(m[1])) out.add(m[1]);
   return [...out];
 }
 

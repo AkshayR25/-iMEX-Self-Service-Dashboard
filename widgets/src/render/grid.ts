@@ -163,6 +163,8 @@ export class Grid {
   private cols = GRID_COLS;
   /** Positions as shown (differ from the stored ones only in compact mode), by widget id. */
   private view = new Map<string, Rect>();
+  /** D-053: the widgets' bindings when last drawn; a change redraws the text widgets. */
+  private bindSig = '';
   private ro: ResizeObserver;
 
   /**
@@ -190,9 +192,14 @@ export class Grid {
     const prev = this.env;
     this.env = env;
     if (prev && prev.deviceId === env.deviceId && prev.ctx === env.ctx) {
-      for (const h of this.handles.values()) void h.update(env);
+      for (const h of this.handles.values()) void h.update(this.envOf());
       this.render(this.widgets);
     } else this.render(this.widgets, true);
+  }
+
+  /** The environment a widget is drawn with: the grid's, plus the dashboard's widgets (D-053 fleet counts). */
+  private envOf(): RenderEnv {
+    return { ...this.env, widgets: this.widgets };
   }
 
   /** Merges options (selection, highlight, callbacks) and repaints selection; does not redraw widgets. */
@@ -223,6 +230,11 @@ export class Grid {
       }
     this.layout(false);
     this.computeView();
+    // D-053: text widgets count the dashboard's machines ({{machines}}, {{locations}}): redraw them when a binding changes
+    const bindSig = JSON.stringify(this.widgets.map((w) => w.binding));
+    const fleetChanged = bindSig !== this.bindSig;
+    this.bindSig = bindSig;
+    const env = this.envOf();
     for (const w of this.widgets) {
       let box = this.boxes.get(w.id);
       const sig = JSON.stringify({ ...w, x: 0, y: 0, w: 0, h: 0 });
@@ -234,10 +246,10 @@ export class Grid {
         this.host.appendChild(box);
       }
       this.place(box, w);
-      if (force || !this.handles.has(w.id) || prev.get(w.id) !== sig || sizeChanged) {
+      if (force || !this.handles.has(w.id) || prev.get(w.id) !== sig || sizeChanged || (fleetChanged && w.type === 'text')) {
         this.handles.get(w.id)?.destroy();
         const inner = box.querySelector('.dbb-gi') as HTMLElement;
-        this.handles.set(w.id, renderWidget(inner, w, this.env));
+        this.handles.set(w.id, renderWidget(inner, w, env));
       }
       box.dataset.w = String(this.rect(w).w);
       box.dataset.h = String(w.h);

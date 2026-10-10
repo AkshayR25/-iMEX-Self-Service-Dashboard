@@ -116,6 +116,8 @@ export interface RenderEnv {
   navigate?(stateId: string, nodeId: string | null): void;
   /** D-043: first draws count for the app's page bar under this key (machine page, Dashboard Overview). */
   busyKey?: string;
+  /** D-053: every widget of the dashboard (set by the Grid), for the {{machines}} and {{locations}} counts of text widgets. */
+  widgets?: Widget[];
 }
 
 /** Result of resolving a widget's Binding. */
@@ -924,16 +926,54 @@ async function draw(body: HTMLElement, w: Widget, env: RenderEnv): Promise<Color
 }
 
 /**
+ * D-053: machines and locations a dashboard shows to THIS viewer: the union of every widget's resolveBinding devices
+ * (the user context built from the access core, so only equipment in the viewer's access) and their distinct
+ * locations in that context. Feeds {{machines}} and {{locations}}, so a banner never counts equipment the viewer
+ * cannot see.
+ */
+export function fleetCounts(env: RenderEnv, widgets: Widget[]): { machines: number; locations: number } {
+  const machines = new Set<string>();
+  const sites = new Set<string>();
+  for (const w of widgets)
+    for (const n of resolveBinding(env, w.binding).devices) {
+      machines.add(n.id);
+      if (n.parentId && env.ctx.nodes.has(n.parentId)) sites.add(n.parentId);
+    }
+  return { machines: machines.size, locations: sites.size };
+}
+
+const DOT = '(?:·|&middot;|&#183;)';
+const BAKED_FLEET = new RegExp(`\\b\\d+ machines?( ${DOT} \\d+ locations?)?( ${DOT} live ${DOT} \\{\\{\\s*date\\s*\\}\\})`, 'g');
+
+/**
+ * D-053: a fleet banner made before 10 Oct 2026 has its author's counts baked in ("5 machines · 2 locations · live ·
+ * {{date}} {{time}}", core/design.ts). Turns that line into the live placeholders, so stored dashboards count the
+ * viewer's equipment without a data migration. Any other text is left as it is.
+ */
+export function liveFleetLine(html: string): string {
+  return html.replace(BAKED_FLEET, (_m, loc: string | undefined, tail: string) => `{{machines}}${loc ? ' · {{locations}}' : ''}${tail}`);
+}
+
+const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
+
+/**
  * Rich text widget. settings.html is sanitised (render/rich.ts); older widgets use settings.markdown.
  * `{{key}}` placeholders are filled with the current machine's latest values (one api.latest call,
  * errors ignored) plus {{machine}}, {{type}}, {{location}}, {{time}} and {{date}}.
- * Without a current machine only time and date are filled.
+ * Without a current machine only time and date are filled. D-053: {{machines}} and {{locations}} count the
+ * dashboard's equipment in the viewer's access (fleetCounts; env.widgets from the Grid, an em dash without it).
  */
 async function drawText(body: HTMLElement, w: Widget, env: RenderEnv): Promise<undefined> {
   const s = w.settings;
   let html = s.html !== undefined ? sanitizeHtml(s.html) : miniMarkdown(s.markdown ?? w.title ?? '');
   if (/\{\{/.test(html)) {
     const values: Record<string, string> = {};
+    if (env.widgets) {
+      html = liveFleetLine(html);
+      const f = fleetCounts(env, env.widgets);
+      values.machines = plural(f.machines, 'machine');
+      values.locations = plural(f.locations, 'location');
+    }
     const dev = env.deviceId ? env.ctx.nodes.get(env.deviceId) : null;
     values.time = new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
     values.date = new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });

@@ -171,7 +171,8 @@ export function designPass(ctx: UserContext, d0: Dashboard): Dashboard {
   }
   if (banner && textOf(banner.settings.html ?? '').length <= 80 && !banner.settings.style) {
     const heading = textOf(banner.settings.html ?? '') || banner.title || d.name;
-    const sub = d.kind === 'device' ? '{{machine}} · {{location}} · live · {{date}} {{time}}' : `${machines.size} machine${machines.size === 1 ? '' : 's'}${sites.size ? ` · ${sites.size} location${sites.size === 1 ? '' : 's'}` : ''} · live · {{date}} {{time}}`;
+    // D-053: the fleet counts are placeholders, filled per viewer at render time (only equipment in their access)
+    const sub = d.kind === 'device' ? '{{machine}} · {{location}} · live · {{date}} {{time}}' : `{{machines}}${sites.size ? ' · {{locations}}' : ''} · live · {{date}} {{time}}`;
     banner.settings.html = sanitizeHtml(`<h2 style="color:#ffffff;font-size:26px">${heading.replace(/[<>&]/g, '')}</h2><p style="color:#cfe0ff;font-size:13px">${sub}</p>`);
     banner.settings.style = { bg: '#0b3a7e', gradient: true, border: 'none', hideTitle: true, shadow: 'strong', valign: 'middle', padding: 'roomy' };
     banner.title = banner.title || heading.slice(0, 120);

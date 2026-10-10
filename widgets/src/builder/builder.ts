@@ -1539,7 +1539,7 @@ class Builder {
    */
   contentFields(w: Widget): string {
     const s = w.settings;
-    if (w.type === 'text') return `<div data-rte></div><div class="dbb-hint">Live values: pick <b>+ Live value</b> or type <code>{{key}}</code>. <code>{{machine}}</code>, <code>{{location}}</code>, <code>{{time}}</code> and <code>{{date}}</code> also work.</div>`;
+    if (w.type === 'text') return `<div data-rte></div><div class="dbb-hint">Live values: pick <b>+ Live value</b> or type <code>{{key}}</code>. <code>{{machine}}</code>, <code>{{location}}</code>, <code>{{time}}</code> and <code>{{date}}</code> also work; <code>{{machines}}</code> and <code>{{locations}}</code> count what the viewer can see.</div>`;
     if (w.type === 'image')
       return `<label class="dbb-field"><span>Image address (https://…)</span><input data-c="url" value="${esc(s.url && !s.url.startsWith('data:') ? s.url : '')}" placeholder="https://example.com/logo.png"/></label>
         <label class="dbb-field"><span>…or upload (PNG, JPG, SVG, max 150 KB)</span><input type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp,image/gif" data-c="file"/></label>
