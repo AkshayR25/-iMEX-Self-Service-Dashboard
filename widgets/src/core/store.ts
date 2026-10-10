@@ -1,4 +1,4 @@
-// core/store.ts — dashboard storage, assignments and resolution (DECISIONS D-013, D-015, D-017).
+// core/store.ts — dashboard storage, assignments and resolution (DECISIONS D-013, D-015, D-017, D-050).
 //
 // Everything lives in ThingsBoard SERVER_SCOPE attributes, written as the logged-in customer user
 // (no tenant credentials, D-010). Customers can't write customer attributes (D-012), so dashboards
@@ -36,8 +36,9 @@
 // `resetDevice` removes the device assignment (and its copy). Callers (builder, renderer entry)
 // write the audit entry (core/audit.ts) after each of these.
 //
-// SECURITY (D-012): every permission check here (`canApply`, owner/admin on delete, scope checks)
-// runs in the browser only. A customer user can write any of these attributes directly via REST.
+// SECURITY (D-012): every permission check here (`canApply`, owner / `dashboards.deleteAny` on delete, scope checks;
+// D-050: the role flags and the access core's grants of core/scope.ts) runs in the browser only. A customer user can
+// write any of these attributes directly via REST.
 
 import * as api from './api';
 import { Dashboard, checkDashboard, newId } from './schema';
@@ -419,24 +420,25 @@ export interface ApplyPreview {
 }
 
 /**
- * Permission check for an apply target (D-011, D-017). Returns a user-facing reason, or null if allowed.
+ * Permission check for an apply target (D-011, D-017, D-050). Returns a user-facing reason, or null if allowed.
  * - personal / none: always allowed.
- * - devices: all must be in scope; more than one needs an admin.
- * - node / customer: admin only; node must be in scope; customer-wide needs `ctx.rootsAreTop`.
+ * - devices: all must be machines granted to the user; more than one needs `dashboards.applyMany`.
+ * - node / customer: `dashboards.applyMany`; the node must be a location the user holds in full (an 'all' grant or
+ *   under one: every machine there, now and later; a nav node is not enough); customer-wide needs `ctx.coversAll`.
  * SECURITY: UI-only (D-012); nothing on the server enforces this.
  */
 export function canApply(ctx: UserContext, t: ApplyTarget): string | null {
   if (t.type === 'none' || t.type === 'personal') return null;
   if (t.type === 'devices') {
-    if (t.deviceIds.length > 1 && !ctx.isAdmin) return 'Only admins can apply a dashboard to more than one machine.';
-    const out = t.deviceIds.filter((d) => !scope.inScope(ctx, d));
+    if (t.deviceIds.length > 1 && !ctx.canApplyMany) return "Your role can't apply a dashboard to more than one machine.";
+    const out = t.deviceIds.filter((d) => !scope.isGrantedMachine(ctx, d));
     return out.length ? 'Some machines are outside your access.' : null;
   }
-  if (!ctx.isAdmin) return 'Only admins can apply a dashboard to all machines of a type.';
-  if (t.type === 'node' && !scope.inScope(ctx, t.nodeId)) return 'That node is outside your access.';
+  if (!ctx.canApplyMany) return "Your role can't apply a dashboard to all machines of a type.";
+  if (t.type === 'node' && !scope.holdsAll(ctx, t.nodeId)) return 'That location is outside your access (you need all of it).';
   if (t.type === 'customer') {
-    // customer-wide requires the user's scope to cover the whole organisation (scope roots have no parent)
-    if (!ctx.rootsAreTop) return 'Customer-wide assignment requires access to the whole organisation.';
+    // customer-wide requires the user's access to cover the whole organisation (every top is an 'all' grant)
+    if (!ctx.coversAll) return 'Customer-wide assignment requires access to the whole organisation.';
   }
   return null;
 }
@@ -552,10 +554,12 @@ export async function apply(ctx: UserContext, doc: Dashboard, t: ApplyTarget): P
 /**
  * "Customise for this machine": saves a copy of `template` (new id, version 0, `copiedFrom`) and
  * assigns it to the device with mode 'customised', so the machine stops following the template.
- * Writes: store `dbb_d_/dbb_h_/dbb_vis_<copy>`, device `dbb_assign`. Scope check is UI-only (D-012).
+ * Writes: store `dbb_d_/dbb_h_/dbb_vis_<copy>`, device `dbb_assign`. Needs `dashboards.build` and a machine granted to
+ * the user (D-050; before, an admin could customise any machine). UI-only checks (D-012).
  */
 export async function customise(ctx: UserContext, deviceId: string, template: Dashboard): Promise<Dashboard> {
-  if (!ctx.isAdmin && !scope.inScope(ctx, deviceId)) throw new Error('Machine is outside your access.');
+  if (!ctx.canBuild) throw new Error("Your role can't build dashboards.");
+  if (!scope.isGrantedMachine(ctx, deviceId)) throw new Error('Machine is outside your access.');
   const label = ctx.nodes.get(deviceId)?.label ?? deviceId;
   const copy = await saveDashboard(ctx, {
     ...template,
@@ -575,7 +579,7 @@ export async function customise(ctx: UserContext, deviceId: string, template: Da
  * "Reset to shared dashboard": deletes the device's `dbb_assign`, so the machine falls back to the
  * location / customer-wide / default dashboard. When that assignment was a 'customised' or 'copy'
  * dashboard, its `dbb_d_/dbb_h_/dbb_vis_` attributes are deleted too (best effort).
- * No permission check here; callers restrict it to admins (UI-only, D-012).
+ * No permission check here; callers restrict it to `dashboards.build` (UI-only, D-012, D-050).
  */
 export async function resetDevice(ctx: UserContext, deviceId: string): Promise<void> {
   const a: DeviceAssignment | null = await readAssign(dev(deviceId));
@@ -620,17 +624,19 @@ export async function usage(ctx: UserContext, doc: Dashboard): Promise<{ devices
  * `dbb_assign`, entries in asset `dbb_assign`, entries in store `dbb_assign_customer`; then the
  * store's `dbb_d_/dbb_h_/dbb_vis_<id>`. Assignments outside the user's scope are left dangling
  * (resolution skips them because the dashboard no longer loads). Per-machine copies are kept.
- * Only the owner or an admin (UI-only, D-012). Sequential calls: one read per node in scope.
+ * Only the owner, or a role with `dashboards.deleteAny` (D-050; UI-only, D-012). Nav nodes (the path above the user's
+ * grants, D-050) are outside the user's scope and keep theirs. Sequential calls: one read per node in scope.
  * @returns labels of what was unassigned, for the confirmation/audit.
  */
 export async function deleteDashboard(ctx: UserContext, doc: Dashboard): Promise<string[]> {
-  if (doc.ownerId !== ctx.userId && !ctx.isAdmin) throw new Error('Only the owner or an admin can delete this dashboard.');
+  if (doc.ownerId !== ctx.userId && !ctx.canDeleteAny) throw new Error("Only the owner can delete this dashboard: your role can't delete others' dashboards.");
   const store = requireStore(ctx);
   const affected: string[] = [];
   // current assignments of every node in scope in 2 calls (D-022) instead of one read per node
   const snap = ctx.assign ? await refreshAssign(ctx) : null;
   let changed = false;
   for (const n of ctx.nodes.values()) {
+    if (n.nav) continue;
     const a = snap ? snap.byId.get(n.id) : await readAssign(n.entityType === 'DEVICE' ? dev(n.id) : asset(n.id));
     if (!a) continue;
     if (n.entityType === 'DEVICE' && a.dashboardId === doc.id) {

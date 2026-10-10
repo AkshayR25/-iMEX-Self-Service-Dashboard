@@ -666,6 +666,48 @@ export function relationsTree(root: EntityRef, direction: 'FROM' | 'TO', entityT
   }).then((r) => r ?? []);
 }
 
+/**
+ * `relationsTree` through POST /api/relations/info: the same relations, with `fromName` / `toName`. D-052: the iMEX
+ * app's imxShell.tree asks this way and only reuses a kept tree that has the names, so the tenant admin's shared tree
+ * (core/scope.ts tenantTree) is read this way too.
+ */
+export function relationInfosTree(root: EntityRef, direction: 'FROM' | 'TO', entityTypes: string[], maxLevel = 12, relationType = 'Contains'): Promise<RelInfo[]> {
+  return post<RelInfo[]>('/api/relations/info', {
+    parameters: { rootId: root.id, rootType: root.entityType, direction, relationTypeGroup: 'COMMON', maxLevel, fetchLastLevelOnly: false },
+    filters: [{ relationType, entityTypes }],
+  }).then((r) => r ?? []);
+}
+
+/**
+ * D-052: the tops of the location trees the logged-in user can read, the same way as the iMEX app's
+ * imxShell.locationTops: assets that Contain machines and lie below no other asset, sorted by id. Entity queries only,
+ * no relation requests: the device ids (pages of 1000, at most 20 pages), then for every 1000 of them the last asset up
+ * the Contains chain (multi-root relations query, fetchLastLevelOnly). For a tenant admin: every location of the tenant.
+ * @throws ApiError when ThingsBoard refuses a query.
+ */
+export async function locationTops(): Promise<string[]> {
+  const devs: string[] = [];
+  for (let p = 0; p < 20; p++) {
+    const r = await post<any>('/api/entitiesQuery/find', {
+      entityFilter: { type: 'entityType', entityType: 'DEVICE' },
+      pageLink: { page: p, pageSize: 1000 },
+      entityFields: [{ type: 'ENTITY_FIELD', key: 'name' }],
+    });
+    for (const d of r?.data ?? []) if (d?.entityId?.id) devs.push(d.entityId.id);
+    if (!r?.hasNext) break;
+  }
+  const tops = new Set<string>();
+  for (let i = 0; i < devs.length; i += 1000) {
+    const r = await post<any>('/api/entitiesQuery/find', {
+      entityFilter: { type: 'relationsQuery', multiRoot: true, multiRootEntitiesType: 'DEVICE', multiRootEntityIds: devs.slice(i, i + 1000), direction: 'TO', maxLevel: 12, fetchLastLevelOnly: true, filters: [{ relationType: 'Contains', entityTypes: ['ASSET'] }] },
+      pageLink: { page: 0, pageSize: 1000 },
+      entityFields: [{ type: 'ENTITY_FIELD', key: 'name' }],
+    });
+    for (const d of r?.data ?? []) if (d?.entityId?.id) tops.add(d.entityId.id);
+  }
+  return [...tops].sort();
+}
+
 /** One entity from `entityData()`: entity fields (name, label, type...), SERVER attributes and latest telemetry. */
 export interface EntityRow {
   id: string;
@@ -838,4 +880,30 @@ export async function systemConfigShifts(): Promise<{ id: string; name: string; 
   if (!hit) return null;
   const v = hit.latest?.SERVER_ATTRIBUTE?.imexShifts;
   return { id: hit.entityId.id, name: 'System Configuration', shifts: v && v.ts > 0 && v.value !== '' ? parseMaybeJson(v.value) : undefined };
+}
+
+/**
+ * D-050: the customer's role store, the `imexRoles` attribute of the configuration asset (System Configuration): the
+ * iMEX side menu's asset when it is on the page (`window.__imexApp.asset`, one attribute read), else the asset named
+ * "System Configuration" with the attribute in ONE Entity Data Query. `raw` is the value as stored (object or JSON
+ * text; core/perm.ts parseStore reads both), null when the asset has none. Resolves to null when the user can see no
+ * configuration asset (POC customers: the built-in roles); rejects when the request fails.
+ */
+export async function systemConfigRoles(): Promise<{ id: string; raw: unknown } | null> {
+  const app = typeof window !== 'undefined' ? (window as any).__imexApp?.asset : null;
+  if (app?.id) {
+    const id = typeof app.id === 'string' ? app.id : app.id.id;
+    const a = await getAttrs({ id, entityType: 'ASSET' }, ['imexRoles']);
+    return { id, raw: a.imexRoles ?? null };
+  }
+  const r = await post<any>('/api/entitiesQuery/find', {
+    entityFilter: { type: 'entityName', entityType: 'ASSET', entityNameFilter: 'System Configuration' },
+    pageLink: { page: 0, pageSize: 10 },
+    entityFields: [{ type: 'ENTITY_FIELD', key: 'name' }],
+    latestValues: [{ type: 'SERVER_ATTRIBUTE', key: 'imexRoles' }],
+  });
+  const hit = (r?.data ?? []).find((d: any) => d?.latest?.ENTITY_FIELD?.name?.value === 'System Configuration');
+  if (!hit) return null;
+  const v = hit.latest?.SERVER_ATTRIBUTE?.imexRoles;
+  return { id: hit.entityId.id, raw: v && v.ts > 0 && v.value !== '' ? v.value : null };
 }

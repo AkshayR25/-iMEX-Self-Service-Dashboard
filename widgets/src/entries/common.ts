@@ -10,11 +10,14 @@
  *   - ACTIONS_EVENT (`imex-dbb:actions`) + `window.__imexDbbActions`: the renderer publishes the
  *     machine page's edit actions; the launcher's navbar edit menu shows and runs them (D-020).
  *
- * Exports: userContext, userContextFor, stateEntity, stateParam, currentState, CHANGED_EVENT, notifyChanged,
- * EditAction, EditActions, ACTIONS_EVENT, publishActions, currentActions.
+ *   - D-050: the iMEX app's `imx-access-changed` / `imx-perm-changed` drop the page's user context.
+ *
+ * Exports: userContext, userPerms, userContextFor, slotStale, pageGate, stateEntity, stateParam, currentState, CHANGED_EVENT,
+ * notifyChanged, EditAction, EditActions, ACTIONS_EVENT, publishActions, currentActions.
  */
 import { bindWidgetContext } from '../core/api';
-import { loadUserContext, clearRelCache, UserContext } from '../core/scope';
+import { loadUserContext, loadPerms, clearRelCache, UserContext, Perms } from '../core/scope';
+import { parseStore } from '../core/perm';
 import { liveHub } from '../core/live';
 import { registerLiveProvider, unregisterLiveProvider, currentProvider } from '../core/tb-socket';
 
@@ -27,10 +30,57 @@ interface CtxSlot {
   key: string;
   at: number;
   promise: Promise<UserContext>;
+  /** D-050: what the loaded context was built from (UserContext.sig), set once it has loaded. */
+  sig?: UserContext['sig'] & { userId: string; customerId: string };
+}
+
+/** How long the app's sessionStorage copies (`imex-access:<userId>`, `imex-roles:<customerId>`) count as current. */
+const APP_COPY_MS = 120e3;
+/** rev of the last role store copy read, by its `at` (a copy is parsed once). */
+let rolesCopy: { at: number; rev: number } | null = null;
+
+/**
+ * D-050: true when the iMEX app's widgets on this page have since read a different access or role store than the one
+ * the slot's context was built from: the app's access resolver keeps the user's granted ids in
+ * `sessionStorage['imex-access:<userId>'].sig` (the same string as `ctx.sig.access`) and its role resolver the store in
+ * `sessionStorage['imex-roles:<customerId>'].raw` (2 minutes each). So an access or role change that the app has seen
+ * reloads the Builder's context too, without a request of its own. (A change of the user's own `imexRole` id shows
+ * after the 5-minute slot, or at once after a reload; the app's own saves fire the events below.)
+ */
+export function slotStale(sig: CtxSlot['sig'] | undefined, now = Date.now()): boolean {
+  if (!sig || sig.unrestricted) return false;
+  try {
+    const a = JSON.parse(sessionStorage.getItem(`imex-access:${sig.userId}`) || 'null');
+    if (a && now - a.at < APP_COPY_MS && typeof a.sig === 'string' && a.sig !== sig.access) return true;
+    const r = JSON.parse(sessionStorage.getItem(`imex-roles:${sig.customerId}`) || 'null');
+    if (r && now - r.at < APP_COPY_MS && Object.prototype.hasOwnProperty.call(r, 'raw')) {
+      if (!rolesCopy || rolesCopy.at !== r.at) rolesCopy = { at: r.at, rev: parseStore(r.raw).rev };
+      if (rolesCopy.rev !== sig.rolesRev) return true;
+    }
+  } catch {
+    /* no session storage, or not JSON */
+  }
+  return false;
 }
 
 /**
- * Returns the logged-in user's context (scope nodes, role, isAdmin, profile catalogue, assignment
+ * D-050: the app fires `imx-access-changed` (imxAccess.invalidate, a save of the current user, or a machine found on a
+ * second look) and `imx-perm-changed` (imxPerm.invalidate, a role or user save) on `window`: the page's context is
+ * dropped so the next userContext() loads it again. Once per library copy.
+ */
+let listening = false;
+function listenForAppChanges() {
+  if (listening || typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
+  listening = true;
+  const drop = () => {
+    (window as any).__imexDbbCtx = undefined;
+  };
+  window.addEventListener('imx-access-changed', drop);
+  window.addEventListener('imx-perm-changed', drop);
+}
+
+/**
+ * Returns the logged-in user's context (scope nodes, access, role and permissions, profile catalogue, assignment
  * snapshot; see core/scope.ts).
  *
  * Cached for 5 minutes for the whole PAGE in `window.__imexDbbCtx` (D-022): each widget type runs its own
@@ -47,12 +97,14 @@ interface CtxSlot {
  */
 export function userContext(tbCtx: any, force = false): Promise<UserContext> {
   bindWidgetContext(tbCtx);
+  listenForAppChanges();
   const w = window as any;
   const cust = tbCtx?.settings?.customerId || null;
-  // keyed by the logged-in user (from the JWT) so another login in the same tab never gets this context
+  // keyed by the logged-in user (from the JWT) so another login in the same tab never gets this context; D-050: and
+  // by what it was built from (access grants, role store revision), checked against the app's copies (slotStale)
   const key = `${jwtUserId()}|${cust ?? ''}`;
-  const slot: CtxSlot | undefined = w.__imexDbbCtx;
-  if (slot && slot.v === LIB_VERSION && !force && Date.now() - slot.at < 5 * 60e3 && slot.key === key) return slot.promise;
+  const slot = force ? undefined : currentSlot(key);
+  if (slot) return slot.promise;
   const next: CtxSlot = {
     v: LIB_VERSION,
     key,
@@ -60,6 +112,7 @@ export function userContext(tbCtx: any, force = false): Promise<UserContext> {
     promise: loadUserContext({ tenantCustomerId: cust }).then((c) => {
       // shown by the builder's banner strip and the listing
       if (isOutdated(c)) c.warnings.unshift('This page runs an older version of the iMEX widgets than the one deployed. Reload the page (Ctrl+F5) before building or chatting.');
+      if (c.sig) next.sig = { ...c.sig, userId: c.userId, customerId: c.customerId };
       return c;
     }).catch((e) => {
       if (w.__imexDbbCtx === next) w.__imexDbbCtx = undefined;
@@ -70,12 +123,31 @@ export function userContext(tbCtx: any, force = false): Promise<UserContext> {
   return next.promise;
 }
 
+/** The page's context slot when it can be used for `key` (this build, under 5 minutes, not stale); else undefined. */
+function currentSlot(key: string): CtxSlot | undefined {
+  const slot: CtxSlot | undefined = (window as any).__imexDbbCtx;
+  return slot && slot.v === LIB_VERSION && Date.now() - slot.at < 5 * 60e3 && slot.key === key && !slotStale(slot.sig) ? slot : undefined;
+}
+
+/**
+ * D-052: the logged-in user's role only, for the headless launcher's isEditor(): the page's context when one is
+ * loaded or loading (no call of its own), else core/scope.ts loadPerms() (the role without the tree: no relation
+ * request). So a page that only shows the app's menu builds no Builder context; the context loads when a Builder
+ * action (open, Dashboard list) needs it.
+ */
+export function userPerms(tbCtx: any): Promise<Perms> {
+  bindWidgetContext(tbCtx);
+  listenForAppChanges();
+  const slot = currentSlot(`${jwtUserId()}|${tbCtx?.settings?.customerId || ''}`);
+  return slot ? slot.promise.then((c) => c.perms) : loadPerms();
+}
+
 /** When each machine last caused a forced reload in userContextFor (ms), so a machine outside the scope costs one. */
 const rechecked = new Map<string, number>();
 
 /**
  * userContext for a page that shows `deviceId`. When the context does not have that machine, the scope may just be
- * old: the relations are cached for the browser session (D-037, 10 minutes) and the context for 5 minutes, so a
+ * old: the relations are cached for the browser session (D-037; 2 minutes since D-050) and the context for 5 minutes, so a
  * machine added meanwhile was refused as "outside your access". Then the cached relations are dropped and the
  * context is loaded again with force, once per machine per minute; the caller decides on the reloaded context.
  * @param deviceId machine the page is about to show (null/undefined = no check).
@@ -137,6 +209,27 @@ export function stateParam(tbCtx: any, key: string): any {
 
 /** localStorage key (per ThingsBoard dashboard URL) of the state that holds the renderer widget (D-025). */
 export const RSTATE_KEY = () => `dbb_rstate_${location.pathname}`;
+
+/**
+ * D-050: the page gate of the iMEX app (roles): the level of the current dashboard state for this user ('hidden',
+ * 'view' or 'full'). A state that is no page of the role catalogue is 'view'. The app's side menu also turns a hidden
+ * state away; a widget that shows a page's content checks this too, because a dashboard may lack the menu.
+ */
+export function pageGate(tbCtx: any, ctx: UserContext): 'hidden' | 'view' | 'full' {
+  const id = currentState(tbCtx).id;
+  return id ? ctx.perms.canState(id) : 'view';
+}
+
+/**
+ * The app's empty state for a page the user's role hides (imxShell.noAccess('page'): the lock icon, the same wording,
+ * theme tokens with fallbacks), drawn instead of the page before any data request.
+ */
+export const NO_ACCESS_HTML =
+  '<div class="dbb-denied" role="status" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;height:100%;min-height:120px;padding:18px;text-align:center;font-family:var(--imx-font,Inter,\'Segoe UI\',Roboto,Arial,sans-serif)">' +
+  '<span style="display:flex;align-items:center;justify-content:center;width:44px;height:44px;margin-bottom:4px;border-radius:13px;background:var(--imx-off-bg,#F1F5F9);color:var(--imx-muted,#5B6B82)">' +
+  '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></span>' +
+  '<b style="font-size:14px;font-weight:700;color:var(--imx-text,#0F172A)">You don\'t have access to this page</b>' +
+  '<span style="font-size:12.5px;color:var(--imx-muted,#5B6B82);white-space:normal">Ask your administrator if you need it.</span></div>';
 
 /** Window event meaning "stored dashboards or assignments changed"; listeners reload with force. */
 export const CHANGED_EVENT = 'imex-dbb:changed';

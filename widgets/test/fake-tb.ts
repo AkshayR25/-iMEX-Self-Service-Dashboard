@@ -1,4 +1,16 @@
 // In-memory fake of the ThingsBoard REST endpoints the widgets use, for unit tests.
+
+/**
+ * D-050: the sample's locations have real ThingsBoard ids (uuids), because the access core only accepts uuid grants.
+ * The short names stay usable as aliases wherever a test passes an id to the fake (add's parent, setAttrs, getAttrs,
+ * asUser): 'root', 'ric', 'pun'. Machines keep their short ids (they are never granted by id in these tests).
+ */
+export const ROOT = 'a0000000-0000-4000-8000-000000000001';
+export const RIC = 'a0000000-0000-4000-8000-000000000002';
+export const PUN = 'a0000000-0000-4000-8000-000000000003';
+export const ALIAS: Record<string, string> = { root: ROOT, ric: RIC, pun: PUN };
+/** The id of a short alias ('root', 'ric', 'pun'); any other id as it is. */
+export const idOf = (x: string) => ALIAS[x] ?? x;
 export interface FakeEntity {
   id: string;
   entityType: 'ASSET' | 'DEVICE' | 'USER';
@@ -24,17 +36,17 @@ export class FakeTB {
 
   add(e: FakeEntity, parent?: string) {
     this.entities.set(e.id, e);
-    if (parent) this.relations.push({ from: parent, to: e.id });
+    if (parent) this.relations.push({ from: idOf(parent), to: e.id });
     return this;
   }
 
   setAttrs(type: string, id: string, a: Record<string, any>, scope = 'SERVER_SCOPE') {
-    const k = `${type}:${id}:${scope}`;
+    const k = `${type}:${idOf(id)}:${scope}`;
     this.attrs.set(k, { ...(this.attrs.get(k) ?? {}), ...a });
   }
 
   getAttrs(type: string, id: string, scope = 'SERVER_SCOPE') {
-    return this.attrs.get(`${type}:${id}:${scope}`) ?? {};
+    return this.attrs.get(`${type}:${idOf(id)}:${scope}`) ?? {};
   }
 
   fetch = async (url: string, init: any = {}) => {
@@ -100,8 +112,8 @@ export class FakeTB {
     // TB 4.3 (relInfoPaths): only /api/relations/info/{from|to}/{type}/{id}; the query form is gone (500 there).
     // TB 4.2 and older (default): only the query form; the path form is an unknown route (404).
     const rp = this.relInfoPaths ? /^\/api\/relations\/info\/(from|to)\/[A-Z_]+\/([\w-]+)$/.exec(p) : null;
-    if (this.relInfoPaths && p === '/api/relations/info') return resp(500, { message: 'Request method GET not supported' });
-    if (rp || p === '/api/relations/info') {
+    if (this.relInfoPaths && p === '/api/relations/info' && method === 'GET') return resp(500, { message: 'Request method GET not supported' });
+    if (rp || (p === '/api/relations/info' && method === 'GET')) {
       const from = rp ? (rp[1] === 'from' ? rp[2] : null) : u.searchParams.get('fromId');
       const to = rp ? (rp[1] === 'to' ? rp[2] : null) : u.searchParams.get('toId');
       const rs = this.relations.filter((r) => (from ? r.from === from : r.to === to));
@@ -120,15 +132,19 @@ export class FakeTB {
       const ids = (u.searchParams.get('assetIds') ?? u.searchParams.get('deviceIds') ?? '').split(',');
       return resp(200, ids.map((id) => this.entities.get(id)).filter(Boolean).map((e) => ({ id: { id: e!.id }, name: e!.name, label: e!.label, type: e!.type })));
     }
-    if ((m = /^\/api\/customer\/([\w-]+)\/assets$/.exec(p))) {
+    if ((m = /^\/api\/customer\/([\w-]+)\/(assets|devices)$/.exec(p))) {
       const type = u.searchParams.get('type');
-      const data = [...this.entities.values()].filter((e) => e.entityType === 'ASSET' && (!type || e.type === type)).map((e) => ({ id: { id: e.id }, name: e.name, label: e.label, type: e.type }));
+      const kind = m[2] === 'assets' ? 'ASSET' : 'DEVICE';
+      const data = [...this.entities.values()].filter((e) => e.entityType === kind && (!type || e.type === type)).map((e) => ({ id: { id: e.id }, name: e.name, label: e.label, type: e.type }));
       return resp(200, { data, hasNext: false });
     }
     if (/^\/api\/v2\/alarm\//.test(p)) return resp(200, { data: [], hasNext: false });
-    if (p === '/api/relations' && method === 'POST') {
-      // EntityRelationsQuery: all levels (up to maxLevel) in one direction
-      const { rootId, direction, maxLevel } = body.parameters;
+    if ((p === '/api/relations' || p === '/api/relations/info') && method === 'POST') {
+      // EntityRelationsQuery: all levels (up to maxLevel) in one direction (/info: with fromName / toName)
+      const names = p === '/api/relations/info';
+      const { rootId, rootType, direction, maxLevel } = body.parameters;
+      // a root ThingsBoard does not have (deleted, or not of that type) is a 404, as there
+      if (this.entities.get(rootId)?.entityType !== rootType) return resp(404, { message: "Requested item wasn't found!" });
       const types: string[] = body.filters?.[0]?.entityTypes ?? [];
       const out: any[] = [];
       let frontier = [rootId];
@@ -140,7 +156,13 @@ export class FakeTB {
             const other = direction === 'FROM' ? r.to : r.from;
             const e = this.entities.get(other);
             if (!e || (types.length && !types.includes(e.entityType))) continue;
-            out.push({ from: { id: r.from, entityType: this.entities.get(r.from)!.entityType }, to: { id: r.to, entityType: this.entities.get(r.to)!.entityType }, type: 'Contains', typeGroup: 'COMMON' });
+            out.push({
+              from: { id: r.from, entityType: this.entities.get(r.from)!.entityType },
+              to: { id: r.to, entityType: this.entities.get(r.to)!.entityType },
+              type: 'Contains',
+              typeGroup: 'COMMON',
+              ...(names ? { fromName: this.entities.get(r.from)!.name, toName: this.entities.get(r.to)!.name } : {}),
+            });
             if (!seen.has(other)) {
               seen.add(other);
               next.push(other);
@@ -152,11 +174,35 @@ export class FakeTB {
     }
     if (p === '/api/entitiesQuery/find' && method === 'POST') {
       const f = body.entityFilter;
-      // entityList, or entityName (name starts with the filter, as ThingsBoard does)
-      const ids: string[] = f.type === 'entityName' ? [...this.entities.values()].filter((e) => e.entityType === f.entityType && e.name.startsWith(f.entityNameFilter)).map((e) => e.id) : f.entityList;
+      // entityList, or entityName (name starts with the filter, as ThingsBoard does), or entityType (one page), or a
+      // multi-root relationsQuery TO with fetchLastLevelOnly (the topmost asset above each root, D-052 locationTops)
+      let ids: string[];
+      let hasNext = false;
+      if (f.type === 'entityName') ids = [...this.entities.values()].filter((e) => e.entityType === f.entityType && e.name.startsWith(f.entityNameFilter)).map((e) => e.id);
+      else if (f.type === 'entityType') {
+        const all = [...this.entities.values()].filter((e) => e.entityType === f.entityType).map((e) => e.id);
+        const { page, pageSize } = body.pageLink;
+        ids = all.slice(page * pageSize, (page + 1) * pageSize);
+        hasNext = all.length > (page + 1) * pageSize;
+      } else if (f.type === 'relationsQuery' && f.multiRoot && f.direction === 'TO' && f.fetchLastLevelOnly) {
+        const tops = new Set<string>();
+        for (const root of f.multiRootEntityIds as string[]) {
+          let cur = root;
+          let top: string | null = null;
+          const guard = new Set([cur]);
+          for (let lvl = 0; lvl < (f.maxLevel || 50); lvl++) {
+            const up = this.relations.find((r) => r.to === cur && this.entities.get(r.from)?.entityType === 'ASSET');
+            if (!up || guard.has(up.from)) break;
+            guard.add(up.from);
+            cur = top = up.from;
+          }
+          if (top) tops.add(top);
+        }
+        ids = [...tops];
+      } else ids = f.entityList;
       const rows = ids
         .map((id) => this.entities.get(id))
-        .filter((e) => e && e.entityType === f.entityType)
+        .filter((e) => e && (f.type === 'relationsQuery' || e.entityType === f.entityType))
         .map((e) => {
           const latest: any = { ENTITY_FIELD: {}, SERVER_ATTRIBUTE: {}, TIME_SERIES: {} };
           for (const x of body.entityFields ?? []) latest.ENTITY_FIELD[x.key] = { ts: 1, value: String(x.key === 'type' ? e!.type ?? '' : (e as any)[x.key] ?? '') };
@@ -171,7 +217,7 @@ export class FakeTB {
           }
           return { entityId: { id: e!.id, entityType: e!.entityType }, latest };
         });
-      return resp(200, { data: rows, totalElements: rows.length, hasNext: false });
+      return resp(200, { data: rows, totalElements: rows.length, hasNext });
     }
     if (p === '/api/alarmsQuery/find' && method === 'POST') {
       const ids: string[] = body.entityFilter.entityList;
@@ -188,9 +234,9 @@ function resp(status: number, body: any) {
 
 /** ITHENA sample: root -> Richmond (comp, dryer), Pune (comp, weather), plus a store asset. */
 export function ithena(tb = new FakeTB()) {
-  tb.add({ id: 'root', entityType: 'ASSET', name: 'ITHENA-ROOT', label: 'ITHENA', type: 'Organization' })
-    .add({ id: 'ric', entityType: 'ASSET', name: 'SITE-RICHMOND', label: 'Richmond', type: 'Site' }, 'root')
-    .add({ id: 'pun', entityType: 'ASSET', name: 'SITE-PUNE', label: 'Pune', type: 'Site' }, 'root')
+  tb.add({ id: ROOT, entityType: 'ASSET', name: 'ITHENA-ROOT', label: 'ITHENA', type: 'Organization' })
+    .add({ id: RIC, entityType: 'ASSET', name: 'SITE-RICHMOND', label: 'Richmond', type: 'Site' }, 'root')
+    .add({ id: PUN, entityType: 'ASSET', name: 'SITE-PUNE', label: 'Pune', type: 'Site' }, 'root')
     .add({ id: 'rc', entityType: 'DEVICE', name: 'RIC-COMP-01', label: 'Richmond Compressor 1', type: 'Compressor' }, 'ric')
     .add({ id: 'rd', entityType: 'DEVICE', name: 'RIC-DRY-01', label: 'Richmond Dryer 1', type: 'Dryer' }, 'ric')
     .add({ id: 'pc', entityType: 'DEVICE', name: 'PUN-COMP-01', label: 'Pune Compressor 1', type: 'Compressor' }, 'pun')
@@ -213,7 +259,15 @@ export function ithena(tb = new FakeTB()) {
   return tb;
 }
 
+/** Signs in as a customer user with the legacy attributes `Role` and `selectedNodes` (aliases resolved to ids). */
 export function asUser(tb: FakeTB, id: string, role: string, nodes: string[]) {
-  tb.me = { ...tb.me, id: { id } };
-  tb.setAttrs('USER', id, { Role: role, selectedNodes: JSON.stringify(nodes.map((n) => ({ ID: n, name: n, categoryId: 'x', entityId: n }))) });
+  tb.me = { ...tb.me, id: { id }, authority: 'CUSTOMER_USER' };
+  tb.setAttrs('USER', id, { Role: role, selectedNodes: JSON.stringify(nodes.map(idOf).map((n) => ({ ID: n, name: n, categoryId: 'x', entityId: n }))) });
+}
+
+/** D-050: signs in with the new attributes: `imexAccess` grants (aliases resolved) and `imexRole` (a role id). */
+export function asGrantee(tb: FakeTB, id: string, grants: { id: string; type?: 'ASSET' | 'DEVICE'; mode?: 'all' | 'fixed' }[], imexRole?: string, extra: Record<string, any> = {}) {
+  tb.me = { ...tb.me, id: { id }, authority: 'CUSTOMER_USER' };
+  const g = grants.map((x) => ({ id: idOf(x.id), type: x.type ?? 'ASSET', mode: x.mode ?? ((x.type ?? 'ASSET') === 'DEVICE' ? 'fixed' : 'all') }));
+  tb.setAttrs('USER', id, { imexAccess: { v: 1, grants: g }, ...(imexRole ? { imexRole } : {}), ...extra });
 }

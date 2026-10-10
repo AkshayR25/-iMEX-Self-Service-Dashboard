@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { FakeTB, ithena, asUser } from './fake-tb';
+import { FakeTB, ithena, asUser, ROOT, RIC, PUN } from './fake-tb';
 import * as scope from '../src/core/scope';
 import * as store from '../src/core/store';
 import * as chat from '../src/core/chat';
@@ -23,18 +23,14 @@ async function ctxFor(role: string, nodes: string[]) {
   return scope.loadUserContext();
 }
 
-describe('selectedNodes parsing (production shape)', () => {
-  it('accepts string entityId, object entityId and name-only entries', () => {
-    const r = scope.parseSelectedNodes(
-      JSON.stringify([
-        { ID: 'UCA Systems_WM', categoryId: 'U1', name: 'Misc', entityId: 'a-1' },
-        { name: 'X', entityId: { id: 'b-2', entityType: 'ASSET' } },
-        { name: 'Only name' },
-      ]),
-    );
-    expect(r.map((x) => x.entityId)).toEqual(['a-1', 'b-2', null]);
-    expect(scope.parseSelectedNodes('garbage')).toEqual([]);
-    expect(scope.parseSelectedNodes(undefined)).toEqual([]);
+describe('legacy selectedNodes (production shape, read by the access core, D-050)', () => {
+  it('a name-only entry is matched by name, then by label, among the customer assets', async () => {
+    tb.me = { ...tb.me, id: { id: 'u-names' } };
+    tb.setAttrs('USER', 'u-names', { Role: 'Viewer', selectedNodes: JSON.stringify([{ ID: 'ITHENA_Pune', categoryId: 'x', name: 'Pune' }, { name: 'Nowhere' }]) });
+    const ctx = await scope.loadUserContext();
+    expect(ctx.access.source).toBe('legacy');
+    expect(scope.allDevices(ctx).map((d) => d.id).sort()).toEqual(['pc', 'pw']);
+    expect(ctx.warnings.join()).toContain('"Nowhere" was not found');
   });
 });
 
@@ -42,14 +38,16 @@ describe('user scope', () => {
   it('Pune viewer sees only the Pune subtree', async () => {
     const ctx = await ctxFor('Viewer', ['pun']);
     expect(ctx.isAdmin).toBe(false);
+    expect(ctx.canBuild).toBe(false);
     expect(scope.allDevices(ctx).map((d) => d.name).sort()).toEqual(['PUN-COMP-01', 'PUN-WS-01']);
-    expect(scope.inScope(ctx, 'rc')).toBe(false);
+    expect(scope.isGrantedMachine(ctx, 'rc')).toBe(false);
+    expect(scope.isGrantedMachine(ctx, 'pc')).toBe(true);
     expect(ctx.store?.id).toBe('store');
   });
   it('Admin role (production value "Admin") is admin; tree queries work', async () => {
     const ctx = await ctxFor('Admin', ['root']);
     expect(ctx.isAdmin).toBe(true);
-    expect(scope.devicesUnder(ctx, 'root', 'Compressor').map((d) => d.id).sort()).toEqual(['pc', 'rc']);
+    expect(scope.devicesUnder(ctx, ROOT, 'Compressor').map((d) => d.id).sort()).toEqual(['pc', 'rc']);
     expect(scope.siblings(ctx, 'rc', 'Dryer').map((d) => d.id)).toEqual(['rd']);
     expect(scope.nearest(ctx, 'pc', 'Weather Station')?.id).toBe('pw');
     expect(scope.pathLabel(ctx, 'pc')).toBe('ITHENA › Pune › Pune Compressor 1');
@@ -96,8 +94,8 @@ describe('dashboard store, apply and resolution precedence', () => {
     const mine = await store.saveDashboard(ctx, mk(ctx, 'mine'));
     expect((await store.resolveForDevice(ctx, 'pc', 'Compressor')).level).toBe('default');
     await store.apply(ctx, cw, { type: 'customer', profile: 'Compressor' });
-    await store.apply(ctx, org, { type: 'node', nodeId: 'root', profile: 'Compressor' });
-    await store.apply(ctx, site, { type: 'node', nodeId: 'pun', profile: 'Compressor' });
+    await store.apply(ctx, org, { type: 'node', nodeId: ROOT, profile: 'Compressor' });
+    await store.apply(ctx, site, { type: 'node', nodeId: PUN, profile: 'Compressor' });
     let r = await store.resolveForDevice(ctx, 'pc', 'Compressor');
     expect(r.dashboard?.name).toBe('site'); // nearest ancestor wins
     expect(r.sourceLabel).toContain('Pune');
@@ -137,20 +135,20 @@ describe('dashboard store, apply and resolution precedence', () => {
     expect(a.dashboard!.copiedFrom).toBe(t.id);
   });
 
-  it('non-admins can only apply to a single machine in scope', async () => {
+  it('a role without dashboards.applyMany can only apply to a single granted machine', async () => {
     const ctx = await ctxFor('Manager', ['ric']);
     const t = await store.saveDashboard(ctx, mk(ctx, 'mgr'));
     expect(store.canApply(ctx, { type: 'devices', deviceIds: ['rc'], mode: 'linked' })).toBeNull();
     expect(store.canApply(ctx, { type: 'devices', deviceIds: ['pc'], mode: 'linked' })).toMatch(/outside/);
-    expect(store.canApply(ctx, { type: 'devices', deviceIds: ['rc', 'rd'], mode: 'linked' })).toMatch(/admin/i);
-    expect(store.canApply(ctx, { type: 'customer', profile: 'Compressor' })).toMatch(/admin/i);
-    await expect(store.apply(ctx, t, { type: 'node', nodeId: 'ric', profile: 'Compressor' })).rejects.toThrow(/admin/i);
+    expect(store.canApply(ctx, { type: 'devices', deviceIds: ['rc', 'rd'], mode: 'linked' })).toMatch(/role/i);
+    expect(store.canApply(ctx, { type: 'customer', profile: 'Compressor' })).toMatch(/role/i);
+    await expect(store.apply(ctx, t, { type: 'node', nodeId: RIC, profile: 'Compressor' })).rejects.toThrow(/role/i);
   });
 
   it('admin scoped to one site cannot assign customer-wide', async () => {
     const ctx = await ctxFor('Admin', ['pun']);
     expect(store.canApply(ctx, { type: 'customer', profile: 'Compressor' })).toMatch(/whole organisation/);
-    expect(store.canApply(ctx, { type: 'node', nodeId: 'pun', profile: 'Compressor' })).toBeNull();
+    expect(store.canApply(ctx, { type: 'node', nodeId: PUN, profile: 'Compressor' })).toBeNull();
   });
 
   it('preview reports replacements, own dashboards, same-level replace and missing keys', async () => {
@@ -172,7 +170,7 @@ describe('dashboard store, apply and resolution precedence', () => {
     const cw = await store.saveDashboard(ctx, mk(ctx, 'cw'));
     const site = await store.saveDashboard(ctx, mk(ctx, 'site'));
     await store.apply(ctx, cw, { type: 'customer', profile: 'Compressor' });
-    await store.apply(ctx, site, { type: 'node', nodeId: 'pun', profile: 'Compressor' });
+    await store.apply(ctx, site, { type: 'node', nodeId: PUN, profile: 'Compressor' });
     const affected = await store.deleteDashboard(ctx, site);
     expect(affected.join()).toContain('Pune');
     expect((await store.resolveForDevice(ctx, 'pc', 'Compressor')).dashboard?.name).toBe('cw');
@@ -250,12 +248,12 @@ describe('chat operations', () => {
     expect(r2.draft.widgets.map((w) => w.id)).toEqual(['a', r.draft.widgets[2].id]);
   });
 
-  it('non-admin asking to apply customer-wide gets a warning, no proposal', async () => {
+  it('a role without dashboards.applyMany asking to apply customer-wide gets a warning, no proposal', async () => {
     const ctx = await ctxFor('Manager', ['ric']);
     const cat = chat.buildCatalog(ctx);
     const r = chat.applyOps(ctx, store.blankDashboard(ctx, 'x', 'Compressor'), out([{ op: 'setApplyTarget', target: 'customer' }]), cat);
     expect(r.applyProposal).toBeNull();
-    expect(r.warnings.join()).toMatch(/admin/);
+    expect(r.warnings.join()).toMatch(/role/);
   });
 
   it('chatTurn retries once with the validation errors, then gives up without touching the draft', async () => {
@@ -353,7 +351,7 @@ describe('chat D-024: role requests, guard rails, mixed equipment, lenient apply
   it('where-guard: a machine dashboard with widgets is not cleared or replaced before the user chooses', async () => {
     const ctx = await ctxFor('Admin', ['root']);
     const cat = chat.buildCatalog(ctx);
-    const root = cat.byId.get('root')!;
+    const root = cat.byId.get(ROOT)!;
     const d0 = { ...store.blankDashboard(ctx, 'Compressor V1', 'Compressor'), version: 2, widgets: [widget({ id: 'a' })] } as any;
     const ans = {
       intent: 'build',
@@ -394,7 +392,7 @@ describe('chat D-024: role requests, guard rails, mixed equipment, lenient apply
     const ctx = await ctxFor('Admin', ['root']);
     const cat = chat.buildCatalog(ctx);
     const d0 = { ...store.blankDashboard(ctx, 'Dryer dashboard (V1)', 'Dryer'), version: 3, widgets: [widget({ id: 'a', keys: ['dewPoint'], binding: { mode: 'current' } })] } as any;
-    const root = cat.byId.get('root')!;
+    const root = cat.byId.get(ROOT)!;
     const r = chat.applyOps(
       ctx,
       d0,
@@ -413,7 +411,7 @@ describe('chat D-024: role requests, guard rails, mixed equipment, lenient apply
     expect(r.draft.id).not.toBe(d0.id);
     expect([r.draft.version, r.draft.name, r.draft.kind, r.draft.profile]).toEqual([0, 'Fleet overview', 'standalone', null]);
     expect(r.draft.widgets.map((w) => w.type)).toEqual(expect.arrayContaining(['table', 'alarms']));
-    expect(r.draft.widgets.find((w) => w.type === 'alarms')!.binding).toEqual({ mode: 'nodeQuery', nodeId: 'root', profile: '' });
+    expect(r.draft.widgets.find((w) => w.type === 'alarms')!.binding).toEqual({ mode: 'nodeQuery', nodeId: ROOT, profile: '' });
     expect(d0.widgets.length).toBe(1);
   });
 
@@ -421,7 +419,7 @@ describe('chat D-024: role requests, guard rails, mixed equipment, lenient apply
     const ctx = await ctxFor('Admin', ['root']);
     const cat = chat.buildCatalog(ctx);
     const d0 = store.blankDashboard(ctx, 'x', null);
-    const root = cat.byId.get('root')!;
+    const root = cat.byId.get(ROOT)!;
     expect(() => chat.applyOps(ctx, d0, chat.normaliseToolInput({ reply: '', ops: [{ op: 'setTimeRange', range: '8h' }, { op: 'startNewDashboard', name: 'n' }] }), cat)).toThrow(/first op/);
     expect(() => chat.applyOps(ctx, d0, chat.normaliseToolInput({ reply: '', ops: [{ op: 'addWidget', type: 'table', title: 't', binding: { mode: 'nodeQuery', node: root, machineType: 'ALL' }, keys: ['runStatus'] }] }), cat)).toThrow(/only works for an alarm list/);
   });
@@ -544,7 +542,7 @@ describe('design pass for chat-built dashboards (D-026)', () => {
 
   async function ceo() {
     const ctx = await ctxFor('Admin', ['root']);
-    const root = chat.buildCatalog(ctx).byId.get('root')!;
+    const root = chat.buildCatalog(ctx).byId.get(ROOT)!;
     const ans = {
       intent: 'build',
       reply: 'Built.',

@@ -1,6 +1,6 @@
 // Machine dashboard widget: shows the dashboard resolved for the machine in the dashboard state
 // (personal > machine > location > customer-wide > default layout). The page itself shows no editing
-// controls: for admins, edit / customise / reset / thresholds / dashboard switcher are published to the
+// controls: for a role with dashboards.build (D-050), edit / customise / reset / thresholds / dashboard switcher are published to the
 // navbar's edit menu (user decision 27 Sep 2026). Everyone else only views.
 // Also renders a standalone dashboard when the state carries `dbbDashboardId`.
 //
@@ -19,7 +19,10 @@
 // (D-013 order), or the one picked in the "Show dashboard" switcher (st.override, reset when the
 // machine changes).
 //
-// Edit actions (admins only, UI-only check, D-012) are not drawn here: they are published with
+// D-050: the page gate of the app's roles (state machine = Machines, dashboard_overview = Dashboards): a hidden page
+// shows the app's "You don't have access to this page" instead. A machine must be granted to the user.
+//
+// Edit actions (dashboards.build only, UI-only check, D-012) are not drawn here: they are published with
 // publishActions() for the navbar's edit menu (D-020, see common.ts). Reloads on CHANGED_EVENT.
 //
 // Refresh (D-021): values come over the ThingsBoard WebSocket (core/live.ts). The grid is redrawn when a
@@ -41,7 +44,7 @@ import { openBuilder } from '../builder/builder';
 import { BUILDER_CSS } from '../builder/styles';
 import { modal, confirmModal, toast } from '../builder/ui';
 import { audit } from '../core/audit';
-import { userContextFor, currentEntity, currentParam, RSTATE_KEY, CHANGED_EVENT, notifyChanged, publishActions, EditAction, scheduleRedraw, liveLend, liveRelease } from './common';
+import { userContextFor, currentEntity, currentParam, RSTATE_KEY, CHANGED_EVENT, notifyChanged, publishActions, EditAction, scheduleRedraw, liveLend, liveRelease, pageGate, NO_ACCESS_HTML } from './common';
 
 const R_CSS = `
 .dbb-rend{height:100%;display:flex;flex-direction:column;background:var(--plane);position:relative}
@@ -174,6 +177,14 @@ export function init(tbCtx: any) {
       const ctx = await userContextFor(tbCtx, ent?.entityType === 'DEVICE' ? ent.id : null, force);
       if (stale()) return;
       st.ctx = ctx;
+      // D-050: the page gate of the app's roles (the machine page is Machines, Dashboard Overview is Dashboards)
+      if (pageGate(tbCtx, ctx) === 'hidden') {
+        st.deviceId = null;
+        head.innerHTML = NO_ACCESS_HTML;
+        st.grid?.render([]);
+        publishActions(id, null);
+        return;
+      }
       if (ent?.entityType === 'DEVICE') await showDevice(ctx, ent.id, stale);
       else if (standaloneId) await showStandalone(ctx, standaloneId, stale);
       else {
@@ -220,14 +231,14 @@ export function init(tbCtx: any) {
    * user's scope get a warning only (scope is UI-enforced, D-012); load() has already reloaded a cached scope
    * that did not have the machine (userContextFor).
    * Status: Offline when no telemetry for 5 min, else Running/Stopped from `runStatus` (missing = Running).
-   * For admins, publishes: edit, customise (shared dashboard from a location/customer assignment),
+   * For a role with dashboards.build (D-050), publishes: edit, customise (shared dashboard from a location/customer assignment),
    * reset (device has a `customised` copy), thresholds, the switcher when several dashboards apply,
    * and "clear personal view" (D-017: personal views are still resolved but no longer created).
    */
   async function showDevice(ctx: UserContext, deviceId: string, stale: () => boolean) {
     st.deviceId = deviceId;
     rememberState();
-    const node = ctx.nodes.get(deviceId);
+    const node = scope.isGrantedMachine(ctx, deviceId) ? ctx.nodes.get(deviceId) : undefined;
     if (!node) {
       head.innerHTML = `<div class="dbb-banner warn">This machine is outside your access.</div>`;
       st.grid?.render([]);
@@ -248,7 +259,8 @@ export function init(tbCtx: any) {
       }
     }
     st.shownId = dash?.id ?? null;
-    const admin = ctx.isAdmin;
+    // D-050: editing from the machine page (edit, customise, reset, thresholds) is the role's dashboards.build
+    const admin = ctx.canBuild;
     const canCustomise = admin && (level === 'node' || level === 'customer');
     const canReset = admin && level === 'device' && res.deviceAssignment?.mode === 'customised';
     const range = normalizeRange(dash?.timeRange ?? 'realtime');
@@ -337,7 +349,7 @@ export function init(tbCtx: any) {
     }
   }
 
-  /** Shows a stored dashboard not bound to a machine (state param `dbbDashboardId`); admins get "Edit". */
+  /** Shows a stored dashboard not bound to a machine (state param `dbbDashboardId`); a role with dashboards.build gets "Edit". */
   async function showStandalone(ctx: UserContext, dashboardId: string, stale: () => boolean) {
     st.deviceId = null;
     const d = await store.getDashboard(ctx, dashboardId);
@@ -352,7 +364,7 @@ export function init(tbCtx: any) {
     ensureGrid(ctx, null, range, d.theme).render(d.widgets);
     publishActions(
       id,
-      ctx.isAdmin
+      ctx.canBuild
         ? { el: root, title: d.name, subtitle: `Dashboard overview · by ${d.ownerName}`, items: [{ id: 'edit', label: 'Edit this dashboard', hint: `Opens “${d.name}” in the Dashboard Builder`, icon: 'edit' }], run: () => openBuilder({ ctx, dashboardId: d.id, chatEnabled: tbCtx.settings?.chatEnabled !== false, onClose: (ch) => ch && notifyChanged() }) }
         : null,
     );

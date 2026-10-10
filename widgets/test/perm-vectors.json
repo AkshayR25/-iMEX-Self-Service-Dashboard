@@ -1,0 +1,6779 @@
+{
+ "version": 1,
+ "about": "Shared test vectors of the role core (docs/ROLES.md). Generated from tests/perm-vectors.src.mjs; copy byte for byte. Sections catalogue, builtins, parseStore, parseUser, effective, can, covers, coversScope, lastAdmin, validateRole, deleteCheck, legacyName run in every runtime; templates and migrate are JS only. A role given as \"unrestricted\" means effective(\"unrestricted\"). coversScope: the editor is resolveTree(editor grants, tree) with the access core, or unrestricted. lastAdmin: each user's eff = effective(roles[roleId]); change.newRoleId null = deleted; change.newRole for a role edit. validateRole: store = store1, editor = Admin unless given, editorAccess unrestricted unless given (then resolveTree(grants, tree)); errors compared exactly, missing / outside / role only when the case lists them. parseStore: ids in order, warnings exactly, roles listed are compared whole.",
+ "catalogue": [
+  {
+   "key": "sites",
+   "section": "MONITOR",
+   "states": [
+    "default"
+   ],
+   "levels": [
+    "hidden",
+    "view"
+   ],
+   "actions": []
+  },
+  {
+   "key": "machines",
+   "section": "MONITOR",
+   "states": [
+    "listing",
+    "machine"
+   ],
+   "levels": [
+    "hidden",
+    "view"
+   ],
+   "actions": []
+  },
+  {
+   "key": "alarms",
+   "section": "MONITOR",
+   "states": [
+    "active_alerts",
+    "alert_history"
+   ],
+   "levels": [
+    "hidden",
+    "view",
+    "full"
+   ],
+   "actions": [
+    "alarms.acknowledge"
+   ]
+  },
+  {
+   "key": "andon",
+   "section": "MONITOR",
+   "states": [
+    "andon"
+   ],
+   "levels": [
+    "hidden",
+    "view",
+    "full"
+   ],
+   "actions": [
+    "andon.layout",
+    "andon.boards"
+   ]
+  },
+  {
+   "key": "dashboards",
+   "section": "INSIGHTS",
+   "states": [
+    "dashboards",
+    "dashboard_overview"
+   ],
+   "levels": [
+    "hidden",
+    "view",
+    "full"
+   ],
+   "actions": [
+    "dashboards.build",
+    "dashboards.applyMany",
+    "dashboards.deleteAny"
+   ]
+  },
+  {
+   "key": "analyzer",
+   "section": "INSIGHTS",
+   "states": [
+    "analytics"
+   ],
+   "levels": [
+    "hidden",
+    "view",
+    "full"
+   ],
+   "actions": [
+    "analyzer.export"
+   ]
+  },
+  {
+   "key": "ai.forecast",
+   "section": "INSIGHTS",
+   "states": [
+    "aiml_forecast"
+   ],
+   "levels": [
+    "hidden",
+    "view"
+   ],
+   "actions": []
+  },
+  {
+   "key": "ai.anomalies",
+   "section": "INSIGHTS",
+   "states": [
+    "aiml_anomalies"
+   ],
+   "levels": [
+    "hidden",
+    "view"
+   ],
+   "actions": []
+  },
+  {
+   "key": "ai.maintenance",
+   "section": "INSIGHTS",
+   "states": [
+    "aiml_maintenance"
+   ],
+   "levels": [
+    "hidden",
+    "view"
+   ],
+   "actions": []
+  },
+  {
+   "key": "ai.relations",
+   "section": "INSIGHTS",
+   "states": [
+    "aiml_relations"
+   ],
+   "levels": [
+    "hidden",
+    "view",
+    "full"
+   ],
+   "actions": [
+    "ai.relations.edit"
+   ]
+  },
+  {
+   "key": "reports",
+   "section": "INSIGHTS",
+   "states": [
+    "reports"
+   ],
+   "levels": [
+    "hidden",
+    "view",
+    "full"
+   ],
+   "actions": [
+    "reports.run",
+    "reports.edit",
+    "reports.schedule",
+    "reports.settings"
+   ]
+  },
+  {
+   "key": "users",
+   "section": "ADMIN",
+   "states": [
+    "user_management"
+   ],
+   "levels": [
+    "hidden",
+    "view",
+    "full"
+   ],
+   "actions": []
+  },
+  {
+   "key": "alertrules.default",
+   "section": "ADMIN",
+   "states": [
+    "alert_management"
+   ],
+   "levels": [
+    "hidden",
+    "view",
+    "full"
+   ],
+   "actions": [
+    "alertrules.export"
+   ]
+  },
+  {
+   "key": "alertrules.custom",
+   "section": "ADMIN",
+   "states": [
+    "custom_alert"
+   ],
+   "levels": [
+    "hidden",
+    "view",
+    "full"
+   ],
+   "actions": []
+  },
+  {
+   "key": "aisettings",
+   "section": "ADMIN",
+   "states": [
+    "aiml_settings"
+   ],
+   "levels": [
+    "hidden",
+    "view",
+    "full"
+   ],
+   "actions": [
+    "ai.jobs"
+   ]
+  },
+  {
+   "key": "config",
+   "section": "ADMIN",
+   "states": [
+    "configuration"
+   ],
+   "levels": [
+    "hidden",
+    "view",
+    "full"
+   ],
+   "actions": []
+  }
+ ],
+ "actions": [
+  "alarms.acknowledge",
+  "andon.layout",
+  "andon.boards",
+  "dashboards.build",
+  "dashboards.applyMany",
+  "dashboards.deleteAny",
+  "analyzer.export",
+  "ai.relations.edit",
+  "reports.run",
+  "reports.edit",
+  "reports.schedule",
+  "reports.settings",
+  "alertrules.export",
+  "ai.jobs"
+ ],
+ "reserved": [
+  "admin",
+  "customer admin",
+  "administrator",
+  "user",
+  "viewer"
+ ],
+ "builtins": {
+  "admin": {
+   "id": "admin",
+   "name": "Admin",
+   "builtIn": true,
+   "locked": true,
+   "desc": "Everything, including users and roles.",
+   "perms": {
+    "sites": "view",
+    "machines": "view",
+    "alarms": "full",
+    "andon": "full",
+    "dashboards": "full",
+    "analyzer": "full",
+    "ai.forecast": "view",
+    "ai.anomalies": "view",
+    "ai.maintenance": "view",
+    "ai.relations": "full",
+    "reports": "full",
+    "users": "full",
+    "alertrules.default": "full",
+    "alertrules.custom": "full",
+    "aisettings": "full",
+    "config": "full"
+   },
+   "actions": {
+    "alarms.acknowledge": true,
+    "andon.layout": true,
+    "andon.boards": true,
+    "dashboards.build": true,
+    "dashboards.applyMany": true,
+    "dashboards.deleteAny": true,
+    "analyzer.export": true,
+    "ai.relations.edit": true,
+    "reports.run": true,
+    "reports.edit": true,
+    "reports.schedule": true,
+    "reports.settings": true,
+    "alertrules.export": true,
+    "ai.jobs": true
+   },
+   "manageRoles": true,
+   "defaultScope": []
+  },
+  "viewer": {
+   "id": "viewer",
+   "name": "Viewer",
+   "builtIn": true,
+   "locked": false,
+   "desc": "Read only.",
+   "perms": {
+    "sites": "view",
+    "machines": "view",
+    "alarms": "view",
+    "andon": "view",
+    "dashboards": "view",
+    "analyzer": "view",
+    "ai.forecast": "view",
+    "ai.anomalies": "view",
+    "ai.maintenance": "view",
+    "ai.relations": "view",
+    "reports": "view"
+   },
+   "actions": {
+    "reports.run": true
+   },
+   "manageRoles": false,
+   "defaultScope": []
+  }
+ },
+ "store1": {
+  "v": 1,
+  "rev": 7,
+  "at": 1791205976606,
+  "by": "migration",
+  "roles": [
+   {
+    "id": "admin",
+    "name": "Admin",
+    "builtIn": true,
+    "locked": true,
+    "desc": "Everything, including users and roles.",
+    "perms": {
+     "sites": "view",
+     "machines": "view",
+     "alarms": "full",
+     "andon": "full",
+     "dashboards": "full",
+     "analyzer": "full",
+     "ai.forecast": "view",
+     "ai.anomalies": "view",
+     "ai.maintenance": "view",
+     "ai.relations": "full",
+     "reports": "full",
+     "users": "full",
+     "alertrules.default": "full",
+     "alertrules.custom": "full",
+     "aisettings": "full",
+     "config": "full"
+    },
+    "actions": {
+     "alarms.acknowledge": true,
+     "andon.layout": true,
+     "andon.boards": true,
+     "dashboards.build": true,
+     "dashboards.applyMany": true,
+     "dashboards.deleteAny": true,
+     "analyzer.export": true,
+     "ai.relations.edit": true,
+     "reports.run": true,
+     "reports.edit": true,
+     "reports.schedule": true,
+     "reports.settings": true,
+     "alertrules.export": true,
+     "ai.jobs": true
+    },
+    "manageRoles": true,
+    "defaultScope": [
+     {
+      "id": "10c85640-c0be-11f1-add5-5db4ab3ed597",
+      "type": "ASSET",
+      "mode": "all"
+     }
+    ]
+   },
+   {
+    "id": "viewer",
+    "name": "Viewer",
+    "builtIn": true,
+    "locked": false,
+    "desc": "Read only.",
+    "perms": {
+     "sites": "view",
+     "machines": "view",
+     "alarms": "view",
+     "andon": "view",
+     "dashboards": "view",
+     "analyzer": "view",
+     "ai.forecast": "view",
+     "ai.anomalies": "view",
+     "ai.maintenance": "view",
+     "ai.relations": "view",
+     "reports": "view"
+    },
+    "actions": {
+     "reports.run": true
+    },
+    "manageRoles": false,
+    "defaultScope": []
+   },
+   {
+    "id": "r_sup001",
+    "name": "Supervisor",
+    "builtIn": false,
+    "locked": false,
+    "desc": "Runs the floor.",
+    "perms": {
+     "sites": "view",
+     "machines": "view",
+     "alarms": "full",
+     "andon": "full",
+     "dashboards": "view",
+     "analyzer": "view",
+     "ai.forecast": "view",
+     "ai.anomalies": "view",
+     "ai.maintenance": "view",
+     "ai.relations": "full",
+     "reports": "full",
+     "users": "view",
+     "alertrules.default": "full",
+     "alertrules.custom": "full",
+     "aisettings": "view",
+     "config": "view"
+    },
+    "actions": {
+     "dashboards.build": true,
+     "dashboards.applyMany": true
+    },
+    "manageRoles": false,
+    "defaultScope": []
+   },
+   {
+    "id": "r_op0001",
+    "name": "Operator",
+    "builtIn": false,
+    "locked": false,
+    "desc": "",
+    "perms": {
+     "sites": "view",
+     "machines": "view",
+     "alarms": "view",
+     "andon": "view",
+     "dashboards": "view",
+     "analyzer": "view"
+    },
+    "actions": {
+     "alarms.acknowledge": true
+    },
+    "manageRoles": false,
+    "defaultScope": [
+     {
+      "id": "10aba680-c0be-11f1-add5-5db4ab3ed597",
+      "type": "ASSET",
+      "mode": "all"
+     }
+    ]
+   },
+   {
+    "id": "r_lead01",
+    "name": "Lead",
+    "builtIn": false,
+    "locked": false,
+    "desc": "Manages users and roles.",
+    "perms": {
+     "sites": "view",
+     "machines": "view",
+     "users": "full",
+     "reports": "view"
+    },
+    "actions": {
+     "reports.run": true
+    },
+    "manageRoles": true,
+    "defaultScope": [
+     {
+      "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+      "type": "ASSET",
+      "mode": "all"
+     }
+    ]
+   }
+  ]
+ },
+ "roles": {
+  "admin": {
+   "id": "admin",
+   "name": "Admin",
+   "builtIn": true,
+   "locked": true,
+   "desc": "Everything, including users and roles.",
+   "perms": {
+    "sites": "view",
+    "machines": "view",
+    "alarms": "full",
+    "andon": "full",
+    "dashboards": "full",
+    "analyzer": "full",
+    "ai.forecast": "view",
+    "ai.anomalies": "view",
+    "ai.maintenance": "view",
+    "ai.relations": "full",
+    "reports": "full",
+    "users": "full",
+    "alertrules.default": "full",
+    "alertrules.custom": "full",
+    "aisettings": "full",
+    "config": "full"
+   },
+   "actions": {
+    "alarms.acknowledge": true,
+    "andon.layout": true,
+    "andon.boards": true,
+    "dashboards.build": true,
+    "dashboards.applyMany": true,
+    "dashboards.deleteAny": true,
+    "analyzer.export": true,
+    "ai.relations.edit": true,
+    "reports.run": true,
+    "reports.edit": true,
+    "reports.schedule": true,
+    "reports.settings": true,
+    "alertrules.export": true,
+    "ai.jobs": true
+   },
+   "manageRoles": true,
+   "defaultScope": []
+  },
+  "viewer": {
+   "id": "viewer",
+   "name": "Viewer",
+   "builtIn": true,
+   "locked": false,
+   "desc": "Read only.",
+   "perms": {
+    "sites": "view",
+    "machines": "view",
+    "alarms": "view",
+    "andon": "view",
+    "dashboards": "view",
+    "analyzer": "view",
+    "ai.forecast": "view",
+    "ai.anomalies": "view",
+    "ai.maintenance": "view",
+    "ai.relations": "view",
+    "reports": "view"
+   },
+   "actions": {
+    "reports.run": true
+   },
+   "manageRoles": false,
+   "defaultScope": []
+  },
+  "r_lead01": {
+   "id": "r_lead01",
+   "name": "Lead",
+   "builtIn": false,
+   "locked": false,
+   "desc": "Manages users and roles.",
+   "perms": {
+    "sites": "view",
+    "machines": "view",
+    "users": "full",
+    "reports": "view"
+   },
+   "actions": {
+    "reports.run": true
+   },
+   "manageRoles": true,
+   "defaultScope": [
+    {
+     "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ]
+  }
+ },
+ "tree": {
+  "nodes": {
+   "10c85640-c0be-11f1-add5-5db4ab3ed597": {
+    "type": "ASSET",
+    "name": "ITHENA ORG"
+   },
+   "10cfa940-c0be-11f1-add5-5db4ab3ed597": {
+    "type": "ASSET",
+    "name": "Pune"
+   },
+   "10aba680-c0be-11f1-add5-5db4ab3ed597": {
+    "type": "ASSET",
+    "name": "Mumbai"
+   },
+   "11474a40-c0be-11f1-add5-5db4ab3ed597": {
+    "type": "DEVICE",
+    "name": "Dryer 1"
+   },
+   "113ff740-c0be-11f1-add5-5db4ab3ed597": {
+    "type": "DEVICE",
+    "name": "Compressor 1"
+   },
+   "1155a220-c0be-11f1-add5-5db4ab3ed597": {
+    "type": "DEVICE",
+    "name": "Weather Station 1"
+   },
+   "10f3ac00-c0be-11f1-add5-5db4ab3ed597": {
+    "type": "DEVICE",
+    "name": "Blower 2"
+   }
+  },
+  "rels": [
+   [
+    "10c85640-c0be-11f1-add5-5db4ab3ed597",
+    "10cfa940-c0be-11f1-add5-5db4ab3ed597"
+   ],
+   [
+    "10c85640-c0be-11f1-add5-5db4ab3ed597",
+    "10aba680-c0be-11f1-add5-5db4ab3ed597"
+   ],
+   [
+    "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+    "11474a40-c0be-11f1-add5-5db4ab3ed597"
+   ],
+   [
+    "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+    "113ff740-c0be-11f1-add5-5db4ab3ed597"
+   ],
+   [
+    "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+    "1155a220-c0be-11f1-add5-5db4ab3ed597"
+   ],
+   [
+    "10aba680-c0be-11f1-add5-5db4ab3ed597",
+    "10f3ac00-c0be-11f1-add5-5db4ab3ed597"
+   ]
+  ]
+ },
+ "parseStore": [
+  {
+   "name": "absent: the two built-ins, no warning",
+   "raw": null,
+   "expect": {
+    "source": "builtins",
+    "rev": 0,
+    "ids": [
+     "admin",
+     "viewer"
+    ],
+    "warnings": [],
+    "roles": {
+     "admin": {
+      "id": "admin",
+      "name": "Admin",
+      "builtIn": true,
+      "locked": true,
+      "desc": "Everything, including users and roles.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "full",
+       "andon": "full",
+       "dashboards": "full",
+       "analyzer": "full",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "full",
+       "reports": "full",
+       "users": "full",
+       "alertrules.default": "full",
+       "alertrules.custom": "full",
+       "aisettings": "full",
+       "config": "full"
+      },
+      "actions": {
+       "alarms.acknowledge": true,
+       "andon.layout": true,
+       "andon.boards": true,
+       "dashboards.build": true,
+       "dashboards.applyMany": true,
+       "dashboards.deleteAny": true,
+       "analyzer.export": true,
+       "ai.relations.edit": true,
+       "reports.run": true,
+       "reports.edit": true,
+       "reports.schedule": true,
+       "reports.settings": true,
+       "alertrules.export": true,
+       "ai.jobs": true
+      },
+      "manageRoles": true,
+      "defaultScope": []
+     },
+     "viewer": {
+      "id": "viewer",
+      "name": "Viewer",
+      "builtIn": true,
+      "locked": false,
+      "desc": "Read only.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "view",
+       "andon": "view",
+       "dashboards": "view",
+       "analyzer": "view",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "view",
+       "reports": "view"
+      },
+      "actions": {
+       "reports.run": true
+      },
+      "manageRoles": false,
+      "defaultScope": []
+     }
+    }
+   }
+  },
+  {
+   "name": "empty string: the built-ins",
+   "raw": "",
+   "expect": {
+    "source": "builtins",
+    "rev": 0,
+    "ids": [
+     "admin",
+     "viewer"
+    ],
+    "warnings": []
+   }
+  },
+  {
+   "name": "unparseable: the built-ins, warning",
+   "raw": "{roles",
+   "expect": {
+    "source": "builtins",
+    "rev": 0,
+    "ids": [
+     "admin",
+     "viewer"
+    ],
+    "warnings": [
+     "roles.store"
+    ]
+   }
+  },
+  {
+   "name": "another version",
+   "raw": {
+    "v": 2,
+    "roles": []
+   },
+   "expect": {
+    "source": "builtins",
+    "rev": 0,
+    "ids": [
+     "admin",
+     "viewer"
+    ],
+    "warnings": [
+     "roles.store"
+    ]
+   }
+  },
+  {
+   "name": "roles not a list",
+   "raw": {
+    "v": 1,
+    "rev": 3,
+    "roles": {}
+   },
+   "expect": {
+    "source": "builtins",
+    "rev": 0,
+    "ids": [
+     "admin",
+     "viewer"
+    ],
+    "warnings": [
+     "roles.store"
+    ]
+   }
+  },
+  {
+   "name": "a full store",
+   "raw": {
+    "v": 1,
+    "rev": 7,
+    "at": 1791205976606,
+    "by": "migration",
+    "roles": [
+     {
+      "id": "admin",
+      "name": "Admin",
+      "builtIn": true,
+      "locked": true,
+      "desc": "Everything, including users and roles.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "full",
+       "andon": "full",
+       "dashboards": "full",
+       "analyzer": "full",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "full",
+       "reports": "full",
+       "users": "full",
+       "alertrules.default": "full",
+       "alertrules.custom": "full",
+       "aisettings": "full",
+       "config": "full"
+      },
+      "actions": {
+       "alarms.acknowledge": true,
+       "andon.layout": true,
+       "andon.boards": true,
+       "dashboards.build": true,
+       "dashboards.applyMany": true,
+       "dashboards.deleteAny": true,
+       "analyzer.export": true,
+       "ai.relations.edit": true,
+       "reports.run": true,
+       "reports.edit": true,
+       "reports.schedule": true,
+       "reports.settings": true,
+       "alertrules.export": true,
+       "ai.jobs": true
+      },
+      "manageRoles": true,
+      "defaultScope": [
+       {
+        "id": "10c85640-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     },
+     {
+      "id": "viewer",
+      "name": "Viewer",
+      "builtIn": true,
+      "locked": false,
+      "desc": "Read only.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "view",
+       "andon": "view",
+       "dashboards": "view",
+       "analyzer": "view",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "view",
+       "reports": "view"
+      },
+      "actions": {
+       "reports.run": true
+      },
+      "manageRoles": false,
+      "defaultScope": []
+     },
+     {
+      "id": "r_sup001",
+      "name": "Supervisor",
+      "builtIn": false,
+      "locked": false,
+      "desc": "Runs the floor.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "full",
+       "andon": "full",
+       "dashboards": "view",
+       "analyzer": "view",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "full",
+       "reports": "full",
+       "users": "view",
+       "alertrules.default": "full",
+       "alertrules.custom": "full",
+       "aisettings": "view",
+       "config": "view"
+      },
+      "actions": {
+       "dashboards.build": true,
+       "dashboards.applyMany": true
+      },
+      "manageRoles": false,
+      "defaultScope": []
+     },
+     {
+      "id": "r_op0001",
+      "name": "Operator",
+      "builtIn": false,
+      "locked": false,
+      "desc": "",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "view",
+       "andon": "view",
+       "dashboards": "view",
+       "analyzer": "view"
+      },
+      "actions": {
+       "alarms.acknowledge": true
+      },
+      "manageRoles": false,
+      "defaultScope": [
+       {
+        "id": "10aba680-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     },
+     {
+      "id": "r_lead01",
+      "name": "Lead",
+      "builtIn": false,
+      "locked": false,
+      "desc": "Manages users and roles.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "users": "full",
+       "reports": "view"
+      },
+      "actions": {
+       "reports.run": true
+      },
+      "manageRoles": true,
+      "defaultScope": [
+       {
+        "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "source": "imexRoles",
+    "rev": 7,
+    "ids": [
+     "admin",
+     "viewer",
+     "r_sup001",
+     "r_op0001",
+     "r_lead01"
+    ],
+    "warnings": [],
+    "roles": {
+     "admin": {
+      "id": "admin",
+      "name": "Admin",
+      "builtIn": true,
+      "locked": true,
+      "desc": "Everything, including users and roles.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "full",
+       "andon": "full",
+       "dashboards": "full",
+       "analyzer": "full",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "full",
+       "reports": "full",
+       "users": "full",
+       "alertrules.default": "full",
+       "alertrules.custom": "full",
+       "aisettings": "full",
+       "config": "full"
+      },
+      "actions": {
+       "alarms.acknowledge": true,
+       "andon.layout": true,
+       "andon.boards": true,
+       "dashboards.build": true,
+       "dashboards.applyMany": true,
+       "dashboards.deleteAny": true,
+       "analyzer.export": true,
+       "ai.relations.edit": true,
+       "reports.run": true,
+       "reports.edit": true,
+       "reports.schedule": true,
+       "reports.settings": true,
+       "alertrules.export": true,
+       "ai.jobs": true
+      },
+      "manageRoles": true,
+      "defaultScope": [
+       {
+        "id": "10c85640-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     },
+     "r_op0001": {
+      "id": "r_op0001",
+      "name": "Operator",
+      "builtIn": false,
+      "locked": false,
+      "desc": "",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "view",
+       "andon": "view",
+       "dashboards": "view",
+       "analyzer": "view"
+      },
+      "actions": {
+       "alarms.acknowledge": true
+      },
+      "manageRoles": false,
+      "defaultScope": [
+       {
+        "id": "10aba680-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     },
+     "r_lead01": {
+      "id": "r_lead01",
+      "name": "Lead",
+      "builtIn": false,
+      "locked": false,
+      "desc": "Manages users and roles.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "users": "full",
+       "reports": "view"
+      },
+      "actions": {
+       "reports.run": true
+      },
+      "manageRoles": true,
+      "defaultScope": [
+       {
+        "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "name": "the same as a JSON string",
+   "raw": "{\"v\":1,\"rev\":7,\"at\":1791205976606,\"by\":\"migration\",\"roles\":[{\"id\":\"admin\",\"name\":\"Admin\",\"builtIn\":true,\"locked\":true,\"desc\":\"Everything, including users and roles.\",\"perms\":{\"sites\":\"view\",\"machines\":\"view\",\"alarms\":\"full\",\"andon\":\"full\",\"dashboards\":\"full\",\"analyzer\":\"full\",\"ai.forecast\":\"view\",\"ai.anomalies\":\"view\",\"ai.maintenance\":\"view\",\"ai.relations\":\"full\",\"reports\":\"full\",\"users\":\"full\",\"alertrules.default\":\"full\",\"alertrules.custom\":\"full\",\"aisettings\":\"full\",\"config\":\"full\"},\"actions\":{\"alarms.acknowledge\":true,\"andon.layout\":true,\"andon.boards\":true,\"dashboards.build\":true,\"dashboards.applyMany\":true,\"dashboards.deleteAny\":true,\"analyzer.export\":true,\"ai.relations.edit\":true,\"reports.run\":true,\"reports.edit\":true,\"reports.schedule\":true,\"reports.settings\":true,\"alertrules.export\":true,\"ai.jobs\":true},\"manageRoles\":true,\"defaultScope\":[{\"id\":\"10c85640-c0be-11f1-add5-5db4ab3ed597\",\"type\":\"ASSET\",\"mode\":\"all\"}]},{\"id\":\"viewer\",\"name\":\"Viewer\",\"builtIn\":true,\"locked\":false,\"desc\":\"Read only.\",\"perms\":{\"sites\":\"view\",\"machines\":\"view\",\"alarms\":\"view\",\"andon\":\"view\",\"dashboards\":\"view\",\"analyzer\":\"view\",\"ai.forecast\":\"view\",\"ai.anomalies\":\"view\",\"ai.maintenance\":\"view\",\"ai.relations\":\"view\",\"reports\":\"view\"},\"actions\":{\"reports.run\":true},\"manageRoles\":false,\"defaultScope\":[]},{\"id\":\"r_sup001\",\"name\":\"Supervisor\",\"builtIn\":false,\"locked\":false,\"desc\":\"Runs the floor.\",\"perms\":{\"sites\":\"view\",\"machines\":\"view\",\"alarms\":\"full\",\"andon\":\"full\",\"dashboards\":\"view\",\"analyzer\":\"view\",\"ai.forecast\":\"view\",\"ai.anomalies\":\"view\",\"ai.maintenance\":\"view\",\"ai.relations\":\"full\",\"reports\":\"full\",\"users\":\"view\",\"alertrules.default\":\"full\",\"alertrules.custom\":\"full\",\"aisettings\":\"view\",\"config\":\"view\"},\"actions\":{\"dashboards.build\":true,\"dashboards.applyMany\":true},\"manageRoles\":false,\"defaultScope\":[]},{\"id\":\"r_op0001\",\"name\":\"Operator\",\"builtIn\":false,\"locked\":false,\"desc\":\"\",\"perms\":{\"sites\":\"view\",\"machines\":\"view\",\"alarms\":\"view\",\"andon\":\"view\",\"dashboards\":\"view\",\"analyzer\":\"view\"},\"actions\":{\"alarms.acknowledge\":true},\"manageRoles\":false,\"defaultScope\":[{\"id\":\"10aba680-c0be-11f1-add5-5db4ab3ed597\",\"type\":\"ASSET\",\"mode\":\"all\"}]},{\"id\":\"r_lead01\",\"name\":\"Lead\",\"builtIn\":false,\"locked\":false,\"desc\":\"Manages users and roles.\",\"perms\":{\"sites\":\"view\",\"machines\":\"view\",\"users\":\"full\",\"reports\":\"view\"},\"actions\":{\"reports.run\":true},\"manageRoles\":true,\"defaultScope\":[{\"id\":\"10cfa940-c0be-11f1-add5-5db4ab3ed597\",\"type\":\"ASSET\",\"mode\":\"all\"}]}]}",
+   "expect": {
+    "source": "imexRoles",
+    "rev": 7,
+    "ids": [
+     "admin",
+     "viewer",
+     "r_sup001",
+     "r_op0001",
+     "r_lead01"
+    ],
+    "warnings": []
+   }
+  },
+  {
+   "name": "a changed Admin is the built-in Admin again (its description and default access kept)",
+   "raw": {
+    "v": 1,
+    "rev": 1,
+    "roles": [
+     {
+      "id": "admin",
+      "name": "Boss",
+      "perms": {
+       "reports": "hidden"
+      },
+      "actions": {},
+      "manageRoles": false,
+      "desc": "Mine",
+      "defaultScope": [
+       {
+        "id": "10c85640-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     },
+     {
+      "id": "viewer",
+      "name": "Viewer",
+      "builtIn": true,
+      "locked": false,
+      "desc": "Read only.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "view",
+       "andon": "view",
+       "dashboards": "view",
+       "analyzer": "view",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "view",
+       "reports": "view"
+      },
+      "actions": {
+       "reports.run": true
+      },
+      "manageRoles": false,
+      "defaultScope": []
+     }
+    ]
+   },
+   "expect": {
+    "source": "imexRoles",
+    "rev": 1,
+    "ids": [
+     "admin",
+     "viewer"
+    ],
+    "warnings": [],
+    "roles": {
+     "admin": {
+      "id": "admin",
+      "name": "Admin",
+      "builtIn": true,
+      "locked": true,
+      "desc": "Mine",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "full",
+       "andon": "full",
+       "dashboards": "full",
+       "analyzer": "full",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "full",
+       "reports": "full",
+       "users": "full",
+       "alertrules.default": "full",
+       "alertrules.custom": "full",
+       "aisettings": "full",
+       "config": "full"
+      },
+      "actions": {
+       "alarms.acknowledge": true,
+       "andon.layout": true,
+       "andon.boards": true,
+       "dashboards.build": true,
+       "dashboards.applyMany": true,
+       "dashboards.deleteAny": true,
+       "analyzer.export": true,
+       "ai.relations.edit": true,
+       "reports.run": true,
+       "reports.edit": true,
+       "reports.schedule": true,
+       "reports.settings": true,
+       "alertrules.export": true,
+       "ai.jobs": true
+      },
+      "manageRoles": true,
+      "defaultScope": [
+       {
+        "id": "10c85640-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "name": "built-ins missing: added; custom roles after them",
+   "raw": {
+    "v": 1,
+    "rev": 2,
+    "roles": [
+     {
+      "id": "r_op0001",
+      "name": "Operator",
+      "builtIn": false,
+      "locked": false,
+      "desc": "",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "view",
+       "andon": "view",
+       "dashboards": "view",
+       "analyzer": "view"
+      },
+      "actions": {
+       "alarms.acknowledge": true
+      },
+      "manageRoles": false,
+      "defaultScope": [
+       {
+        "id": "10aba680-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "source": "imexRoles",
+    "rev": 2,
+    "ids": [
+     "admin",
+     "viewer",
+     "r_op0001"
+    ],
+    "warnings": [
+     "roles.builtinMissing"
+    ],
+    "roles": {
+     "viewer": {
+      "id": "viewer",
+      "name": "Viewer",
+      "builtIn": true,
+      "locked": false,
+      "desc": "Read only.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "view",
+       "andon": "view",
+       "dashboards": "view",
+       "analyzer": "view",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "view",
+       "reports": "view"
+      },
+      "actions": {
+       "reports.run": true
+      },
+      "manageRoles": false,
+      "defaultScope": []
+     }
+    }
+   }
+  },
+  {
+   "name": "the Viewer keeps its name; its permissions are its own",
+   "raw": {
+    "v": 1,
+    "rev": 2,
+    "roles": [
+     {
+      "id": "admin",
+      "name": "Admin",
+      "builtIn": true,
+      "locked": true,
+      "desc": "Everything, including users and roles.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "full",
+       "andon": "full",
+       "dashboards": "full",
+       "analyzer": "full",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "full",
+       "reports": "full",
+       "users": "full",
+       "alertrules.default": "full",
+       "alertrules.custom": "full",
+       "aisettings": "full",
+       "config": "full"
+      },
+      "actions": {
+       "alarms.acknowledge": true,
+       "andon.layout": true,
+       "andon.boards": true,
+       "dashboards.build": true,
+       "dashboards.applyMany": true,
+       "dashboards.deleteAny": true,
+       "analyzer.export": true,
+       "ai.relations.edit": true,
+       "reports.run": true,
+       "reports.edit": true,
+       "reports.schedule": true,
+       "reports.settings": true,
+       "alertrules.export": true,
+       "ai.jobs": true
+      },
+      "manageRoles": true,
+      "defaultScope": []
+     },
+     {
+      "id": "viewer",
+      "name": "Readers",
+      "builtIn": true,
+      "locked": false,
+      "desc": "Read only.",
+      "perms": {
+       "sites": "view"
+      },
+      "actions": {},
+      "manageRoles": false,
+      "defaultScope": []
+     }
+    ]
+   },
+   "expect": {
+    "source": "imexRoles",
+    "rev": 2,
+    "ids": [
+     "admin",
+     "viewer"
+    ],
+    "warnings": [],
+    "roles": {
+     "viewer": {
+      "id": "viewer",
+      "name": "Viewer",
+      "builtIn": true,
+      "locked": false,
+      "desc": "Read only.",
+      "perms": {
+       "sites": "view"
+      },
+      "actions": {},
+      "manageRoles": false,
+      "defaultScope": []
+     }
+    }
+   }
+  },
+  {
+   "name": "bad entries: dropped with warnings; unknown pages kept, unknown actions and levels dropped",
+   "raw": {
+    "v": 1,
+    "rev": 4,
+    "roles": [
+     {
+      "id": "admin",
+      "name": "Admin",
+      "builtIn": true,
+      "locked": true,
+      "desc": "Everything, including users and roles.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "full",
+       "andon": "full",
+       "dashboards": "full",
+       "analyzer": "full",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "full",
+       "reports": "full",
+       "users": "full",
+       "alertrules.default": "full",
+       "alertrules.custom": "full",
+       "aisettings": "full",
+       "config": "full"
+      },
+      "actions": {
+       "alarms.acknowledge": true,
+       "andon.layout": true,
+       "andon.boards": true,
+       "dashboards.build": true,
+       "dashboards.applyMany": true,
+       "dashboards.deleteAny": true,
+       "analyzer.export": true,
+       "ai.relations.edit": true,
+       "reports.run": true,
+       "reports.edit": true,
+       "reports.schedule": true,
+       "reports.settings": true,
+       "alertrules.export": true,
+       "ai.jobs": true
+      },
+      "manageRoles": true,
+      "defaultScope": []
+     },
+     {
+      "id": "viewer",
+      "name": "Viewer",
+      "builtIn": true,
+      "locked": false,
+      "desc": "Read only.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "view",
+       "andon": "view",
+       "dashboards": "view",
+       "analyzer": "view",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "view",
+       "reports": "view"
+      },
+      "actions": {
+       "reports.run": true
+      },
+      "manageRoles": false,
+      "defaultScope": []
+     },
+     42,
+     {
+      "id": "bad id!"
+     },
+     {
+      "name": "no id"
+     },
+     {
+      "id": "r_op0001",
+      "name": "Operator",
+      "builtIn": false,
+      "locked": false,
+      "desc": "",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "view",
+       "andon": "view",
+       "dashboards": "view",
+       "analyzer": "view"
+      },
+      "actions": {
+       "alarms.acknowledge": true
+      },
+      "manageRoles": false,
+      "defaultScope": [
+       {
+        "id": "10aba680-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     },
+     {
+      "id": "r_op0001",
+      "name": "Operator",
+      "builtIn": false,
+      "locked": false,
+      "desc": "",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "view",
+       "andon": "view",
+       "dashboards": "view",
+       "analyzer": "view"
+      },
+      "actions": {
+       "alarms.acknowledge": true
+      },
+      "manageRoles": false,
+      "defaultScope": [
+       {
+        "id": "10aba680-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     },
+     {
+      "id": "r_weird1",
+      "name": "Weird",
+      "perms": {
+       "alarms": "view",
+       "future.page": "view",
+       "reports": "superfull"
+      },
+      "actions": {
+       "alarms.acknowledge": true,
+       "x.y": true,
+       "reports.run": false
+      }
+     }
+    ]
+   },
+   "expect": {
+    "source": "imexRoles",
+    "rev": 4,
+    "ids": [
+     "admin",
+     "viewer",
+     "r_op0001",
+     "r_weird1"
+    ],
+    "warnings": [
+     "role.invalid",
+     "role.duplicate",
+     "action.unknown"
+    ],
+    "roles": {
+     "r_weird1": {
+      "id": "r_weird1",
+      "name": "Weird",
+      "builtIn": false,
+      "locked": false,
+      "desc": "",
+      "perms": {
+       "alarms": "view",
+       "future.page": "view"
+      },
+      "actions": {
+       "alarms.acknowledge": true
+      },
+      "manageRoles": false,
+      "defaultScope": []
+     }
+    }
+   }
+  },
+  {
+   "name": "a default access with bad grants: cleaned, warning",
+   "raw": {
+    "v": 1,
+    "rev": 1,
+    "roles": [
+     {
+      "id": "admin",
+      "name": "Admin",
+      "builtIn": true,
+      "locked": true,
+      "desc": "Everything, including users and roles.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "full",
+       "andon": "full",
+       "dashboards": "full",
+       "analyzer": "full",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "full",
+       "reports": "full",
+       "users": "full",
+       "alertrules.default": "full",
+       "alertrules.custom": "full",
+       "aisettings": "full",
+       "config": "full"
+      },
+      "actions": {
+       "alarms.acknowledge": true,
+       "andon.layout": true,
+       "andon.boards": true,
+       "dashboards.build": true,
+       "dashboards.applyMany": true,
+       "dashboards.deleteAny": true,
+       "analyzer.export": true,
+       "ai.relations.edit": true,
+       "reports.run": true,
+       "reports.edit": true,
+       "reports.schedule": true,
+       "reports.settings": true,
+       "alertrules.export": true,
+       "ai.jobs": true
+      },
+      "manageRoles": true,
+      "defaultScope": []
+     },
+     {
+      "id": "viewer",
+      "name": "Viewer",
+      "builtIn": true,
+      "locked": false,
+      "desc": "Read only.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "view",
+       "andon": "view",
+       "dashboards": "view",
+       "analyzer": "view",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "view",
+       "reports": "view"
+      },
+      "actions": {
+       "reports.run": true
+      },
+      "manageRoles": false,
+      "defaultScope": []
+     },
+     {
+      "id": "r_sc0001",
+      "name": "Scoped",
+      "perms": {},
+      "actions": {},
+      "defaultScope": [
+       {
+        "id": "bad",
+        "type": "ASSET",
+        "mode": "all"
+       },
+       {
+        "id": "11474a40-c0be-11f1-add5-5db4ab3ed597",
+        "type": "DEVICE",
+        "mode": "fixed"
+       },
+       {
+        "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       },
+       "x"
+      ]
+     },
+     {
+      "id": "r_sc0002",
+      "name": "Scoped 2",
+      "defaultScope": {
+       "a": 1
+      }
+     }
+    ]
+   },
+   "expect": {
+    "source": "imexRoles",
+    "rev": 1,
+    "ids": [
+     "admin",
+     "viewer",
+     "r_sc0001",
+     "r_sc0002"
+    ],
+    "warnings": [
+     "role.scope"
+    ],
+    "roles": {
+     "r_sc0001": {
+      "id": "r_sc0001",
+      "name": "Scoped",
+      "builtIn": false,
+      "locked": false,
+      "desc": "",
+      "perms": {},
+      "actions": {},
+      "manageRoles": false,
+      "defaultScope": [
+       {
+        "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       },
+       {
+        "id": "11474a40-c0be-11f1-add5-5db4ab3ed597",
+        "type": "DEVICE",
+        "mode": "fixed"
+       }
+      ]
+     },
+     "r_sc0002": {
+      "id": "r_sc0002",
+      "name": "Scoped 2",
+      "builtIn": false,
+      "locked": false,
+      "desc": "",
+      "perms": {},
+      "actions": {},
+      "manageRoles": false,
+      "defaultScope": []
+     }
+    }
+   }
+  },
+  {
+   "name": "a rev that is no count is 0",
+   "raw": {
+    "v": 1,
+    "rev": "7",
+    "roles": [
+     {
+      "id": "admin",
+      "name": "Admin",
+      "builtIn": true,
+      "locked": true,
+      "desc": "Everything, including users and roles.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "full",
+       "andon": "full",
+       "dashboards": "full",
+       "analyzer": "full",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "full",
+       "reports": "full",
+       "users": "full",
+       "alertrules.default": "full",
+       "alertrules.custom": "full",
+       "aisettings": "full",
+       "config": "full"
+      },
+      "actions": {
+       "alarms.acknowledge": true,
+       "andon.layout": true,
+       "andon.boards": true,
+       "dashboards.build": true,
+       "dashboards.applyMany": true,
+       "dashboards.deleteAny": true,
+       "analyzer.export": true,
+       "ai.relations.edit": true,
+       "reports.run": true,
+       "reports.edit": true,
+       "reports.schedule": true,
+       "reports.settings": true,
+       "alertrules.export": true,
+       "ai.jobs": true
+      },
+      "manageRoles": true,
+      "defaultScope": []
+     },
+     {
+      "id": "viewer",
+      "name": "Viewer",
+      "builtIn": true,
+      "locked": false,
+      "desc": "Read only.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "view",
+       "andon": "view",
+       "dashboards": "view",
+       "analyzer": "view",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "view",
+       "reports": "view"
+      },
+      "actions": {
+       "reports.run": true
+      },
+      "manageRoles": false,
+      "defaultScope": []
+     }
+    ]
+   },
+   "expect": {
+    "source": "imexRoles",
+    "rev": 0,
+    "ids": [
+     "admin",
+     "viewer"
+    ],
+    "warnings": []
+   }
+  },
+  {
+   "name": "a negative rev is 0",
+   "raw": {
+    "v": 1,
+    "rev": -2,
+    "roles": [
+     {
+      "id": "admin",
+      "name": "Admin",
+      "builtIn": true,
+      "locked": true,
+      "desc": "Everything, including users and roles.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "full",
+       "andon": "full",
+       "dashboards": "full",
+       "analyzer": "full",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "full",
+       "reports": "full",
+       "users": "full",
+       "alertrules.default": "full",
+       "alertrules.custom": "full",
+       "aisettings": "full",
+       "config": "full"
+      },
+      "actions": {
+       "alarms.acknowledge": true,
+       "andon.layout": true,
+       "andon.boards": true,
+       "dashboards.build": true,
+       "dashboards.applyMany": true,
+       "dashboards.deleteAny": true,
+       "analyzer.export": true,
+       "ai.relations.edit": true,
+       "reports.run": true,
+       "reports.edit": true,
+       "reports.schedule": true,
+       "reports.settings": true,
+       "alertrules.export": true,
+       "ai.jobs": true
+      },
+      "manageRoles": true,
+      "defaultScope": []
+     },
+     {
+      "id": "viewer",
+      "name": "Viewer",
+      "builtIn": true,
+      "locked": false,
+      "desc": "Read only.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "view",
+       "andon": "view",
+       "dashboards": "view",
+       "analyzer": "view",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "view",
+       "reports": "view"
+      },
+      "actions": {
+       "reports.run": true
+      },
+      "manageRoles": false,
+      "defaultScope": []
+     }
+    ]
+   },
+   "expect": {
+    "source": "imexRoles",
+    "rev": 0,
+    "ids": [
+     "admin",
+     "viewer"
+    ],
+    "warnings": []
+   }
+  }
+ ],
+ "parseUser": [
+  {
+   "name": "tenant admin: unrestricted",
+   "store": {
+    "v": 1,
+    "rev": 7,
+    "at": 1791205976606,
+    "by": "migration",
+    "roles": [
+     {
+      "id": "admin",
+      "name": "Admin",
+      "builtIn": true,
+      "locked": true,
+      "desc": "Everything, including users and roles.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "full",
+       "andon": "full",
+       "dashboards": "full",
+       "analyzer": "full",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "full",
+       "reports": "full",
+       "users": "full",
+       "alertrules.default": "full",
+       "alertrules.custom": "full",
+       "aisettings": "full",
+       "config": "full"
+      },
+      "actions": {
+       "alarms.acknowledge": true,
+       "andon.layout": true,
+       "andon.boards": true,
+       "dashboards.build": true,
+       "dashboards.applyMany": true,
+       "dashboards.deleteAny": true,
+       "analyzer.export": true,
+       "ai.relations.edit": true,
+       "reports.run": true,
+       "reports.edit": true,
+       "reports.schedule": true,
+       "reports.settings": true,
+       "alertrules.export": true,
+       "ai.jobs": true
+      },
+      "manageRoles": true,
+      "defaultScope": [
+       {
+        "id": "10c85640-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     },
+     {
+      "id": "viewer",
+      "name": "Viewer",
+      "builtIn": true,
+      "locked": false,
+      "desc": "Read only.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "view",
+       "andon": "view",
+       "dashboards": "view",
+       "analyzer": "view",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "view",
+       "reports": "view"
+      },
+      "actions": {
+       "reports.run": true
+      },
+      "manageRoles": false,
+      "defaultScope": []
+     },
+     {
+      "id": "r_sup001",
+      "name": "Supervisor",
+      "builtIn": false,
+      "locked": false,
+      "desc": "Runs the floor.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "full",
+       "andon": "full",
+       "dashboards": "view",
+       "analyzer": "view",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "full",
+       "reports": "full",
+       "users": "view",
+       "alertrules.default": "full",
+       "alertrules.custom": "full",
+       "aisettings": "view",
+       "config": "view"
+      },
+      "actions": {
+       "dashboards.build": true,
+       "dashboards.applyMany": true
+      },
+      "manageRoles": false,
+      "defaultScope": []
+     },
+     {
+      "id": "r_op0001",
+      "name": "Operator",
+      "builtIn": false,
+      "locked": false,
+      "desc": "",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "view",
+       "andon": "view",
+       "dashboards": "view",
+       "analyzer": "view"
+      },
+      "actions": {
+       "alarms.acknowledge": true
+      },
+      "manageRoles": false,
+      "defaultScope": [
+       {
+        "id": "10aba680-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     },
+     {
+      "id": "r_lead01",
+      "name": "Lead",
+      "builtIn": false,
+      "locked": false,
+      "desc": "Manages users and roles.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "users": "full",
+       "reports": "view"
+      },
+      "actions": {
+       "reports.run": true
+      },
+      "manageRoles": true,
+      "defaultScope": [
+       {
+        "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     }
+    ]
+   },
+   "user": {
+    "authority": "TENANT_ADMIN",
+    "imexRole": "viewer"
+   },
+   "expect": {
+    "roleId": null,
+    "source": "unrestricted",
+    "warnings": []
+   }
+  },
+  {
+   "name": "imexRole found",
+   "store": {
+    "v": 1,
+    "rev": 7,
+    "at": 1791205976606,
+    "by": "migration",
+    "roles": [
+     {
+      "id": "admin",
+      "name": "Admin",
+      "builtIn": true,
+      "locked": true,
+      "desc": "Everything, including users and roles.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "full",
+       "andon": "full",
+       "dashboards": "full",
+       "analyzer": "full",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "full",
+       "reports": "full",
+       "users": "full",
+       "alertrules.default": "full",
+       "alertrules.custom": "full",
+       "aisettings": "full",
+       "config": "full"
+      },
+      "actions": {
+       "alarms.acknowledge": true,
+       "andon.layout": true,
+       "andon.boards": true,
+       "dashboards.build": true,
+       "dashboards.applyMany": true,
+       "dashboards.deleteAny": true,
+       "analyzer.export": true,
+       "ai.relations.edit": true,
+       "reports.run": true,
+       "reports.edit": true,
+       "reports.schedule": true,
+       "reports.settings": true,
+       "alertrules.export": true,
+       "ai.jobs": true
+      },
+      "manageRoles": true,
+      "defaultScope": [
+       {
+        "id": "10c85640-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     },
+     {
+      "id": "viewer",
+      "name": "Viewer",
+      "builtIn": true,
+      "locked": false,
+      "desc": "Read only.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "view",
+       "andon": "view",
+       "dashboards": "view",
+       "analyzer": "view",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "view",
+       "reports": "view"
+      },
+      "actions": {
+       "reports.run": true
+      },
+      "manageRoles": false,
+      "defaultScope": []
+     },
+     {
+      "id": "r_sup001",
+      "name": "Supervisor",
+      "builtIn": false,
+      "locked": false,
+      "desc": "Runs the floor.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "full",
+       "andon": "full",
+       "dashboards": "view",
+       "analyzer": "view",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "full",
+       "reports": "full",
+       "users": "view",
+       "alertrules.default": "full",
+       "alertrules.custom": "full",
+       "aisettings": "view",
+       "config": "view"
+      },
+      "actions": {
+       "dashboards.build": true,
+       "dashboards.applyMany": true
+      },
+      "manageRoles": false,
+      "defaultScope": []
+     },
+     {
+      "id": "r_op0001",
+      "name": "Operator",
+      "builtIn": false,
+      "locked": false,
+      "desc": "",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "view",
+       "andon": "view",
+       "dashboards": "view",
+       "analyzer": "view"
+      },
+      "actions": {
+       "alarms.acknowledge": true
+      },
+      "manageRoles": false,
+      "defaultScope": [
+       {
+        "id": "10aba680-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     },
+     {
+      "id": "r_lead01",
+      "name": "Lead",
+      "builtIn": false,
+      "locked": false,
+      "desc": "Manages users and roles.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "users": "full",
+       "reports": "view"
+      },
+      "actions": {
+       "reports.run": true
+      },
+      "manageRoles": true,
+      "defaultScope": [
+       {
+        "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     }
+    ]
+   },
+   "user": {
+    "authority": "CUSTOMER_USER",
+    "imexRole": "r_sup001",
+    "Role": "Supervisor"
+   },
+   "expect": {
+    "roleId": "r_sup001",
+    "source": "imexRole",
+    "warnings": []
+   }
+  },
+  {
+   "name": "imexRole wins over Role",
+   "store": {
+    "v": 1,
+    "rev": 7,
+    "at": 1791205976606,
+    "by": "migration",
+    "roles": [
+     {
+      "id": "admin",
+      "name": "Admin",
+      "builtIn": true,
+      "locked": true,
+      "desc": "Everything, including users and roles.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "full",
+       "andon": "full",
+       "dashboards": "full",
+       "analyzer": "full",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "full",
+       "reports": "full",
+       "users": "full",
+       "alertrules.default": "full",
+       "alertrules.custom": "full",
+       "aisettings": "full",
+       "config": "full"
+      },
+      "actions": {
+       "alarms.acknowledge": true,
+       "andon.layout": true,
+       "andon.boards": true,
+       "dashboards.build": true,
+       "dashboards.applyMany": true,
+       "dashboards.deleteAny": true,
+       "analyzer.export": true,
+       "ai.relations.edit": true,
+       "reports.run": true,
+       "reports.edit": true,
+       "reports.schedule": true,
+       "reports.settings": true,
+       "alertrules.export": true,
+       "ai.jobs": true
+      },
+      "manageRoles": true,
+      "defaultScope": [
+       {
+        "id": "10c85640-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     },
+     {
+      "id": "viewer",
+      "name": "Viewer",
+      "builtIn": true,
+      "locked": false,
+      "desc": "Read only.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "view",
+       "andon": "view",
+       "dashboards": "view",
+       "analyzer": "view",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "view",
+       "reports": "view"
+      },
+      "actions": {
+       "reports.run": true
+      },
+      "manageRoles": false,
+      "defaultScope": []
+     },
+     {
+      "id": "r_sup001",
+      "name": "Supervisor",
+      "builtIn": false,
+      "locked": false,
+      "desc": "Runs the floor.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "full",
+       "andon": "full",
+       "dashboards": "view",
+       "analyzer": "view",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "full",
+       "reports": "full",
+       "users": "view",
+       "alertrules.default": "full",
+       "alertrules.custom": "full",
+       "aisettings": "view",
+       "config": "view"
+      },
+      "actions": {
+       "dashboards.build": true,
+       "dashboards.applyMany": true
+      },
+      "manageRoles": false,
+      "defaultScope": []
+     },
+     {
+      "id": "r_op0001",
+      "name": "Operator",
+      "builtIn": false,
+      "locked": false,
+      "desc": "",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "view",
+       "andon": "view",
+       "dashboards": "view",
+       "analyzer": "view"
+      },
+      "actions": {
+       "alarms.acknowledge": true
+      },
+      "manageRoles": false,
+      "defaultScope": [
+       {
+        "id": "10aba680-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     },
+     {
+      "id": "r_lead01",
+      "name": "Lead",
+      "builtIn": false,
+      "locked": false,
+      "desc": "Manages users and roles.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "users": "full",
+       "reports": "view"
+      },
+      "actions": {
+       "reports.run": true
+      },
+      "manageRoles": true,
+      "defaultScope": [
+       {
+        "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     }
+    ]
+   },
+   "user": {
+    "imexRole": "admin",
+    "Role": "Viewer"
+   },
+   "expect": {
+    "roleId": "admin",
+    "source": "imexRole",
+    "warnings": []
+   }
+  },
+  {
+   "name": "imexRole of a role that no longer exists: Viewer, warning",
+   "store": {
+    "v": 1,
+    "rev": 7,
+    "at": 1791205976606,
+    "by": "migration",
+    "roles": [
+     {
+      "id": "admin",
+      "name": "Admin",
+      "builtIn": true,
+      "locked": true,
+      "desc": "Everything, including users and roles.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "full",
+       "andon": "full",
+       "dashboards": "full",
+       "analyzer": "full",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "full",
+       "reports": "full",
+       "users": "full",
+       "alertrules.default": "full",
+       "alertrules.custom": "full",
+       "aisettings": "full",
+       "config": "full"
+      },
+      "actions": {
+       "alarms.acknowledge": true,
+       "andon.layout": true,
+       "andon.boards": true,
+       "dashboards.build": true,
+       "dashboards.applyMany": true,
+       "dashboards.deleteAny": true,
+       "analyzer.export": true,
+       "ai.relations.edit": true,
+       "reports.run": true,
+       "reports.edit": true,
+       "reports.schedule": true,
+       "reports.settings": true,
+       "alertrules.export": true,
+       "ai.jobs": true
+      },
+      "manageRoles": true,
+      "defaultScope": [
+       {
+        "id": "10c85640-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     },
+     {
+      "id": "viewer",
+      "name": "Viewer",
+      "builtIn": true,
+      "locked": false,
+      "desc": "Read only.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "view",
+       "andon": "view",
+       "dashboards": "view",
+       "analyzer": "view",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "view",
+       "reports": "view"
+      },
+      "actions": {
+       "reports.run": true
+      },
+      "manageRoles": false,
+      "defaultScope": []
+     },
+     {
+      "id": "r_sup001",
+      "name": "Supervisor",
+      "builtIn": false,
+      "locked": false,
+      "desc": "Runs the floor.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "full",
+       "andon": "full",
+       "dashboards": "view",
+       "analyzer": "view",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "full",
+       "reports": "full",
+       "users": "view",
+       "alertrules.default": "full",
+       "alertrules.custom": "full",
+       "aisettings": "view",
+       "config": "view"
+      },
+      "actions": {
+       "dashboards.build": true,
+       "dashboards.applyMany": true
+      },
+      "manageRoles": false,
+      "defaultScope": []
+     },
+     {
+      "id": "r_op0001",
+      "name": "Operator",
+      "builtIn": false,
+      "locked": false,
+      "desc": "",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "view",
+       "andon": "view",
+       "dashboards": "view",
+       "analyzer": "view"
+      },
+      "actions": {
+       "alarms.acknowledge": true
+      },
+      "manageRoles": false,
+      "defaultScope": [
+       {
+        "id": "10aba680-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     },
+     {
+      "id": "r_lead01",
+      "name": "Lead",
+      "builtIn": false,
+      "locked": false,
+      "desc": "Manages users and roles.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "users": "full",
+       "reports": "view"
+      },
+      "actions": {
+       "reports.run": true
+      },
+      "manageRoles": true,
+      "defaultScope": [
+       {
+        "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     }
+    ]
+   },
+   "user": {
+    "imexRole": "r_gone99",
+    "Role": "Admin"
+   },
+   "expect": {
+    "roleId": "viewer",
+    "source": "imexRole",
+    "warnings": [
+     "role.gone"
+    ]
+   }
+  },
+  {
+   "name": "imexRole without a store (POC customer): Viewer, warning",
+   "store": null,
+   "user": {
+    "imexRole": "r_sup001"
+   },
+   "expect": {
+    "roleId": "viewer",
+    "source": "imexRole",
+    "warnings": [
+     "role.gone"
+    ]
+   }
+  },
+  {
+   "name": "legacy Admin",
+   "store": {
+    "v": 1,
+    "rev": 7,
+    "at": 1791205976606,
+    "by": "migration",
+    "roles": [
+     {
+      "id": "admin",
+      "name": "Admin",
+      "builtIn": true,
+      "locked": true,
+      "desc": "Everything, including users and roles.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "full",
+       "andon": "full",
+       "dashboards": "full",
+       "analyzer": "full",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "full",
+       "reports": "full",
+       "users": "full",
+       "alertrules.default": "full",
+       "alertrules.custom": "full",
+       "aisettings": "full",
+       "config": "full"
+      },
+      "actions": {
+       "alarms.acknowledge": true,
+       "andon.layout": true,
+       "andon.boards": true,
+       "dashboards.build": true,
+       "dashboards.applyMany": true,
+       "dashboards.deleteAny": true,
+       "analyzer.export": true,
+       "ai.relations.edit": true,
+       "reports.run": true,
+       "reports.edit": true,
+       "reports.schedule": true,
+       "reports.settings": true,
+       "alertrules.export": true,
+       "ai.jobs": true
+      },
+      "manageRoles": true,
+      "defaultScope": [
+       {
+        "id": "10c85640-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     },
+     {
+      "id": "viewer",
+      "name": "Viewer",
+      "builtIn": true,
+      "locked": false,
+      "desc": "Read only.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "view",
+       "andon": "view",
+       "dashboards": "view",
+       "analyzer": "view",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "view",
+       "reports": "view"
+      },
+      "actions": {
+       "reports.run": true
+      },
+      "manageRoles": false,
+      "defaultScope": []
+     },
+     {
+      "id": "r_sup001",
+      "name": "Supervisor",
+      "builtIn": false,
+      "locked": false,
+      "desc": "Runs the floor.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "full",
+       "andon": "full",
+       "dashboards": "view",
+       "analyzer": "view",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "full",
+       "reports": "full",
+       "users": "view",
+       "alertrules.default": "full",
+       "alertrules.custom": "full",
+       "aisettings": "view",
+       "config": "view"
+      },
+      "actions": {
+       "dashboards.build": true,
+       "dashboards.applyMany": true
+      },
+      "manageRoles": false,
+      "defaultScope": []
+     },
+     {
+      "id": "r_op0001",
+      "name": "Operator",
+      "builtIn": false,
+      "locked": false,
+      "desc": "",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "view",
+       "andon": "view",
+       "dashboards": "view",
+       "analyzer": "view"
+      },
+      "actions": {
+       "alarms.acknowledge": true
+      },
+      "manageRoles": false,
+      "defaultScope": [
+       {
+        "id": "10aba680-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     },
+     {
+      "id": "r_lead01",
+      "name": "Lead",
+      "builtIn": false,
+      "locked": false,
+      "desc": "Manages users and roles.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "users": "full",
+       "reports": "view"
+      },
+      "actions": {
+       "reports.run": true
+      },
+      "manageRoles": true,
+      "defaultScope": [
+       {
+        "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     }
+    ]
+   },
+   "user": {
+    "Role": "Admin"
+   },
+   "expect": {
+    "roleId": "admin",
+    "source": "legacy",
+    "warnings": []
+   }
+  },
+  {
+   "name": "legacy Customer Admin",
+   "store": {
+    "v": 1,
+    "rev": 7,
+    "at": 1791205976606,
+    "by": "migration",
+    "roles": [
+     {
+      "id": "admin",
+      "name": "Admin",
+      "builtIn": true,
+      "locked": true,
+      "desc": "Everything, including users and roles.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "full",
+       "andon": "full",
+       "dashboards": "full",
+       "analyzer": "full",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "full",
+       "reports": "full",
+       "users": "full",
+       "alertrules.default": "full",
+       "alertrules.custom": "full",
+       "aisettings": "full",
+       "config": "full"
+      },
+      "actions": {
+       "alarms.acknowledge": true,
+       "andon.layout": true,
+       "andon.boards": true,
+       "dashboards.build": true,
+       "dashboards.applyMany": true,
+       "dashboards.deleteAny": true,
+       "analyzer.export": true,
+       "ai.relations.edit": true,
+       "reports.run": true,
+       "reports.edit": true,
+       "reports.schedule": true,
+       "reports.settings": true,
+       "alertrules.export": true,
+       "ai.jobs": true
+      },
+      "manageRoles": true,
+      "defaultScope": [
+       {
+        "id": "10c85640-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     },
+     {
+      "id": "viewer",
+      "name": "Viewer",
+      "builtIn": true,
+      "locked": false,
+      "desc": "Read only.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "view",
+       "andon": "view",
+       "dashboards": "view",
+       "analyzer": "view",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "view",
+       "reports": "view"
+      },
+      "actions": {
+       "reports.run": true
+      },
+      "manageRoles": false,
+      "defaultScope": []
+     },
+     {
+      "id": "r_sup001",
+      "name": "Supervisor",
+      "builtIn": false,
+      "locked": false,
+      "desc": "Runs the floor.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "full",
+       "andon": "full",
+       "dashboards": "view",
+       "analyzer": "view",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "full",
+       "reports": "full",
+       "users": "view",
+       "alertrules.default": "full",
+       "alertrules.custom": "full",
+       "aisettings": "view",
+       "config": "view"
+      },
+      "actions": {
+       "dashboards.build": true,
+       "dashboards.applyMany": true
+      },
+      "manageRoles": false,
+      "defaultScope": []
+     },
+     {
+      "id": "r_op0001",
+      "name": "Operator",
+      "builtIn": false,
+      "locked": false,
+      "desc": "",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "view",
+       "andon": "view",
+       "dashboards": "view",
+       "analyzer": "view"
+      },
+      "actions": {
+       "alarms.acknowledge": true
+      },
+      "manageRoles": false,
+      "defaultScope": [
+       {
+        "id": "10aba680-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     },
+     {
+      "id": "r_lead01",
+      "name": "Lead",
+      "builtIn": false,
+      "locked": false,
+      "desc": "Manages users and roles.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "users": "full",
+       "reports": "view"
+      },
+      "actions": {
+       "reports.run": true
+      },
+      "manageRoles": true,
+      "defaultScope": [
+       {
+        "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     }
+    ]
+   },
+   "user": {
+    "Role": "Customer Admin"
+   },
+   "expect": {
+    "roleId": "admin",
+    "source": "legacy",
+    "warnings": []
+   }
+  },
+  {
+   "name": "legacy administrator, any case and spaces",
+   "store": {
+    "v": 1,
+    "rev": 7,
+    "at": 1791205976606,
+    "by": "migration",
+    "roles": [
+     {
+      "id": "admin",
+      "name": "Admin",
+      "builtIn": true,
+      "locked": true,
+      "desc": "Everything, including users and roles.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "full",
+       "andon": "full",
+       "dashboards": "full",
+       "analyzer": "full",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "full",
+       "reports": "full",
+       "users": "full",
+       "alertrules.default": "full",
+       "alertrules.custom": "full",
+       "aisettings": "full",
+       "config": "full"
+      },
+      "actions": {
+       "alarms.acknowledge": true,
+       "andon.layout": true,
+       "andon.boards": true,
+       "dashboards.build": true,
+       "dashboards.applyMany": true,
+       "dashboards.deleteAny": true,
+       "analyzer.export": true,
+       "ai.relations.edit": true,
+       "reports.run": true,
+       "reports.edit": true,
+       "reports.schedule": true,
+       "reports.settings": true,
+       "alertrules.export": true,
+       "ai.jobs": true
+      },
+      "manageRoles": true,
+      "defaultScope": [
+       {
+        "id": "10c85640-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     },
+     {
+      "id": "viewer",
+      "name": "Viewer",
+      "builtIn": true,
+      "locked": false,
+      "desc": "Read only.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "view",
+       "andon": "view",
+       "dashboards": "view",
+       "analyzer": "view",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "view",
+       "reports": "view"
+      },
+      "actions": {
+       "reports.run": true
+      },
+      "manageRoles": false,
+      "defaultScope": []
+     },
+     {
+      "id": "r_sup001",
+      "name": "Supervisor",
+      "builtIn": false,
+      "locked": false,
+      "desc": "Runs the floor.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "full",
+       "andon": "full",
+       "dashboards": "view",
+       "analyzer": "view",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "full",
+       "reports": "full",
+       "users": "view",
+       "alertrules.default": "full",
+       "alertrules.custom": "full",
+       "aisettings": "view",
+       "config": "view"
+      },
+      "actions": {
+       "dashboards.build": true,
+       "dashboards.applyMany": true
+      },
+      "manageRoles": false,
+      "defaultScope": []
+     },
+     {
+      "id": "r_op0001",
+      "name": "Operator",
+      "builtIn": false,
+      "locked": false,
+      "desc": "",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "view",
+       "andon": "view",
+       "dashboards": "view",
+       "analyzer": "view"
+      },
+      "actions": {
+       "alarms.acknowledge": true
+      },
+      "manageRoles": false,
+      "defaultScope": [
+       {
+        "id": "10aba680-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     },
+     {
+      "id": "r_lead01",
+      "name": "Lead",
+      "builtIn": false,
+      "locked": false,
+      "desc": "Manages users and roles.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "users": "full",
+       "reports": "view"
+      },
+      "actions": {
+       "reports.run": true
+      },
+      "manageRoles": true,
+      "defaultScope": [
+       {
+        "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     }
+    ]
+   },
+   "user": {
+    "Role": " administrator "
+   },
+   "expect": {
+    "roleId": "admin",
+    "source": "legacy",
+    "warnings": []
+   }
+  },
+  {
+   "name": "legacy dbbAdmin \"true\"",
+   "store": {
+    "v": 1,
+    "rev": 7,
+    "at": 1791205976606,
+    "by": "migration",
+    "roles": [
+     {
+      "id": "admin",
+      "name": "Admin",
+      "builtIn": true,
+      "locked": true,
+      "desc": "Everything, including users and roles.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "full",
+       "andon": "full",
+       "dashboards": "full",
+       "analyzer": "full",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "full",
+       "reports": "full",
+       "users": "full",
+       "alertrules.default": "full",
+       "alertrules.custom": "full",
+       "aisettings": "full",
+       "config": "full"
+      },
+      "actions": {
+       "alarms.acknowledge": true,
+       "andon.layout": true,
+       "andon.boards": true,
+       "dashboards.build": true,
+       "dashboards.applyMany": true,
+       "dashboards.deleteAny": true,
+       "analyzer.export": true,
+       "ai.relations.edit": true,
+       "reports.run": true,
+       "reports.edit": true,
+       "reports.schedule": true,
+       "reports.settings": true,
+       "alertrules.export": true,
+       "ai.jobs": true
+      },
+      "manageRoles": true,
+      "defaultScope": [
+       {
+        "id": "10c85640-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     },
+     {
+      "id": "viewer",
+      "name": "Viewer",
+      "builtIn": true,
+      "locked": false,
+      "desc": "Read only.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "view",
+       "andon": "view",
+       "dashboards": "view",
+       "analyzer": "view",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "view",
+       "reports": "view"
+      },
+      "actions": {
+       "reports.run": true
+      },
+      "manageRoles": false,
+      "defaultScope": []
+     },
+     {
+      "id": "r_sup001",
+      "name": "Supervisor",
+      "builtIn": false,
+      "locked": false,
+      "desc": "Runs the floor.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "full",
+       "andon": "full",
+       "dashboards": "view",
+       "analyzer": "view",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "full",
+       "reports": "full",
+       "users": "view",
+       "alertrules.default": "full",
+       "alertrules.custom": "full",
+       "aisettings": "view",
+       "config": "view"
+      },
+      "actions": {
+       "dashboards.build": true,
+       "dashboards.applyMany": true
+      },
+      "manageRoles": false,
+      "defaultScope": []
+     },
+     {
+      "id": "r_op0001",
+      "name": "Operator",
+      "builtIn": false,
+      "locked": false,
+      "desc": "",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "view",
+       "andon": "view",
+       "dashboards": "view",
+       "analyzer": "view"
+      },
+      "actions": {
+       "alarms.acknowledge": true
+      },
+      "manageRoles": false,
+      "defaultScope": [
+       {
+        "id": "10aba680-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     },
+     {
+      "id": "r_lead01",
+      "name": "Lead",
+      "builtIn": false,
+      "locked": false,
+      "desc": "Manages users and roles.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "users": "full",
+       "reports": "view"
+      },
+      "actions": {
+       "reports.run": true
+      },
+      "manageRoles": true,
+      "defaultScope": [
+       {
+        "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     }
+    ]
+   },
+   "user": {
+    "Role": "User",
+    "dbbAdmin": "true"
+   },
+   "expect": {
+    "roleId": "admin",
+    "source": "legacy",
+    "warnings": []
+   }
+  },
+  {
+   "name": "legacy dbbAdmin true",
+   "store": null,
+   "user": {
+    "dbbAdmin": true
+   },
+   "expect": {
+    "roleId": "admin",
+    "source": "legacy",
+    "warnings": []
+   }
+  },
+  {
+   "name": "legacy dbbAdmin \"false\"",
+   "store": null,
+   "user": {
+    "Role": "User",
+    "dbbAdmin": "false"
+   },
+   "expect": {
+    "roleId": "viewer",
+    "source": "legacy",
+    "warnings": []
+   }
+  },
+  {
+   "name": "legacy User",
+   "store": {
+    "v": 1,
+    "rev": 7,
+    "at": 1791205976606,
+    "by": "migration",
+    "roles": [
+     {
+      "id": "admin",
+      "name": "Admin",
+      "builtIn": true,
+      "locked": true,
+      "desc": "Everything, including users and roles.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "full",
+       "andon": "full",
+       "dashboards": "full",
+       "analyzer": "full",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "full",
+       "reports": "full",
+       "users": "full",
+       "alertrules.default": "full",
+       "alertrules.custom": "full",
+       "aisettings": "full",
+       "config": "full"
+      },
+      "actions": {
+       "alarms.acknowledge": true,
+       "andon.layout": true,
+       "andon.boards": true,
+       "dashboards.build": true,
+       "dashboards.applyMany": true,
+       "dashboards.deleteAny": true,
+       "analyzer.export": true,
+       "ai.relations.edit": true,
+       "reports.run": true,
+       "reports.edit": true,
+       "reports.schedule": true,
+       "reports.settings": true,
+       "alertrules.export": true,
+       "ai.jobs": true
+      },
+      "manageRoles": true,
+      "defaultScope": [
+       {
+        "id": "10c85640-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     },
+     {
+      "id": "viewer",
+      "name": "Viewer",
+      "builtIn": true,
+      "locked": false,
+      "desc": "Read only.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "view",
+       "andon": "view",
+       "dashboards": "view",
+       "analyzer": "view",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "view",
+       "reports": "view"
+      },
+      "actions": {
+       "reports.run": true
+      },
+      "manageRoles": false,
+      "defaultScope": []
+     },
+     {
+      "id": "r_sup001",
+      "name": "Supervisor",
+      "builtIn": false,
+      "locked": false,
+      "desc": "Runs the floor.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "full",
+       "andon": "full",
+       "dashboards": "view",
+       "analyzer": "view",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "full",
+       "reports": "full",
+       "users": "view",
+       "alertrules.default": "full",
+       "alertrules.custom": "full",
+       "aisettings": "view",
+       "config": "view"
+      },
+      "actions": {
+       "dashboards.build": true,
+       "dashboards.applyMany": true
+      },
+      "manageRoles": false,
+      "defaultScope": []
+     },
+     {
+      "id": "r_op0001",
+      "name": "Operator",
+      "builtIn": false,
+      "locked": false,
+      "desc": "",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "view",
+       "andon": "view",
+       "dashboards": "view",
+       "analyzer": "view"
+      },
+      "actions": {
+       "alarms.acknowledge": true
+      },
+      "manageRoles": false,
+      "defaultScope": [
+       {
+        "id": "10aba680-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     },
+     {
+      "id": "r_lead01",
+      "name": "Lead",
+      "builtIn": false,
+      "locked": false,
+      "desc": "Manages users and roles.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "users": "full",
+       "reports": "view"
+      },
+      "actions": {
+       "reports.run": true
+      },
+      "manageRoles": true,
+      "defaultScope": [
+       {
+        "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     }
+    ]
+   },
+   "user": {
+    "Role": "User"
+   },
+   "expect": {
+    "roleId": "viewer",
+    "source": "legacy",
+    "warnings": []
+   }
+  },
+  {
+   "name": "legacy Viewer",
+   "store": {
+    "v": 1,
+    "rev": 7,
+    "at": 1791205976606,
+    "by": "migration",
+    "roles": [
+     {
+      "id": "admin",
+      "name": "Admin",
+      "builtIn": true,
+      "locked": true,
+      "desc": "Everything, including users and roles.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "full",
+       "andon": "full",
+       "dashboards": "full",
+       "analyzer": "full",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "full",
+       "reports": "full",
+       "users": "full",
+       "alertrules.default": "full",
+       "alertrules.custom": "full",
+       "aisettings": "full",
+       "config": "full"
+      },
+      "actions": {
+       "alarms.acknowledge": true,
+       "andon.layout": true,
+       "andon.boards": true,
+       "dashboards.build": true,
+       "dashboards.applyMany": true,
+       "dashboards.deleteAny": true,
+       "analyzer.export": true,
+       "ai.relations.edit": true,
+       "reports.run": true,
+       "reports.edit": true,
+       "reports.schedule": true,
+       "reports.settings": true,
+       "alertrules.export": true,
+       "ai.jobs": true
+      },
+      "manageRoles": true,
+      "defaultScope": [
+       {
+        "id": "10c85640-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     },
+     {
+      "id": "viewer",
+      "name": "Viewer",
+      "builtIn": true,
+      "locked": false,
+      "desc": "Read only.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "view",
+       "andon": "view",
+       "dashboards": "view",
+       "analyzer": "view",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "view",
+       "reports": "view"
+      },
+      "actions": {
+       "reports.run": true
+      },
+      "manageRoles": false,
+      "defaultScope": []
+     },
+     {
+      "id": "r_sup001",
+      "name": "Supervisor",
+      "builtIn": false,
+      "locked": false,
+      "desc": "Runs the floor.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "full",
+       "andon": "full",
+       "dashboards": "view",
+       "analyzer": "view",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "full",
+       "reports": "full",
+       "users": "view",
+       "alertrules.default": "full",
+       "alertrules.custom": "full",
+       "aisettings": "view",
+       "config": "view"
+      },
+      "actions": {
+       "dashboards.build": true,
+       "dashboards.applyMany": true
+      },
+      "manageRoles": false,
+      "defaultScope": []
+     },
+     {
+      "id": "r_op0001",
+      "name": "Operator",
+      "builtIn": false,
+      "locked": false,
+      "desc": "",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "view",
+       "andon": "view",
+       "dashboards": "view",
+       "analyzer": "view"
+      },
+      "actions": {
+       "alarms.acknowledge": true
+      },
+      "manageRoles": false,
+      "defaultScope": [
+       {
+        "id": "10aba680-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     },
+     {
+      "id": "r_lead01",
+      "name": "Lead",
+      "builtIn": false,
+      "locked": false,
+      "desc": "Manages users and roles.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "users": "full",
+       "reports": "view"
+      },
+      "actions": {
+       "reports.run": true
+      },
+      "manageRoles": true,
+      "defaultScope": [
+       {
+        "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     }
+    ]
+   },
+   "user": {
+    "Role": "Viewer"
+   },
+   "expect": {
+    "roleId": "viewer",
+    "source": "legacy",
+    "warnings": []
+   }
+  },
+  {
+   "name": "nothing at all",
+   "store": {
+    "v": 1,
+    "rev": 7,
+    "at": 1791205976606,
+    "by": "migration",
+    "roles": [
+     {
+      "id": "admin",
+      "name": "Admin",
+      "builtIn": true,
+      "locked": true,
+      "desc": "Everything, including users and roles.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "full",
+       "andon": "full",
+       "dashboards": "full",
+       "analyzer": "full",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "full",
+       "reports": "full",
+       "users": "full",
+       "alertrules.default": "full",
+       "alertrules.custom": "full",
+       "aisettings": "full",
+       "config": "full"
+      },
+      "actions": {
+       "alarms.acknowledge": true,
+       "andon.layout": true,
+       "andon.boards": true,
+       "dashboards.build": true,
+       "dashboards.applyMany": true,
+       "dashboards.deleteAny": true,
+       "analyzer.export": true,
+       "ai.relations.edit": true,
+       "reports.run": true,
+       "reports.edit": true,
+       "reports.schedule": true,
+       "reports.settings": true,
+       "alertrules.export": true,
+       "ai.jobs": true
+      },
+      "manageRoles": true,
+      "defaultScope": [
+       {
+        "id": "10c85640-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     },
+     {
+      "id": "viewer",
+      "name": "Viewer",
+      "builtIn": true,
+      "locked": false,
+      "desc": "Read only.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "view",
+       "andon": "view",
+       "dashboards": "view",
+       "analyzer": "view",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "view",
+       "reports": "view"
+      },
+      "actions": {
+       "reports.run": true
+      },
+      "manageRoles": false,
+      "defaultScope": []
+     },
+     {
+      "id": "r_sup001",
+      "name": "Supervisor",
+      "builtIn": false,
+      "locked": false,
+      "desc": "Runs the floor.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "full",
+       "andon": "full",
+       "dashboards": "view",
+       "analyzer": "view",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "full",
+       "reports": "full",
+       "users": "view",
+       "alertrules.default": "full",
+       "alertrules.custom": "full",
+       "aisettings": "view",
+       "config": "view"
+      },
+      "actions": {
+       "dashboards.build": true,
+       "dashboards.applyMany": true
+      },
+      "manageRoles": false,
+      "defaultScope": []
+     },
+     {
+      "id": "r_op0001",
+      "name": "Operator",
+      "builtIn": false,
+      "locked": false,
+      "desc": "",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "view",
+       "andon": "view",
+       "dashboards": "view",
+       "analyzer": "view"
+      },
+      "actions": {
+       "alarms.acknowledge": true
+      },
+      "manageRoles": false,
+      "defaultScope": [
+       {
+        "id": "10aba680-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     },
+     {
+      "id": "r_lead01",
+      "name": "Lead",
+      "builtIn": false,
+      "locked": false,
+      "desc": "Manages users and roles.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "users": "full",
+       "reports": "view"
+      },
+      "actions": {
+       "reports.run": true
+      },
+      "manageRoles": true,
+      "defaultScope": [
+       {
+        "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     }
+    ]
+   },
+   "user": {},
+   "expect": {
+    "roleId": "viewer",
+    "source": "legacy",
+    "warnings": []
+   }
+  },
+  {
+   "name": "empty imexRole is absent",
+   "store": {
+    "v": 1,
+    "rev": 7,
+    "at": 1791205976606,
+    "by": "migration",
+    "roles": [
+     {
+      "id": "admin",
+      "name": "Admin",
+      "builtIn": true,
+      "locked": true,
+      "desc": "Everything, including users and roles.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "full",
+       "andon": "full",
+       "dashboards": "full",
+       "analyzer": "full",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "full",
+       "reports": "full",
+       "users": "full",
+       "alertrules.default": "full",
+       "alertrules.custom": "full",
+       "aisettings": "full",
+       "config": "full"
+      },
+      "actions": {
+       "alarms.acknowledge": true,
+       "andon.layout": true,
+       "andon.boards": true,
+       "dashboards.build": true,
+       "dashboards.applyMany": true,
+       "dashboards.deleteAny": true,
+       "analyzer.export": true,
+       "ai.relations.edit": true,
+       "reports.run": true,
+       "reports.edit": true,
+       "reports.schedule": true,
+       "reports.settings": true,
+       "alertrules.export": true,
+       "ai.jobs": true
+      },
+      "manageRoles": true,
+      "defaultScope": [
+       {
+        "id": "10c85640-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     },
+     {
+      "id": "viewer",
+      "name": "Viewer",
+      "builtIn": true,
+      "locked": false,
+      "desc": "Read only.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "view",
+       "andon": "view",
+       "dashboards": "view",
+       "analyzer": "view",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "view",
+       "reports": "view"
+      },
+      "actions": {
+       "reports.run": true
+      },
+      "manageRoles": false,
+      "defaultScope": []
+     },
+     {
+      "id": "r_sup001",
+      "name": "Supervisor",
+      "builtIn": false,
+      "locked": false,
+      "desc": "Runs the floor.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "full",
+       "andon": "full",
+       "dashboards": "view",
+       "analyzer": "view",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "full",
+       "reports": "full",
+       "users": "view",
+       "alertrules.default": "full",
+       "alertrules.custom": "full",
+       "aisettings": "view",
+       "config": "view"
+      },
+      "actions": {
+       "dashboards.build": true,
+       "dashboards.applyMany": true
+      },
+      "manageRoles": false,
+      "defaultScope": []
+     },
+     {
+      "id": "r_op0001",
+      "name": "Operator",
+      "builtIn": false,
+      "locked": false,
+      "desc": "",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "view",
+       "andon": "view",
+       "dashboards": "view",
+       "analyzer": "view"
+      },
+      "actions": {
+       "alarms.acknowledge": true
+      },
+      "manageRoles": false,
+      "defaultScope": [
+       {
+        "id": "10aba680-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     },
+     {
+      "id": "r_lead01",
+      "name": "Lead",
+      "builtIn": false,
+      "locked": false,
+      "desc": "Manages users and roles.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "users": "full",
+       "reports": "view"
+      },
+      "actions": {
+       "reports.run": true
+      },
+      "manageRoles": true,
+      "defaultScope": [
+       {
+        "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     }
+    ]
+   },
+   "user": {
+    "imexRole": "",
+    "Role": "Admin"
+   },
+   "expect": {
+    "roleId": "admin",
+    "source": "legacy",
+    "warnings": []
+   }
+  },
+  {
+   "name": "legacy other value (Operator) before the migration: Viewer",
+   "store": {
+    "v": 1,
+    "rev": 7,
+    "at": 1791205976606,
+    "by": "migration",
+    "roles": [
+     {
+      "id": "admin",
+      "name": "Admin",
+      "builtIn": true,
+      "locked": true,
+      "desc": "Everything, including users and roles.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "full",
+       "andon": "full",
+       "dashboards": "full",
+       "analyzer": "full",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "full",
+       "reports": "full",
+       "users": "full",
+       "alertrules.default": "full",
+       "alertrules.custom": "full",
+       "aisettings": "full",
+       "config": "full"
+      },
+      "actions": {
+       "alarms.acknowledge": true,
+       "andon.layout": true,
+       "andon.boards": true,
+       "dashboards.build": true,
+       "dashboards.applyMany": true,
+       "dashboards.deleteAny": true,
+       "analyzer.export": true,
+       "ai.relations.edit": true,
+       "reports.run": true,
+       "reports.edit": true,
+       "reports.schedule": true,
+       "reports.settings": true,
+       "alertrules.export": true,
+       "ai.jobs": true
+      },
+      "manageRoles": true,
+      "defaultScope": [
+       {
+        "id": "10c85640-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     },
+     {
+      "id": "viewer",
+      "name": "Viewer",
+      "builtIn": true,
+      "locked": false,
+      "desc": "Read only.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "view",
+       "andon": "view",
+       "dashboards": "view",
+       "analyzer": "view",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "view",
+       "reports": "view"
+      },
+      "actions": {
+       "reports.run": true
+      },
+      "manageRoles": false,
+      "defaultScope": []
+     },
+     {
+      "id": "r_sup001",
+      "name": "Supervisor",
+      "builtIn": false,
+      "locked": false,
+      "desc": "Runs the floor.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "full",
+       "andon": "full",
+       "dashboards": "view",
+       "analyzer": "view",
+       "ai.forecast": "view",
+       "ai.anomalies": "view",
+       "ai.maintenance": "view",
+       "ai.relations": "full",
+       "reports": "full",
+       "users": "view",
+       "alertrules.default": "full",
+       "alertrules.custom": "full",
+       "aisettings": "view",
+       "config": "view"
+      },
+      "actions": {
+       "dashboards.build": true,
+       "dashboards.applyMany": true
+      },
+      "manageRoles": false,
+      "defaultScope": []
+     },
+     {
+      "id": "r_op0001",
+      "name": "Operator",
+      "builtIn": false,
+      "locked": false,
+      "desc": "",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "alarms": "view",
+       "andon": "view",
+       "dashboards": "view",
+       "analyzer": "view"
+      },
+      "actions": {
+       "alarms.acknowledge": true
+      },
+      "manageRoles": false,
+      "defaultScope": [
+       {
+        "id": "10aba680-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     },
+     {
+      "id": "r_lead01",
+      "name": "Lead",
+      "builtIn": false,
+      "locked": false,
+      "desc": "Manages users and roles.",
+      "perms": {
+       "sites": "view",
+       "machines": "view",
+       "users": "full",
+       "reports": "view"
+      },
+      "actions": {
+       "reports.run": true
+      },
+      "manageRoles": true,
+      "defaultScope": [
+       {
+        "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+        "type": "ASSET",
+        "mode": "all"
+       }
+      ]
+     }
+    ]
+   },
+   "user": {
+    "Role": "Operator"
+   },
+   "expect": {
+    "roleId": "viewer",
+    "source": "legacy",
+    "warnings": []
+   }
+  }
+ ],
+ "effective": [
+  {
+   "name": "Admin: every row at its top, every action, manage roles",
+   "role": {
+    "id": "admin",
+    "name": "Admin",
+    "builtIn": true,
+    "locked": true,
+    "desc": "Everything, including users and roles.",
+    "perms": {
+     "sites": "view",
+     "machines": "view",
+     "alarms": "full",
+     "andon": "full",
+     "dashboards": "full",
+     "analyzer": "full",
+     "ai.forecast": "view",
+     "ai.anomalies": "view",
+     "ai.maintenance": "view",
+     "ai.relations": "full",
+     "reports": "full",
+     "users": "full",
+     "alertrules.default": "full",
+     "alertrules.custom": "full",
+     "aisettings": "full",
+     "config": "full"
+    },
+    "actions": {
+     "alarms.acknowledge": true,
+     "andon.layout": true,
+     "andon.boards": true,
+     "dashboards.build": true,
+     "dashboards.applyMany": true,
+     "dashboards.deleteAny": true,
+     "analyzer.export": true,
+     "ai.relations.edit": true,
+     "reports.run": true,
+     "reports.edit": true,
+     "reports.schedule": true,
+     "reports.settings": true,
+     "alertrules.export": true,
+     "ai.jobs": true
+    },
+    "manageRoles": true,
+    "defaultScope": []
+   },
+   "expect": {
+    "unrestricted": false,
+    "pages": {
+     "sites": "view",
+     "machines": "view",
+     "alarms": "full",
+     "andon": "full",
+     "dashboards": "full",
+     "analyzer": "full",
+     "ai.forecast": "view",
+     "ai.anomalies": "view",
+     "ai.maintenance": "view",
+     "ai.relations": "full",
+     "reports": "full",
+     "users": "full",
+     "alertrules.default": "full",
+     "alertrules.custom": "full",
+     "aisettings": "full",
+     "config": "full"
+    },
+    "actions": {
+     "alarms.acknowledge": true,
+     "andon.layout": true,
+     "andon.boards": true,
+     "dashboards.build": true,
+     "dashboards.applyMany": true,
+     "dashboards.deleteAny": true,
+     "analyzer.export": true,
+     "ai.relations.edit": true,
+     "reports.run": true,
+     "reports.edit": true,
+     "reports.schedule": true,
+     "reports.settings": true,
+     "alertrules.export": true,
+     "ai.jobs": true
+    },
+    "manageRoles": true
+   }
+  },
+  {
+   "name": "Viewer: view on Monitor and Insights, Run reports",
+   "role": {
+    "id": "viewer",
+    "name": "Viewer",
+    "builtIn": true,
+    "locked": false,
+    "desc": "Read only.",
+    "perms": {
+     "sites": "view",
+     "machines": "view",
+     "alarms": "view",
+     "andon": "view",
+     "dashboards": "view",
+     "analyzer": "view",
+     "ai.forecast": "view",
+     "ai.anomalies": "view",
+     "ai.maintenance": "view",
+     "ai.relations": "view",
+     "reports": "view"
+    },
+    "actions": {
+     "reports.run": true
+    },
+    "manageRoles": false,
+    "defaultScope": []
+   },
+   "expect": {
+    "unrestricted": false,
+    "pages": {
+     "sites": "view",
+     "machines": "view",
+     "alarms": "view",
+     "andon": "view",
+     "dashboards": "view",
+     "analyzer": "view",
+     "ai.forecast": "view",
+     "ai.anomalies": "view",
+     "ai.maintenance": "view",
+     "ai.relations": "view",
+     "reports": "view",
+     "users": "hidden",
+     "alertrules.default": "hidden",
+     "alertrules.custom": "hidden",
+     "aisettings": "hidden",
+     "config": "hidden"
+    },
+    "actions": {
+     "reports.run": true
+    },
+    "manageRoles": false
+   }
+  },
+  {
+   "name": "tenant admin (unrestricted)",
+   "role": "unrestricted",
+   "expect": {
+    "unrestricted": true,
+    "pages": {
+     "sites": "view",
+     "machines": "view",
+     "alarms": "full",
+     "andon": "full",
+     "dashboards": "full",
+     "analyzer": "full",
+     "ai.forecast": "view",
+     "ai.anomalies": "view",
+     "ai.maintenance": "view",
+     "ai.relations": "full",
+     "reports": "full",
+     "users": "full",
+     "alertrules.default": "full",
+     "alertrules.custom": "full",
+     "aisettings": "full",
+     "config": "full"
+    },
+    "actions": {
+     "alarms.acknowledge": true,
+     "andon.layout": true,
+     "andon.boards": true,
+     "dashboards.build": true,
+     "dashboards.applyMany": true,
+     "dashboards.deleteAny": true,
+     "analyzer.export": true,
+     "ai.relations.edit": true,
+     "reports.run": true,
+     "reports.edit": true,
+     "reports.schedule": true,
+     "reports.settings": true,
+     "alertrules.export": true,
+     "ai.jobs": true
+    },
+    "manageRoles": true
+   }
+  },
+  {
+   "name": "no role: everything hidden",
+   "role": null,
+   "expect": {
+    "unrestricted": false,
+    "pages": {
+     "sites": "hidden",
+     "machines": "hidden",
+     "alarms": "hidden",
+     "andon": "hidden",
+     "dashboards": "hidden",
+     "analyzer": "hidden",
+     "ai.forecast": "hidden",
+     "ai.anomalies": "hidden",
+     "ai.maintenance": "hidden",
+     "ai.relations": "hidden",
+     "reports": "hidden",
+     "users": "hidden",
+     "alertrules.default": "hidden",
+     "alertrules.custom": "hidden",
+     "aisettings": "hidden",
+     "config": "hidden"
+    },
+    "actions": {},
+    "manageRoles": false
+   }
+  },
+  {
+   "name": "actions: implied at Full, ticked at View, dropped at Hidden",
+   "role": {
+    "id": "r_x",
+    "perms": {
+     "alarms": "full",
+     "reports": "view",
+     "andon": "hidden"
+    },
+    "actions": {
+     "reports.edit": true,
+     "andon.layout": true,
+     "alarms.acknowledge": false
+    }
+   },
+   "expect": {
+    "unrestricted": false,
+    "pages": {
+     "sites": "hidden",
+     "machines": "hidden",
+     "alarms": "full",
+     "andon": "hidden",
+     "dashboards": "hidden",
+     "analyzer": "hidden",
+     "ai.forecast": "hidden",
+     "ai.anomalies": "hidden",
+     "ai.maintenance": "hidden",
+     "ai.relations": "hidden",
+     "reports": "view",
+     "users": "hidden",
+     "alertrules.default": "hidden",
+     "alertrules.custom": "hidden",
+     "aisettings": "hidden",
+     "config": "hidden"
+    },
+    "actions": {
+     "alarms.acknowledge": true,
+     "reports.edit": true
+    },
+    "manageRoles": false
+   }
+  },
+  {
+   "name": "a level a row does not have is its top level (Fleet overview has no Full)",
+   "role": {
+    "id": "r_x",
+    "perms": {
+     "sites": "full",
+     "machines": "full"
+    }
+   },
+   "expect": {
+    "unrestricted": false,
+    "pages": {
+     "sites": "view",
+     "machines": "view",
+     "alarms": "hidden",
+     "andon": "hidden",
+     "dashboards": "hidden",
+     "analyzer": "hidden",
+     "ai.forecast": "hidden",
+     "ai.anomalies": "hidden",
+     "ai.maintenance": "hidden",
+     "ai.relations": "hidden",
+     "reports": "hidden",
+     "users": "hidden",
+     "alertrules.default": "hidden",
+     "alertrules.custom": "hidden",
+     "aisettings": "hidden",
+     "config": "hidden"
+    },
+    "actions": {},
+    "manageRoles": false
+   }
+  },
+  {
+   "name": "an unknown level is hidden",
+   "role": {
+    "id": "r_x",
+    "perms": {
+     "alarms": "superfull",
+     "reports": "View"
+    }
+   },
+   "expect": {
+    "unrestricted": false,
+    "pages": {
+     "sites": "hidden",
+     "machines": "hidden",
+     "alarms": "hidden",
+     "andon": "hidden",
+     "dashboards": "hidden",
+     "analyzer": "hidden",
+     "ai.forecast": "hidden",
+     "ai.anomalies": "hidden",
+     "ai.maintenance": "hidden",
+     "ai.relations": "hidden",
+     "reports": "hidden",
+     "users": "hidden",
+     "alertrules.default": "hidden",
+     "alertrules.custom": "hidden",
+     "aisettings": "hidden",
+     "config": "hidden"
+    },
+    "actions": {},
+    "manageRoles": false
+   }
+  },
+  {
+   "name": "manage roles needs Users at Full",
+   "role": {
+    "id": "r_x",
+    "perms": {
+     "users": "view"
+    },
+    "manageRoles": true
+   },
+   "expect": {
+    "unrestricted": false,
+    "pages": {
+     "sites": "hidden",
+     "machines": "hidden",
+     "alarms": "hidden",
+     "andon": "hidden",
+     "dashboards": "hidden",
+     "analyzer": "hidden",
+     "ai.forecast": "hidden",
+     "ai.anomalies": "hidden",
+     "ai.maintenance": "hidden",
+     "ai.relations": "hidden",
+     "reports": "hidden",
+     "users": "view",
+     "alertrules.default": "hidden",
+     "alertrules.custom": "hidden",
+     "aisettings": "hidden",
+     "config": "hidden"
+    },
+    "actions": {},
+    "manageRoles": false
+   }
+  },
+  {
+   "name": "manage roles with Users at Full",
+   "role": {
+    "id": "r_lead01",
+    "name": "Lead",
+    "builtIn": false,
+    "locked": false,
+    "desc": "Manages users and roles.",
+    "perms": {
+     "sites": "view",
+     "machines": "view",
+     "users": "full",
+     "reports": "view"
+    },
+    "actions": {
+     "reports.run": true
+    },
+    "manageRoles": true,
+    "defaultScope": [
+     {
+      "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+      "type": "ASSET",
+      "mode": "all"
+     }
+    ]
+   },
+   "expect": {
+    "unrestricted": false,
+    "pages": {
+     "sites": "view",
+     "machines": "view",
+     "alarms": "hidden",
+     "andon": "hidden",
+     "dashboards": "hidden",
+     "analyzer": "hidden",
+     "ai.forecast": "hidden",
+     "ai.anomalies": "hidden",
+     "ai.maintenance": "hidden",
+     "ai.relations": "hidden",
+     "reports": "view",
+     "users": "full",
+     "alertrules.default": "hidden",
+     "alertrules.custom": "hidden",
+     "aisettings": "hidden",
+     "config": "hidden"
+    },
+    "actions": {
+     "reports.run": true
+    },
+    "manageRoles": true
+   }
+  },
+  {
+   "name": "the Supervisor",
+   "role": {
+    "id": "r_sup001",
+    "name": "Supervisor",
+    "builtIn": false,
+    "locked": false,
+    "desc": "Runs the floor.",
+    "perms": {
+     "sites": "view",
+     "machines": "view",
+     "alarms": "full",
+     "andon": "full",
+     "dashboards": "view",
+     "analyzer": "view",
+     "ai.forecast": "view",
+     "ai.anomalies": "view",
+     "ai.maintenance": "view",
+     "ai.relations": "full",
+     "reports": "full",
+     "users": "view",
+     "alertrules.default": "full",
+     "alertrules.custom": "full",
+     "aisettings": "view",
+     "config": "view"
+    },
+    "actions": {
+     "dashboards.build": true,
+     "dashboards.applyMany": true
+    },
+    "manageRoles": false,
+    "defaultScope": []
+   },
+   "expect": {
+    "unrestricted": false,
+    "pages": {
+     "sites": "view",
+     "machines": "view",
+     "alarms": "full",
+     "andon": "full",
+     "dashboards": "view",
+     "analyzer": "view",
+     "ai.forecast": "view",
+     "ai.anomalies": "view",
+     "ai.maintenance": "view",
+     "ai.relations": "full",
+     "reports": "full",
+     "users": "view",
+     "alertrules.default": "full",
+     "alertrules.custom": "full",
+     "aisettings": "view",
+     "config": "view"
+    },
+    "manageRoles": false,
+    "actions": {
+     "alarms.acknowledge": true,
+     "andon.layout": true,
+     "andon.boards": true,
+     "dashboards.build": true,
+     "dashboards.applyMany": true,
+     "ai.relations.edit": true,
+     "reports.run": true,
+     "reports.edit": true,
+     "reports.schedule": true,
+     "reports.settings": true,
+     "alertrules.export": true
+    }
+   }
+  }
+ ],
+ "can": [
+  {
+   "name": "Viewer",
+   "role": {
+    "id": "viewer",
+    "name": "Viewer",
+    "builtIn": true,
+    "locked": false,
+    "desc": "Read only.",
+    "perms": {
+     "sites": "view",
+     "machines": "view",
+     "alarms": "view",
+     "andon": "view",
+     "dashboards": "view",
+     "analyzer": "view",
+     "ai.forecast": "view",
+     "ai.anomalies": "view",
+     "ai.maintenance": "view",
+     "ai.relations": "view",
+     "reports": "view"
+    },
+    "actions": {
+     "reports.run": true
+    },
+    "manageRoles": false,
+    "defaultScope": []
+   },
+   "page": {
+    "alarms": "view",
+    "users": "hidden",
+    "sites": "view",
+    "nope": "hidden"
+   },
+   "can": [
+    {
+     "k": "alarms",
+     "expect": true
+    },
+    {
+     "k": "alarms",
+     "level": "view",
+     "expect": true
+    },
+    {
+     "k": "alarms",
+     "level": "full",
+     "expect": false
+    },
+    {
+     "k": "users",
+     "expect": false
+    },
+    {
+     "k": "reports.run",
+     "expect": true
+    },
+    {
+     "k": "reports.edit",
+     "expect": false
+    },
+    {
+     "k": "manageRoles",
+     "expect": false
+    },
+    {
+     "k": "nope",
+     "expect": false
+    },
+    {
+     "k": "alarms",
+     "level": "hidden",
+     "expect": true
+    }
+   ],
+   "canState": {
+    "alert_history": "view",
+    "active_alerts": "view",
+    "user_management": "hidden",
+    "custom_alert": "hidden",
+    "in_app_alert": "view",
+    "some_new_state": "view",
+    "machine": "view",
+    "dashboard_overview": "view"
+   }
+  },
+  {
+   "name": "Admin",
+   "role": {
+    "id": "admin",
+    "name": "Admin",
+    "builtIn": true,
+    "locked": true,
+    "desc": "Everything, including users and roles.",
+    "perms": {
+     "sites": "view",
+     "machines": "view",
+     "alarms": "full",
+     "andon": "full",
+     "dashboards": "full",
+     "analyzer": "full",
+     "ai.forecast": "view",
+     "ai.anomalies": "view",
+     "ai.maintenance": "view",
+     "ai.relations": "full",
+     "reports": "full",
+     "users": "full",
+     "alertrules.default": "full",
+     "alertrules.custom": "full",
+     "aisettings": "full",
+     "config": "full"
+    },
+    "actions": {
+     "alarms.acknowledge": true,
+     "andon.layout": true,
+     "andon.boards": true,
+     "dashboards.build": true,
+     "dashboards.applyMany": true,
+     "dashboards.deleteAny": true,
+     "analyzer.export": true,
+     "ai.relations.edit": true,
+     "reports.run": true,
+     "reports.edit": true,
+     "reports.schedule": true,
+     "reports.settings": true,
+     "alertrules.export": true,
+     "ai.jobs": true
+    },
+    "manageRoles": true,
+    "defaultScope": []
+   },
+   "page": {
+    "sites": "view",
+    "users": "full"
+   },
+   "can": [
+    {
+     "k": "users",
+     "level": "full",
+     "expect": true
+    },
+    {
+     "k": "sites",
+     "level": "full",
+     "expect": false
+    },
+    {
+     "k": "ai.jobs",
+     "expect": true
+    },
+    {
+     "k": "manageRoles",
+     "expect": true
+    }
+   ],
+   "canState": {
+    "default": "view",
+    "configuration": "full",
+    "aiml_settings": "full"
+   }
+  },
+  {
+   "name": "no role",
+   "role": null,
+   "page": {
+    "alarms": "hidden"
+   },
+   "can": [
+    {
+     "k": "alarms",
+     "expect": false
+    },
+    {
+     "k": "reports.run",
+     "expect": false
+    }
+   ],
+   "canState": {
+    "default": "hidden",
+    "in_app_alert": "view"
+   }
+  }
+ ],
+ "covers": [
+  {
+   "name": "Admin covers everything",
+   "editor": {
+    "id": "admin",
+    "name": "Admin",
+    "builtIn": true,
+    "locked": true,
+    "desc": "Everything, including users and roles.",
+    "perms": {
+     "sites": "view",
+     "machines": "view",
+     "alarms": "full",
+     "andon": "full",
+     "dashboards": "full",
+     "analyzer": "full",
+     "ai.forecast": "view",
+     "ai.anomalies": "view",
+     "ai.maintenance": "view",
+     "ai.relations": "full",
+     "reports": "full",
+     "users": "full",
+     "alertrules.default": "full",
+     "alertrules.custom": "full",
+     "aisettings": "full",
+     "config": "full"
+    },
+    "actions": {
+     "alarms.acknowledge": true,
+     "andon.layout": true,
+     "andon.boards": true,
+     "dashboards.build": true,
+     "dashboards.applyMany": true,
+     "dashboards.deleteAny": true,
+     "analyzer.export": true,
+     "ai.relations.edit": true,
+     "reports.run": true,
+     "reports.edit": true,
+     "reports.schedule": true,
+     "reports.settings": true,
+     "alertrules.export": true,
+     "ai.jobs": true
+    },
+    "manageRoles": true,
+    "defaultScope": []
+   },
+   "target": {
+    "id": "r_sup001",
+    "name": "Supervisor",
+    "builtIn": false,
+    "locked": false,
+    "desc": "Runs the floor.",
+    "perms": {
+     "sites": "view",
+     "machines": "view",
+     "alarms": "full",
+     "andon": "full",
+     "dashboards": "view",
+     "analyzer": "view",
+     "ai.forecast": "view",
+     "ai.anomalies": "view",
+     "ai.maintenance": "view",
+     "ai.relations": "full",
+     "reports": "full",
+     "users": "view",
+     "alertrules.default": "full",
+     "alertrules.custom": "full",
+     "aisettings": "view",
+     "config": "view"
+    },
+    "actions": {
+     "dashboards.build": true,
+     "dashboards.applyMany": true
+    },
+    "manageRoles": false,
+    "defaultScope": []
+   },
+   "expect": {
+    "ok": true,
+    "missing": []
+   }
+  },
+  {
+   "name": "equal",
+   "editor": {
+    "id": "viewer",
+    "name": "Viewer",
+    "builtIn": true,
+    "locked": false,
+    "desc": "Read only.",
+    "perms": {
+     "sites": "view",
+     "machines": "view",
+     "alarms": "view",
+     "andon": "view",
+     "dashboards": "view",
+     "analyzer": "view",
+     "ai.forecast": "view",
+     "ai.anomalies": "view",
+     "ai.maintenance": "view",
+     "ai.relations": "view",
+     "reports": "view"
+    },
+    "actions": {
+     "reports.run": true
+    },
+    "manageRoles": false,
+    "defaultScope": []
+   },
+   "target": {
+    "id": "viewer",
+    "name": "Viewer",
+    "builtIn": true,
+    "locked": false,
+    "desc": "Read only.",
+    "perms": {
+     "sites": "view",
+     "machines": "view",
+     "alarms": "view",
+     "andon": "view",
+     "dashboards": "view",
+     "analyzer": "view",
+     "ai.forecast": "view",
+     "ai.anomalies": "view",
+     "ai.maintenance": "view",
+     "ai.relations": "view",
+     "reports": "view"
+    },
+    "actions": {
+     "reports.run": true
+    },
+    "manageRoles": false,
+    "defaultScope": []
+   },
+   "expect": {
+    "ok": true,
+    "missing": []
+   }
+  },
+  {
+   "name": "less",
+   "editor": {
+    "id": "r_sup001",
+    "name": "Supervisor",
+    "builtIn": false,
+    "locked": false,
+    "desc": "Runs the floor.",
+    "perms": {
+     "sites": "view",
+     "machines": "view",
+     "alarms": "full",
+     "andon": "full",
+     "dashboards": "view",
+     "analyzer": "view",
+     "ai.forecast": "view",
+     "ai.anomalies": "view",
+     "ai.maintenance": "view",
+     "ai.relations": "full",
+     "reports": "full",
+     "users": "view",
+     "alertrules.default": "full",
+     "alertrules.custom": "full",
+     "aisettings": "view",
+     "config": "view"
+    },
+    "actions": {
+     "dashboards.build": true,
+     "dashboards.applyMany": true
+    },
+    "manageRoles": false,
+    "defaultScope": []
+   },
+   "target": {
+    "id": "viewer",
+    "name": "Viewer",
+    "builtIn": true,
+    "locked": false,
+    "desc": "Read only.",
+    "perms": {
+     "sites": "view",
+     "machines": "view",
+     "alarms": "view",
+     "andon": "view",
+     "dashboards": "view",
+     "analyzer": "view",
+     "ai.forecast": "view",
+     "ai.anomalies": "view",
+     "ai.maintenance": "view",
+     "ai.relations": "view",
+     "reports": "view"
+    },
+    "actions": {
+     "reports.run": true
+    },
+    "manageRoles": false,
+    "defaultScope": []
+   },
+   "expect": {
+    "ok": true,
+    "missing": []
+   }
+  },
+  {
+   "name": "an action the editor lacks",
+   "editor": {
+    "id": "viewer",
+    "name": "Viewer",
+    "builtIn": true,
+    "locked": false,
+    "desc": "Read only.",
+    "perms": {
+     "sites": "view",
+     "machines": "view",
+     "alarms": "view",
+     "andon": "view",
+     "dashboards": "view",
+     "analyzer": "view",
+     "ai.forecast": "view",
+     "ai.anomalies": "view",
+     "ai.maintenance": "view",
+     "ai.relations": "view",
+     "reports": "view"
+    },
+    "actions": {
+     "reports.run": true
+    },
+    "manageRoles": false,
+    "defaultScope": []
+   },
+   "target": {
+    "id": "r_op0001",
+    "name": "Operator",
+    "builtIn": false,
+    "locked": false,
+    "desc": "",
+    "perms": {
+     "sites": "view",
+     "machines": "view",
+     "alarms": "view",
+     "andon": "view",
+     "dashboards": "view",
+     "analyzer": "view"
+    },
+    "actions": {
+     "alarms.acknowledge": true
+    },
+    "manageRoles": false,
+    "defaultScope": [
+     {
+      "id": "10aba680-c0be-11f1-add5-5db4ab3ed597",
+      "type": "ASSET",
+      "mode": "all"
+     }
+    ]
+   },
+   "expect": {
+    "ok": false,
+    "missing": [
+     {
+      "type": "action",
+      "key": "alarms.acknowledge"
+     }
+    ]
+   }
+  },
+  {
+   "name": "a higher row and its implied actions",
+   "editor": {
+    "id": "r_lead01",
+    "name": "Lead",
+    "builtIn": false,
+    "locked": false,
+    "desc": "Manages users and roles.",
+    "perms": {
+     "sites": "view",
+     "machines": "view",
+     "users": "full",
+     "reports": "view"
+    },
+    "actions": {
+     "reports.run": true
+    },
+    "manageRoles": true,
+    "defaultScope": [
+     {
+      "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+      "type": "ASSET",
+      "mode": "all"
+     }
+    ]
+   },
+   "target": {
+    "id": "r_rf",
+    "perms": {
+     "reports": "full"
+    }
+   },
+   "expect": {
+    "ok": false,
+    "missing": [
+     {
+      "type": "page",
+      "key": "reports",
+      "have": "view",
+      "need": "full"
+     },
+     {
+      "type": "action",
+      "key": "reports.edit"
+     },
+     {
+      "type": "action",
+      "key": "reports.schedule"
+     },
+     {
+      "type": "action",
+      "key": "reports.settings"
+     }
+    ]
+   }
+  },
+  {
+   "name": "manage roles without it",
+   "editor": {
+    "id": "r_uf",
+    "perms": {
+     "users": "full"
+    }
+   },
+   "target": {
+    "id": "r_ufm",
+    "perms": {
+     "users": "full"
+    },
+    "manageRoles": true
+   },
+   "expect": {
+    "ok": false,
+    "missing": [
+     {
+      "type": "manageRoles",
+      "key": "manageRoles"
+     }
+    ]
+   }
+  },
+  {
+   "name": "a hidden row the editor does not see at all",
+   "editor": {
+    "id": "r_e",
+    "perms": {}
+   },
+   "target": {
+    "id": "r_t",
+    "perms": {
+     "config": "view"
+    }
+   },
+   "expect": {
+    "ok": false,
+    "missing": [
+     {
+      "type": "page",
+      "key": "config",
+      "have": "hidden",
+      "need": "view"
+     }
+    ]
+   }
+  },
+  {
+   "name": "the tenant admin covers everything",
+   "editor": "unrestricted",
+   "target": {
+    "id": "admin",
+    "name": "Admin",
+    "builtIn": true,
+    "locked": true,
+    "desc": "Everything, including users and roles.",
+    "perms": {
+     "sites": "view",
+     "machines": "view",
+     "alarms": "full",
+     "andon": "full",
+     "dashboards": "full",
+     "analyzer": "full",
+     "ai.forecast": "view",
+     "ai.anomalies": "view",
+     "ai.maintenance": "view",
+     "ai.relations": "full",
+     "reports": "full",
+     "users": "full",
+     "alertrules.default": "full",
+     "alertrules.custom": "full",
+     "aisettings": "full",
+     "config": "full"
+    },
+    "actions": {
+     "alarms.acknowledge": true,
+     "andon.layout": true,
+     "andon.boards": true,
+     "dashboards.build": true,
+     "dashboards.applyMany": true,
+     "dashboards.deleteAny": true,
+     "analyzer.export": true,
+     "ai.relations.edit": true,
+     "reports.run": true,
+     "reports.edit": true,
+     "reports.schedule": true,
+     "reports.settings": true,
+     "alertrules.export": true,
+     "ai.jobs": true
+    },
+    "manageRoles": true,
+    "defaultScope": []
+   },
+   "expect": {
+    "ok": true,
+    "missing": []
+   }
+  },
+  {
+   "name": "nothing is always covered",
+   "editor": {
+    "id": "r_e",
+    "perms": {}
+   },
+   "target": null,
+   "expect": {
+    "ok": true,
+    "missing": []
+   }
+  }
+ ],
+ "coversScope": [
+  {
+   "name": "inside: the same site",
+   "editor": [
+    {
+     "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ],
+   "grants": [
+    {
+     "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ],
+   "expect": {
+    "ok": true,
+    "outside": []
+   }
+  },
+  {
+   "name": "inside: a machine of it",
+   "editor": [
+    {
+     "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ],
+   "grants": [
+    {
+     "id": "11474a40-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "mode": "fixed"
+    }
+   ],
+   "expect": {
+    "ok": true,
+    "outside": []
+   }
+  },
+  {
+   "name": "outside: another site",
+   "editor": [
+    {
+     "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ],
+   "grants": [
+    {
+     "id": "10aba680-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    },
+    {
+     "id": "11474a40-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "mode": "fixed"
+    }
+   ],
+   "expect": {
+    "ok": false,
+    "outside": [
+     {
+      "id": "10aba680-c0be-11f1-add5-5db4ab3ed597",
+      "type": "ASSET",
+      "mode": "all"
+     }
+    ]
+   }
+  },
+  {
+   "name": "outside: the org above",
+   "editor": [
+    {
+     "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ],
+   "grants": [
+    {
+     "id": "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ],
+   "expect": {
+    "ok": false,
+    "outside": [
+     {
+      "id": "10c85640-c0be-11f1-add5-5db4ab3ed597",
+      "type": "ASSET",
+      "mode": "all"
+     }
+    ]
+   }
+  },
+  {
+   "name": "a fixed editor cannot give the site",
+   "editor": [
+    {
+     "id": "11474a40-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "mode": "fixed"
+    }
+   ],
+   "grants": [
+    {
+     "id": "11474a40-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "mode": "fixed"
+    },
+    {
+     "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ],
+   "expect": {
+    "ok": false,
+    "outside": [
+     {
+      "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+      "type": "ASSET",
+      "mode": "all"
+     }
+    ]
+   }
+  },
+  {
+   "name": "the whole organisation covers anything",
+   "editor": [
+    {
+     "id": "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ],
+   "grants": [
+    {
+     "id": "aaaaaaaa-0000-4000-8000-000000000099",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ],
+   "expect": {
+    "ok": true,
+    "outside": []
+   }
+  },
+  {
+   "name": "the tenant admin covers anything",
+   "editor": "unrestricted",
+   "grants": [
+    {
+     "id": "aaaaaaaa-0000-4000-8000-000000000099",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ],
+   "expect": {
+    "ok": true,
+    "outside": []
+   }
+  },
+  {
+   "name": "no access covers nothing",
+   "editor": [],
+   "grants": [
+    {
+     "id": "11474a40-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "mode": "fixed"
+    }
+   ],
+   "expect": {
+    "ok": false,
+    "outside": [
+     {
+      "id": "11474a40-c0be-11f1-add5-5db4ab3ed597",
+      "type": "DEVICE",
+      "mode": "fixed"
+     }
+    ]
+   }
+  },
+  {
+   "name": "invalid grants are not judged",
+   "editor": [
+    {
+     "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ],
+   "grants": [
+    {
+     "id": "x",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ],
+   "expect": {
+    "ok": true,
+    "outside": []
+   }
+  }
+ ],
+ "lastAdmin": [
+  {
+   "name": "a second administrator exists: delete is fine",
+   "users": [
+    {
+     "id": "ua",
+     "roleId": "admin"
+    },
+    {
+     "id": "ub",
+     "roleId": "admin"
+    },
+    {
+     "id": "uv",
+     "roleId": "viewer"
+    }
+   ],
+   "change": {
+    "userId": "ua",
+    "newRoleId": null
+   },
+   "expect": {
+    "ok": true,
+    "code": ""
+   }
+  },
+  {
+   "name": "delete the last",
+   "users": [
+    {
+     "id": "ua",
+     "roleId": "admin"
+    },
+    {
+     "id": "uv",
+     "roleId": "viewer"
+    }
+   ],
+   "change": {
+    "userId": "ua",
+    "newRoleId": null
+   },
+   "expect": {
+    "ok": false,
+    "code": "lastAdmin",
+    "reason": "This is the last administrator."
+   }
+  },
+  {
+   "name": "re-role the last",
+   "users": [
+    {
+     "id": "ua",
+     "roleId": "admin"
+    },
+    {
+     "id": "uv",
+     "roleId": "viewer"
+    }
+   ],
+   "change": {
+    "userId": "ua",
+    "newRoleId": "viewer"
+   },
+   "expect": {
+    "ok": false,
+    "code": "lastAdmin",
+    "reason": "This is the last administrator."
+   }
+  },
+  {
+   "name": "disable the last",
+   "users": [
+    {
+     "id": "ua",
+     "roleId": "admin"
+    },
+    {
+     "id": "uv",
+     "roleId": "viewer"
+    }
+   ],
+   "change": {
+    "userId": "ua",
+    "enabled": false
+   },
+   "expect": {
+    "ok": false,
+    "code": "lastAdmin",
+    "reason": "This is the last administrator."
+   }
+  },
+  {
+   "name": "a disabled administrator does not count",
+   "users": [
+    {
+     "id": "ua",
+     "roleId": "admin"
+    },
+    {
+     "id": "ux",
+     "roleId": "admin",
+     "enabled": false
+    },
+    {
+     "id": "uv",
+     "roleId": "viewer"
+    }
+   ],
+   "change": {
+    "userId": "ua",
+    "newRoleId": "viewer"
+   },
+   "expect": {
+    "ok": false,
+    "code": "lastAdmin",
+    "reason": "This is the last administrator."
+   }
+  },
+  {
+   "name": "a role edit that takes manage roles from the only holder",
+   "users": [
+    {
+     "id": "ul",
+     "roleId": "r_lead01"
+    },
+    {
+     "id": "uv",
+     "roleId": "viewer"
+    }
+   ],
+   "change": {
+    "roleId": "r_lead01",
+    "newRole": {
+     "id": "r_lead01",
+     "name": "Lead",
+     "builtIn": false,
+     "locked": false,
+     "desc": "Manages users and roles.",
+     "perms": {
+      "sites": "view",
+      "machines": "view",
+      "users": "full",
+      "reports": "view"
+     },
+     "actions": {
+      "reports.run": true
+     },
+     "manageRoles": false,
+     "defaultScope": [
+      {
+       "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+       "type": "ASSET",
+       "mode": "all"
+      }
+     ]
+    }
+   },
+   "expect": {
+    "ok": false,
+    "code": "lastAdmin",
+    "reason": "This is the last administrator."
+   }
+  },
+  {
+   "name": "the same edit with an Admin left",
+   "users": [
+    {
+     "id": "ul",
+     "roleId": "r_lead01"
+    },
+    {
+     "id": "ua",
+     "roleId": "admin"
+    }
+   ],
+   "change": {
+    "roleId": "r_lead01",
+    "newRole": {
+     "id": "r_lead01",
+     "name": "Lead",
+     "builtIn": false,
+     "locked": false,
+     "desc": "Manages users and roles.",
+     "perms": {
+      "sites": "view",
+      "machines": "view",
+      "users": "full",
+      "reports": "view"
+     },
+     "actions": {
+      "reports.run": true
+     },
+     "manageRoles": false,
+     "defaultScope": [
+      {
+       "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+       "type": "ASSET",
+       "mode": "all"
+      }
+     ]
+    }
+   },
+   "expect": {
+    "ok": true,
+    "code": ""
+   }
+  },
+  {
+   "name": "nobody held it before (a POC customer): nothing to protect",
+   "users": [
+    {
+     "id": "uv",
+     "roleId": "viewer"
+    },
+    {
+     "id": "uw",
+     "roleId": "viewer"
+    }
+   ],
+   "change": {
+    "userId": "uv",
+    "newRoleId": null
+   },
+   "expect": {
+    "ok": true,
+    "code": ""
+   }
+  },
+  {
+   "name": "promoting someone is fine",
+   "users": [
+    {
+     "id": "ua",
+     "roleId": "admin"
+    },
+    {
+     "id": "uv",
+     "roleId": "viewer"
+    }
+   ],
+   "change": {
+    "userId": "uv",
+    "newRoleId": "admin"
+   },
+   "expect": {
+    "ok": true,
+    "code": ""
+   }
+  },
+  {
+   "name": "the last Admin moved to another role that manages roles",
+   "users": [
+    {
+     "id": "ua",
+     "roleId": "admin"
+    }
+   ],
+   "change": {
+    "userId": "ua",
+    "newRoleId": "r_lead01"
+   },
+   "expect": {
+    "ok": true,
+    "code": ""
+   }
+  }
+ ],
+ "validateRole": [
+  {
+   "name": "a valid new role (the name is trimmed)",
+   "role": {
+    "id": "r_new001",
+    "name": " Shift lead ",
+    "desc": "Leads a shift",
+    "perms": {
+     "alarms": "full",
+     "sites": "view"
+    },
+    "actions": {},
+    "manageRoles": false,
+    "defaultScope": []
+   },
+   "expect": {
+    "errors": [],
+    "role": {
+     "id": "r_new001",
+     "name": "Shift lead",
+     "builtIn": false,
+     "locked": false,
+     "desc": "Leads a shift",
+     "perms": {
+      "alarms": "full",
+      "sites": "view"
+     },
+     "actions": {},
+     "manageRoles": false,
+     "defaultScope": []
+    }
+   }
+  },
+  {
+   "name": "a reserved name",
+   "role": {
+    "id": "r_new001",
+    "name": "Administrator",
+    "desc": "Leads a shift",
+    "perms": {
+     "alarms": "full",
+     "sites": "view"
+    },
+    "actions": {},
+    "manageRoles": false,
+    "defaultScope": []
+   },
+   "expect": {
+    "errors": [
+     "name.reserved"
+    ]
+   }
+  },
+  {
+   "name": "a reserved name, other case and spaces",
+   "role": {
+    "id": "r_new001",
+    "name": "user ",
+    "desc": "Leads a shift",
+    "perms": {
+     "alarms": "full",
+     "sites": "view"
+    },
+    "actions": {},
+    "manageRoles": false,
+    "defaultScope": []
+   },
+   "expect": {
+    "errors": [
+     "name.reserved"
+    ]
+   }
+  },
+  {
+   "name": "a name taken by another role",
+   "role": {
+    "id": "r_new001",
+    "name": "supervisor",
+    "desc": "Leads a shift",
+    "perms": {
+     "alarms": "full",
+     "sites": "view"
+    },
+    "actions": {},
+    "manageRoles": false,
+    "defaultScope": []
+   },
+   "expect": {
+    "errors": [
+     "name.duplicate"
+    ]
+   }
+  },
+  {
+   "name": "a role keeps its own name",
+   "role": {
+    "id": "r_sup001",
+    "name": "Supervisor",
+    "builtIn": false,
+    "locked": false,
+    "desc": "Runs the floor.",
+    "perms": {
+     "sites": "view",
+     "machines": "view",
+     "alarms": "full",
+     "andon": "full",
+     "dashboards": "view",
+     "analyzer": "view",
+     "ai.forecast": "view",
+     "ai.anomalies": "view",
+     "ai.maintenance": "view",
+     "ai.relations": "full",
+     "reports": "full",
+     "users": "view",
+     "alertrules.default": "full",
+     "alertrules.custom": "full",
+     "aisettings": "view",
+     "config": "view"
+    },
+    "actions": {
+     "dashboards.build": true,
+     "dashboards.applyMany": true
+    },
+    "manageRoles": false,
+    "defaultScope": []
+   },
+   "expect": {
+    "errors": []
+   }
+  },
+  {
+   "name": "no name",
+   "role": {
+    "id": "r_new001",
+    "name": "   ",
+    "desc": "Leads a shift",
+    "perms": {
+     "alarms": "full",
+     "sites": "view"
+    },
+    "actions": {},
+    "manageRoles": false,
+    "defaultScope": []
+   },
+   "expect": {
+    "errors": [
+     "name.required"
+    ]
+   }
+  },
+  {
+   "name": "a name too long",
+   "role": {
+    "id": "r_new001",
+    "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "desc": "Leads a shift",
+    "perms": {
+     "alarms": "full",
+     "sites": "view"
+    },
+    "actions": {},
+    "manageRoles": false,
+    "defaultScope": []
+   },
+   "expect": {
+    "errors": [
+     "name.length"
+    ]
+   }
+  },
+  {
+   "name": "a description too long",
+   "role": {
+    "id": "r_new001",
+    "name": " Shift lead ",
+    "desc": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "perms": {
+     "alarms": "full",
+     "sites": "view"
+    },
+    "actions": {},
+    "manageRoles": false,
+    "defaultScope": []
+   },
+   "expect": {
+    "errors": [
+     "desc.length"
+    ]
+   }
+  },
+  {
+   "name": "the Admin is locked",
+   "role": {
+    "id": "admin",
+    "name": "Admin",
+    "builtIn": true,
+    "locked": true,
+    "desc": "Everything, including users and roles.",
+    "perms": {
+     "sites": "view",
+     "machines": "view",
+     "alarms": "full",
+     "andon": "full",
+     "dashboards": "full",
+     "analyzer": "full",
+     "ai.forecast": "view",
+     "ai.anomalies": "view",
+     "ai.maintenance": "view",
+     "ai.relations": "full",
+     "reports": "view",
+     "users": "full",
+     "alertrules.default": "full",
+     "alertrules.custom": "full",
+     "aisettings": "full",
+     "config": "full"
+    },
+    "actions": {
+     "alarms.acknowledge": true,
+     "andon.layout": true,
+     "andon.boards": true,
+     "dashboards.build": true,
+     "dashboards.applyMany": true,
+     "dashboards.deleteAny": true,
+     "analyzer.export": true,
+     "ai.relations.edit": true,
+     "reports.run": true,
+     "reports.edit": true,
+     "reports.schedule": true,
+     "reports.settings": true,
+     "alertrules.export": true,
+     "ai.jobs": true
+    },
+    "manageRoles": true,
+    "defaultScope": []
+   },
+   "expect": {
+    "errors": [
+     "role.locked"
+    ]
+   }
+  },
+  {
+   "name": "the Admin: description and default access may change",
+   "role": {
+    "id": "admin",
+    "name": "Admin",
+    "builtIn": true,
+    "locked": true,
+    "desc": "All of it",
+    "perms": {
+     "sites": "view",
+     "machines": "view",
+     "alarms": "full",
+     "andon": "full",
+     "dashboards": "full",
+     "analyzer": "full",
+     "ai.forecast": "view",
+     "ai.anomalies": "view",
+     "ai.maintenance": "view",
+     "ai.relations": "full",
+     "reports": "full",
+     "users": "full",
+     "alertrules.default": "full",
+     "alertrules.custom": "full",
+     "aisettings": "full",
+     "config": "full"
+    },
+    "actions": {
+     "alarms.acknowledge": true,
+     "andon.layout": true,
+     "andon.boards": true,
+     "dashboards.build": true,
+     "dashboards.applyMany": true,
+     "dashboards.deleteAny": true,
+     "analyzer.export": true,
+     "ai.relations.edit": true,
+     "reports.run": true,
+     "reports.edit": true,
+     "reports.schedule": true,
+     "reports.settings": true,
+     "alertrules.export": true,
+     "ai.jobs": true
+    },
+    "manageRoles": true,
+    "defaultScope": [
+     {
+      "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+      "type": "ASSET",
+      "mode": "all"
+     }
+    ]
+   },
+   "expect": {
+    "errors": [],
+    "role": {
+     "id": "admin",
+     "name": "Admin",
+     "builtIn": true,
+     "locked": true,
+     "desc": "All of it",
+     "perms": {
+      "sites": "view",
+      "machines": "view",
+      "alarms": "full",
+      "andon": "full",
+      "dashboards": "full",
+      "analyzer": "full",
+      "ai.forecast": "view",
+      "ai.anomalies": "view",
+      "ai.maintenance": "view",
+      "ai.relations": "full",
+      "reports": "full",
+      "users": "full",
+      "alertrules.default": "full",
+      "alertrules.custom": "full",
+      "aisettings": "full",
+      "config": "full"
+     },
+     "actions": {
+      "alarms.acknowledge": true,
+      "andon.layout": true,
+      "andon.boards": true,
+      "dashboards.build": true,
+      "dashboards.applyMany": true,
+      "dashboards.deleteAny": true,
+      "analyzer.export": true,
+      "ai.relations.edit": true,
+      "reports.run": true,
+      "reports.edit": true,
+      "reports.schedule": true,
+      "reports.settings": true,
+      "alertrules.export": true,
+      "ai.jobs": true
+     },
+     "manageRoles": true,
+     "defaultScope": [
+      {
+       "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+       "type": "ASSET",
+       "mode": "all"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "the Viewer keeps its name",
+   "role": {
+    "id": "viewer",
+    "name": "Readers",
+    "builtIn": true,
+    "locked": false,
+    "desc": "Read only.",
+    "perms": {
+     "sites": "view",
+     "machines": "view",
+     "alarms": "view",
+     "andon": "view",
+     "dashboards": "view",
+     "analyzer": "view",
+     "ai.forecast": "view",
+     "ai.anomalies": "view",
+     "ai.maintenance": "view",
+     "ai.relations": "view",
+     "reports": "view"
+    },
+    "actions": {
+     "reports.run": true
+    },
+    "manageRoles": false,
+    "defaultScope": []
+   },
+   "expect": {
+    "errors": [
+     "name.builtIn"
+    ]
+   }
+  },
+  {
+   "name": "the Viewer may change",
+   "role": {
+    "id": "viewer",
+    "name": "Viewer",
+    "builtIn": true,
+    "locked": false,
+    "desc": "Read only.",
+    "perms": {
+     "sites": "view"
+    },
+    "actions": {},
+    "manageRoles": false,
+    "defaultScope": []
+   },
+   "expect": {
+    "errors": []
+   }
+  },
+  {
+   "name": "manage roles needs Users at Full",
+   "role": {
+    "id": "r_new001",
+    "name": " Shift lead ",
+    "desc": "Leads a shift",
+    "perms": {
+     "users": "view"
+    },
+    "actions": {},
+    "manageRoles": true,
+    "defaultScope": []
+   },
+   "expect": {
+    "errors": [
+     "manageRoles.needsUsersFull"
+    ]
+   }
+  },
+  {
+   "name": "a level the row does not have",
+   "role": {
+    "id": "r_new001",
+    "name": " Shift lead ",
+    "desc": "Leads a shift",
+    "perms": {
+     "sites": "full"
+    },
+    "actions": {},
+    "manageRoles": false,
+    "defaultScope": []
+   },
+   "expect": {
+    "errors": [
+     "perm.level"
+    ]
+   }
+  },
+  {
+   "name": "an unknown level",
+   "role": {
+    "id": "r_new001",
+    "name": " Shift lead ",
+    "desc": "Leads a shift",
+    "perms": {
+     "alarms": "superfull"
+    },
+    "actions": {},
+    "manageRoles": false,
+    "defaultScope": []
+   },
+   "expect": {
+    "errors": [
+     "perm.level"
+    ]
+   }
+  },
+  {
+   "name": "an unknown action",
+   "role": {
+    "id": "r_new001",
+    "name": " Shift lead ",
+    "desc": "Leads a shift",
+    "perms": {
+     "alarms": "full",
+     "sites": "view"
+    },
+    "actions": {
+     "alarms.delete": true
+    },
+    "manageRoles": false,
+    "defaultScope": []
+   },
+   "expect": {
+    "errors": [
+     "action.unknown"
+    ]
+   }
+  },
+  {
+   "name": "a bad default access grant",
+   "role": {
+    "id": "r_new001",
+    "name": " Shift lead ",
+    "desc": "Leads a shift",
+    "perms": {
+     "alarms": "full",
+     "sites": "view"
+    },
+    "actions": {},
+    "manageRoles": false,
+    "defaultScope": [
+     {
+      "id": "x",
+      "type": "ASSET",
+      "mode": "all"
+     }
+    ]
+   },
+   "expect": {
+    "errors": [
+     "scope.invalid"
+    ]
+   }
+  },
+  {
+   "name": "more than the editor holds",
+   "role": {
+    "id": "r_new001",
+    "name": " Shift lead ",
+    "desc": "Leads a shift",
+    "perms": {
+     "reports": "full"
+    },
+    "actions": {},
+    "manageRoles": false,
+    "defaultScope": []
+   },
+   "editor": {
+    "id": "viewer",
+    "name": "Viewer",
+    "builtIn": true,
+    "locked": false,
+    "desc": "Read only.",
+    "perms": {
+     "sites": "view",
+     "machines": "view",
+     "alarms": "view",
+     "andon": "view",
+     "dashboards": "view",
+     "analyzer": "view",
+     "ai.forecast": "view",
+     "ai.anomalies": "view",
+     "ai.maintenance": "view",
+     "ai.relations": "view",
+     "reports": "view"
+    },
+    "actions": {
+     "reports.run": true
+    },
+    "manageRoles": false,
+    "defaultScope": []
+   },
+   "expect": {
+    "errors": [
+     "covers"
+    ],
+    "missing": [
+     {
+      "type": "page",
+      "key": "reports",
+      "have": "view",
+      "need": "full"
+     },
+     {
+      "type": "action",
+      "key": "reports.edit"
+     },
+     {
+      "type": "action",
+      "key": "reports.schedule"
+     },
+     {
+      "type": "action",
+      "key": "reports.settings"
+     }
+    ]
+   }
+  },
+  {
+   "name": "a default access outside the editor's",
+   "role": {
+    "id": "r_new001",
+    "name": " Shift lead ",
+    "desc": "Leads a shift",
+    "perms": {
+     "alarms": "full",
+     "sites": "view"
+    },
+    "actions": {},
+    "manageRoles": false,
+    "defaultScope": [
+     {
+      "id": "10aba680-c0be-11f1-add5-5db4ab3ed597",
+      "type": "ASSET",
+      "mode": "all"
+     }
+    ]
+   },
+   "editorAccess": [
+    {
+     "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ],
+   "expect": {
+    "errors": [
+     "scope.outside"
+    ],
+    "outside": [
+     {
+      "id": "10aba680-c0be-11f1-add5-5db4ab3ed597",
+      "type": "ASSET",
+      "mode": "all"
+     }
+    ]
+   }
+  },
+  {
+   "name": "a stored grant outside the editor's access is kept",
+   "role": {
+    "id": "r_op0001",
+    "name": "Operator",
+    "builtIn": false,
+    "locked": false,
+    "desc": "",
+    "perms": {
+     "sites": "view",
+     "machines": "view",
+     "alarms": "view",
+     "andon": "view",
+     "dashboards": "view",
+     "analyzer": "view"
+    },
+    "actions": {
+     "alarms.acknowledge": true
+    },
+    "manageRoles": false,
+    "defaultScope": [
+     {
+      "id": "10aba680-c0be-11f1-add5-5db4ab3ed597",
+      "type": "ASSET",
+      "mode": "all"
+     },
+     {
+      "id": "11474a40-c0be-11f1-add5-5db4ab3ed597",
+      "type": "DEVICE",
+      "mode": "fixed"
+     }
+    ]
+   },
+   "editorAccess": [
+    {
+     "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ],
+   "expect": {
+    "errors": [],
+    "outside": []
+   }
+  },
+  {
+   "name": "no id",
+   "role": {
+    "name": "Nameless",
+    "perms": {}
+   },
+   "expect": {
+    "errors": [
+     "role.invalid"
+    ],
+    "role": null
+   }
+  }
+ ],
+ "deleteCheck": {
+  "users": [
+   {
+    "id": "u1",
+    "roleId": "r_op0001"
+   },
+   {
+    "id": "u2",
+    "roleId": "r_op0001"
+   },
+   {
+    "id": "u3",
+    "roleId": "r_sup001"
+   }
+  ],
+  "cases": [
+   {
+    "name": "the Admin",
+    "roleId": "admin",
+    "expect": {
+     "ok": false,
+     "code": "role.builtIn.delete",
+     "reason": "Built-in role",
+     "count": 0
+    }
+   },
+   {
+    "name": "the Viewer",
+    "roleId": "viewer",
+    "expect": {
+     "ok": false,
+     "code": "role.builtIn.delete",
+     "reason": "Built-in role",
+     "count": 0
+    }
+   },
+   {
+    "name": "in use by 2",
+    "roleId": "r_op0001",
+    "expect": {
+     "ok": false,
+     "code": "role.inUse",
+     "reason": "Reassign 2 users first",
+     "count": 2
+    }
+   },
+   {
+    "name": "in use by 1",
+    "roleId": "r_sup001",
+    "expect": {
+     "ok": false,
+     "code": "role.inUse",
+     "reason": "Reassign 1 user first",
+     "count": 1
+    }
+   },
+   {
+    "name": "unused",
+    "roleId": "r_lead01",
+    "expect": {
+     "ok": true,
+     "code": "",
+     "reason": "",
+     "count": 0
+    }
+   },
+   {
+    "name": "unknown",
+    "roleId": "r_zzz",
+    "expect": {
+     "ok": false,
+     "code": "role.unknown",
+     "reason": "This role no longer exists",
+     "count": 0
+    }
+   }
+  ]
+ },
+ "legacyName": [
+  {
+   "name": "Admin",
+   "role": {
+    "id": "admin",
+    "name": "Admin",
+    "builtIn": true,
+    "locked": true,
+    "desc": "Everything, including users and roles.",
+    "perms": {
+     "sites": "view",
+     "machines": "view",
+     "alarms": "full",
+     "andon": "full",
+     "dashboards": "full",
+     "analyzer": "full",
+     "ai.forecast": "view",
+     "ai.anomalies": "view",
+     "ai.maintenance": "view",
+     "ai.relations": "full",
+     "reports": "full",
+     "users": "full",
+     "alertrules.default": "full",
+     "alertrules.custom": "full",
+     "aisettings": "full",
+     "config": "full"
+    },
+    "actions": {
+     "alarms.acknowledge": true,
+     "andon.layout": true,
+     "andon.boards": true,
+     "dashboards.build": true,
+     "dashboards.applyMany": true,
+     "dashboards.deleteAny": true,
+     "analyzer.export": true,
+     "ai.relations.edit": true,
+     "reports.run": true,
+     "reports.edit": true,
+     "reports.schedule": true,
+     "reports.settings": true,
+     "alertrules.export": true,
+     "ai.jobs": true
+    },
+    "manageRoles": true,
+    "defaultScope": []
+   },
+   "expect": "Admin"
+  },
+  {
+   "name": "a custom role",
+   "role": {
+    "id": "r_sup001",
+    "name": "Supervisor",
+    "builtIn": false,
+    "locked": false,
+    "desc": "Runs the floor.",
+    "perms": {
+     "sites": "view",
+     "machines": "view",
+     "alarms": "full",
+     "andon": "full",
+     "dashboards": "view",
+     "analyzer": "view",
+     "ai.forecast": "view",
+     "ai.anomalies": "view",
+     "ai.maintenance": "view",
+     "ai.relations": "full",
+     "reports": "full",
+     "users": "view",
+     "alertrules.default": "full",
+     "alertrules.custom": "full",
+     "aisettings": "view",
+     "config": "view"
+    },
+    "actions": {
+     "dashboards.build": true,
+     "dashboards.applyMany": true
+    },
+    "manageRoles": false,
+    "defaultScope": []
+   },
+   "expect": "Supervisor"
+  },
+  {
+   "name": "no role",
+   "role": null,
+   "expect": "Viewer"
+  }
+ ],
+ "templates": [
+  {
+   "name": "Supervisor",
+   "template": "supervisor",
+   "expect": {
+    "unrestricted": false,
+    "pages": {
+     "sites": "view",
+     "machines": "view",
+     "alarms": "full",
+     "andon": "full",
+     "dashboards": "view",
+     "analyzer": "view",
+     "ai.forecast": "view",
+     "ai.anomalies": "view",
+     "ai.maintenance": "view",
+     "ai.relations": "full",
+     "reports": "full",
+     "users": "view",
+     "alertrules.default": "full",
+     "alertrules.custom": "full",
+     "aisettings": "view",
+     "config": "view"
+    },
+    "manageRoles": false,
+    "actions": {
+     "alarms.acknowledge": true,
+     "andon.layout": true,
+     "andon.boards": true,
+     "dashboards.build": true,
+     "dashboards.applyMany": true,
+     "ai.relations.edit": true,
+     "reports.run": true,
+     "reports.edit": true,
+     "reports.schedule": true,
+     "reports.settings": true,
+     "alertrules.export": true
+    }
+   }
+  },
+  {
+   "name": "Operator",
+   "template": "operator",
+   "expect": {
+    "unrestricted": false,
+    "pages": {
+     "sites": "view",
+     "machines": "view",
+     "alarms": "view",
+     "andon": "view",
+     "dashboards": "view",
+     "analyzer": "view",
+     "ai.forecast": "hidden",
+     "ai.anomalies": "hidden",
+     "ai.maintenance": "hidden",
+     "ai.relations": "hidden",
+     "reports": "hidden",
+     "users": "hidden",
+     "alertrules.default": "hidden",
+     "alertrules.custom": "hidden",
+     "aisettings": "hidden",
+     "config": "hidden"
+    },
+    "actions": {
+     "alarms.acknowledge": true
+    },
+    "manageRoles": false
+   }
+  }
+ ],
+ "migrate": [
+  {
+   "name": "Admin",
+   "user": {
+    "Role": "Admin"
+   },
+   "expect": {
+    "roleId": "admin",
+    "createName": null,
+    "builder": false
+   }
+  },
+  {
+   "name": "Customer Admin",
+   "user": {
+    "Role": "Customer Admin"
+   },
+   "expect": {
+    "roleId": "admin",
+    "createName": null,
+    "builder": false
+   }
+  },
+  {
+   "name": "Customer Admin, strict names",
+   "user": {
+    "Role": "Customer Admin"
+   },
+   "opts": {
+    "strictNames": true
+   },
+   "expect": {
+    "roleId": null,
+    "createName": "Customer Admin",
+    "builder": false
+   }
+  },
+  {
+   "name": "Administrator",
+   "user": {
+    "Role": "Administrator"
+   },
+   "expect": {
+    "roleId": "admin",
+    "createName": null,
+    "builder": false
+   }
+  },
+  {
+   "name": "Viewer",
+   "user": {
+    "Role": "Viewer"
+   },
+   "expect": {
+    "roleId": "viewer",
+    "createName": null,
+    "builder": false
+   }
+  },
+  {
+   "name": "User",
+   "user": {
+    "Role": "User"
+   },
+   "expect": {
+    "roleId": "viewer",
+    "createName": null,
+    "builder": false
+   }
+  },
+  {
+   "name": "absent",
+   "user": {},
+   "expect": {
+    "roleId": "viewer",
+    "createName": null,
+    "builder": false
+   }
+  },
+  {
+   "name": "another value",
+   "user": {
+    "Role": " Operator "
+   },
+   "expect": {
+    "roleId": null,
+    "createName": "Operator",
+    "builder": false
+   }
+  },
+  {
+   "name": "Admin with dbbAdmin: just Admin",
+   "user": {
+    "Role": "Admin",
+    "dbbAdmin": true
+   },
+   "expect": {
+    "roleId": "admin",
+    "createName": null,
+    "builder": false
+   }
+  },
+  {
+   "name": "User with dbbAdmin: Viewer + Builder",
+   "user": {
+    "Role": "User",
+    "dbbAdmin": "true"
+   },
+   "expect": {
+    "roleId": "viewer",
+    "createName": null,
+    "builder": true
+   }
+  },
+  {
+   "name": "another value with dbbAdmin",
+   "user": {
+    "Role": "Operator",
+    "dbbAdmin": true
+   },
+   "expect": {
+    "roleId": null,
+    "createName": "Operator",
+    "builder": true
+   }
+  }
+ ]
+}

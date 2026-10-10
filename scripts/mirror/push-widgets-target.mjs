@@ -18,7 +18,8 @@ const GO = process.argv.includes('--go');
 const OUR_WIDGET = /^(imex_|aiml_)/;
 // Never pushed: the developers replaced these pages on the server with their own widgets (Akshay, 9 Oct 2026). The
 // server's alert_history state uses tenant.imex_v5_alert_history_page, not the local imex_alert_history.
-const NEVER_PUSH = new Set(['imex_alert_history']);
+// imex_v5_alert_history_page: the UI repo's copy of that widget (K11, 9 Oct). Remove it here only on Akshay's go-ahead.
+const NEVER_PUSH = new Set(['imex_alert_history', 'imex_v5_alert_history_page']);
 const LAST_RUN = 'mirror-data/target-last-run.json';
 // the save each hand edit on the server started from (UTC, from the audit log; 9 Oct 2026):
 //   machine cards 09:18 and org hierarchy 09:19 / 11:21 (debug logs commented out) on top of the 07:53 run;

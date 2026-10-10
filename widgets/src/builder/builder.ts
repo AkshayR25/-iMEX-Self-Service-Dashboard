@@ -39,7 +39,8 @@
  *     concurrency on `version`), then on first save / chat proposal / save-as opens the Apply
  *     dialog (D-017).
  *
- * Security: the admin check in `openBuilder` and every "only admins" branch here are UI-only.
+ * Security: the role checks here (`openBuilder`: dashboards.build; delete: owner or dashboards.deleteAny; apply and
+ * shared saves: dashboards.applyMany; D-050) are UI-only.
  * CE lets any customer user write these attributes through REST (DECISIONS D-012).
  */
 import * as api from '../core/api';
@@ -205,13 +206,13 @@ const HELP: Record<WidgetType, string> = {
  * to `document.body`, adds `keydown` and `beforeunload` listeners (removed on close) and starts
  * loading `o.dashboardId` or the dashboard `o.deviceId` currently shows.
  *
- * @param o builder options; `o.ctx.isAdmin` must be true.
+ * @param o builder options; `o.ctx.canBuild` must be true.
  * @returns the Builder instance (callers normally ignore it).
- * @throws Error if the user is not an admin.
+ * @throws Error if the user's role may not build dashboards.
  */
 export function openBuilder(o: BuilderOptions) {
-  // Building is admin-only (scope decision 27 Sep 2026, DECISIONS D-017). UI-level check only; see D-012.
-  if (!o.ctx.isAdmin) throw new Error('Only admins can build dashboards.');
+  // Building needs the role's dashboards.build (D-017, D-050; the built-in Admin has it). UI-level check only; see D-012.
+  if (!o.ctx.canBuild) throw new Error("Your role can't build dashboards.");
   ensureCss('dbb-css-core', CSS);
   ensureCss('dbb-css-grid', GRID_CSS);
   ensureCss('dbb-css-builder', BUILDER_CSS);
@@ -894,8 +895,8 @@ class Builder {
   renderTop() {
     const top = this.root.querySelector('.dbb-top') as HTMLElement;
     const d = this.draft;
-    // Mirrors store.deleteDashboard's owner-or-admin rule (UI-only, D-012).
-    const canDelete = d.version > 0 && (d.ownerId === this.ctx.userId || this.ctx.isAdmin);
+    // Mirrors store.deleteDashboard's rule: the owner, or a role with dashboards.deleteAny (UI-only, D-012, D-050).
+    const canDelete = d.version > 0 && (d.ownerId === this.ctx.userId || this.ctx.canDeleteAny);
     // Wraps SVG path markup in a 24x24 stroke icon.
     const U = (p: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
     const shiftOn = isShiftRange(d.timeRange);
@@ -1471,7 +1472,8 @@ class Builder {
         if (mode === 'siblings') x.binding = { mode: 'siblings', profile: curProf };
         // "Nearest" usually means another type (e.g. the site weather station), so default to a different profile.
         if (mode === 'nearest') x.binding = { mode: 'nearest', profile: allProfiles.find((p) => p !== curProf) ?? curProf };
-        if (mode === 'nodeQuery') x.binding = { mode: 'nodeQuery', nodeId: this.ctx.rootIds[0] ?? nodes[0]?.id, profile: curProf };
+        // D-050: the first location the user holds in full ('all' grant), else the first visible top
+        if (mode === 'nodeQuery') x.binding = { mode: 'nodeQuery', nodeId: this.ctx.allRoots[0] ?? this.ctx.rootIds[0] ?? nodes[0]?.id, profile: curProf };
         this.fixKeys(x);
       }),
     );
@@ -1488,7 +1490,7 @@ class Builder {
         onChange: (picked) =>
           this.updateWidget(w.id, (x) => {
             const ids = picked.slice(0, WIDGET_CAPS[x.type].multiDevice ? MAX_DEVICES : 1);
-            // Machines outside this user's scope aren't listed but are kept (another admin chose them).
+            // Machines outside this user's access aren't listed but are kept (someone with more access chose them).
             // Removing everything leaves the binding unchanged.
             const hidden = x.binding.mode === 'fixed' ? x.binding.deviceIds.filter((id) => !this.ctx.nodes.has(id)) : [];
             if (ids.length || hidden.length) x.binding = { mode: 'fixed', deviceIds: [...hidden, ...ids] };
@@ -1952,8 +1954,9 @@ class Builder {
    * Saves the draft to the store asset (`dbb_d_<id>` + history `dbb_h_<id>`, D-013).
    *
    * Steps, in order:
-   *   1. Non-admin editing a shared dashboard -> offer "Save as copy" instead (D-015). Since
-   *      D-017 only admins can open the builder, so this branch is normally unreachable.
+   *   1. A role without `dashboards.applyMany` editing a shared dashboard (used by several machines, or applied to a
+   *      location or the customer) -> offer "Save as copy" instead (D-015, D-050): changing it would change it for
+   *      many machines, which is what that permission guards.
    *   2. Validate with `checkDashboard` (D-020 limits and property/widget compatibility) and
    *      require at least one widget; problems are shown as a toast and nothing is written.
    *   3. Save as: ask for a name and turn the draft into a new dashboard (new id, version 0).
@@ -1967,15 +1970,15 @@ class Builder {
    * @param asCopy true for "Save as" (always creates a new dashboard).
    */
   async save(asCopy: boolean): Promise<void> {
-    // UI-only guard (D-012, D-015).
-    if (!asCopy && !this.ctx.isAdmin && this.draft.version > 0) {
+    // UI-only guard (D-012, D-015, D-050).
+    if (!asCopy && !this.ctx.canApplyMany && this.draft.version > 0) {
       const u = this.usageInfo ?? (await store.usage(this.ctx, this.draft).catch(() => null));
       const shared = (u?.devices.length ?? 0) > 1 || (this.source?.level === 'node' || this.source?.level === 'customer') && this.source.dashboard?.id === this.draft.id;
       if (shared) {
         const ok = await confirmModal(
           this.root,
           'This dashboard is shared',
-          `${this.source && (this.source.level === 'node' || this.source.level === 'customer') ? `It is applied to ${(this.source.sourceLabel || 'a group of machines').replace(/^All/, 'all')}` : `It is used by ${u?.devices.length ?? 'several'} machines`}, and only admins can change it. Save your changes as your own copy instead?`,
+          `${this.source && (this.source.level === 'node' || this.source.level === 'customer') ? `It is applied to ${(this.source.sourceLabel || 'a group of machines').replace(/^All/, 'all')}` : `It is used by ${u?.devices.length ?? 'several'} machines`}, and your role can't change a shared dashboard. Save your changes as your own copy instead?`,
           'Save as copy',
         );
         if (ok) return this.save(true);
@@ -2033,8 +2036,9 @@ class Builder {
   /**
    * "Apply dashboard" dialog (D-017): only the selected machine, all machines of this type, or
    * don't apply. "All" means customer-wide (`dbb_assign_customer` on the store asset) when the
-   * admin's scope roots are top-level, otherwise a device-level `dbb_assign` on every same-type
-   * machine in scope (D-011, D-013). Standalone dashboards can't be applied.
+   * user's access covers the whole organisation (`ctx.coversAll`, D-050), otherwise a device-level `dbb_assign` on every
+   * same-type machine the user sees (D-011, D-013). "All" needs the role's dashboards.applyMany. Standalone dashboards
+   * can't be applied.
    *
    * While open, each selection change runs `store.previewApply` (affected machines, dashboards
    * that will be replaced, machines keeping their own, missing properties); a sequence counter
@@ -2050,13 +2054,14 @@ class Builder {
     const isDeviceDash = d.kind === 'device' && !!profile;
     const sameType = profile ? scope.allDevices(this.ctx, profile) : [];
     const nodes = profile ? scope.nodesContaining(this.ctx, profile) : [];
-    const admin = this.ctx.isAdmin;
+    // D-050: applying to many machines is the role's dashboards.applyMany
+    const admin = this.ctx.canApplyMany;
     const p = this.pendingApply;
     this.pendingApply = null;
-    // Scope decision 27 Sep 2026: building is admin-only, and a save applies to the selected machine
-    // with the option to apply it to every machine of the same type in the admin's scope.
+    // Scope decision 27 Sep 2026: a save applies to the selected machine, with the option to apply it to every machine of
+    // the same type the user sees (D-050: customer-wide when the access covers the whole organisation).
     const others = sameType.filter((x) => x.id !== dev?.id);
-    const allLabel = this.ctx.rootsAreTop ? `All ${profile} machines` : `All ${profile} machines you manage`;
+    const allLabel = this.ctx.coversAll ? `All ${profile} machines` : `All ${profile} machines you manage`;
     // A chat proposal for a location/customer maps to "all"; otherwise default to "only this machine".
     const initial = (p?.target === 'customer' || p?.target === 'node') && admin && others.length ? 'all' : dev && isDeviceDash ? 'device' : 'none';
     // Location targets are no longer offered (D-017); `nodes` is kept referenced only.
@@ -2075,7 +2080,7 @@ class Builder {
         }
         ${
           isDeviceDash && others.length
-            ? `<label class="dbb-check ${admin ? '' : 'dis'}"><input type="radio" name="t" value="all" ${initial === 'all' ? 'checked' : ''} ${admin ? '' : 'disabled'}/> ${esc(allLabel)} <span class="dbb-muted">(${sameType.length} machines${this.ctx.rootsAreTop ? ', and machines added later' : ''})</span></label>`
+            ? `<label class="dbb-check ${admin ? '' : 'dis'}"${admin ? '' : ` title="Your role can't apply a dashboard to more than one machine"`}><input type="radio" name="t" value="all" ${initial === 'all' ? 'checked' : ''} ${admin ? '' : 'disabled'}/> ${esc(allLabel)} <span class="dbb-muted">(${sameType.length} machines${this.ctx.coversAll ? ', and machines added later' : ''})</span></label>`
             : ''
         }
         <label class="dbb-check"><input type="radio" name="t" value="none" ${initial === 'none' ? 'checked' : ''}/> Don't apply now</label>
@@ -2092,7 +2097,7 @@ class Builder {
       const t = (body.querySelector('input[name="t"]:checked') as HTMLInputElement)?.value ?? 'none';
       if (t === 'device') return { type: 'devices', deviceIds: [dev!.id], mode: 'linked' };
       if (t === 'all')
-        return this.ctx.rootsAreTop ? { type: 'customer', profile: profile! } : { type: 'devices', deviceIds: sameType.map((x) => x.id), mode: 'linked' };
+        return this.ctx.coversAll ? { type: 'customer', profile: profile! } : { type: 'devices', deviceIds: sameType.map((x) => x.id), mode: 'linked' };
       return { type: 'none' };
     };
     // Recomputes the preview; `seq` makes sure only the latest (possibly slow) preview is shown.

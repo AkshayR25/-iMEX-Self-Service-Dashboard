@@ -15,8 +15,9 @@
 //   customerId      customer to show when a tenant admin opens the app (D-018)
 //
 // Navigation is always tbCtx.stateController.openState(stateId, {entityId, entityName, entityLabel}, false).
-// The tree and cards only show nodes in the user's scope (`selectedNodes` + Contains descendants, D-011);
-// that is a UI filter, not a permission (D-012). Card data is polled over REST (latest telemetry, active
+// The tree and cards only show the nodes the user sees (D-050: the access core's grants, `imexAccess` or the legacy
+// `selectedNodes`; the tree starts at the visible tops, nav nodes above 'all' grants included); that is a UI filter,
+// not a permission (D-012). A page the user's role hides (Fleet overview / Machines) shows the app's empty state. Card data is polled over REST (latest telemetry, active
 // alarms) every 10 s in listing mode; map mode loads once. Reloads on CHANGED_EVENT (listing mode).
 import * as api from '../core/api';
 import * as scope from '../core/scope';
@@ -25,7 +26,7 @@ import type { UserContext, Node } from '../core/scope';
 import { CSS, ensureCss, esc, fmtNum, STATUS, loadFont } from '../render/theme';
 import { keyMeta } from '../render/widgets';
 import { ICON_SVG } from '../render/icons';
-import { userContext, stateEntity, CHANGED_EVENT, scheduleRedraw, liveLend, liveRelease } from './common';
+import { userContext, stateEntity, CHANGED_EVENT, scheduleRedraw, liveLend, liveRelease, pageGate, NO_ACCESS_HTML } from './common';
 
 const L_CSS = `
 .dbb-list{display:flex;height:100%;background:#f4f5f7}
@@ -124,6 +125,10 @@ function initMap(tbCtx: any, host: HTMLElement) {
   void (async () => {
     try {
       const ctx = await userContext(tbCtx);
+      if (pageGate(tbCtx, ctx) === 'hidden') {
+        host.innerHTML = NO_ACCESS_HTML;
+        return;
+      }
       const sites = mapNodes(ctx, s.siteProfile || 'Site');
       if (!sites.length) {
         sitesEl.innerHTML = `${ctx.warnings.map((w) => `<div class="dbb-banner warn">${esc(w)}</div>`).join('')}<div class="dbb-hint">No sites in your scope.</div>`;
@@ -182,6 +187,8 @@ export function init(tbCtx: any) {
   let lastEnt: string | null = null;
   let dashList = '';
   let dashListFor: UserContext | null = null;
+  /** D-050: the user's role hides this page (nothing is drawn or redrawn). */
+  let denied = false;
 
   const openMachine = (n: Node) =>
     tbCtx.stateController.openState(tbCtx.settings?.machineState || 'machine', { entityId: { id: n.id, entityType: 'DEVICE' }, entityName: n.label, entityLabel: n.label }, false);
@@ -287,6 +294,12 @@ export function init(tbCtx: any) {
   const load = async (force = false) => {
     try {
       ctx = await userContext(tbCtx, force);
+      denied = pageGate(tbCtx, ctx) === 'hidden';
+      if (denied) {
+        treeEl.innerHTML = '';
+        cardsEl.innerHTML = NO_ACCESS_HTML;
+        return;
+      }
       const ent = stateEntity(tbCtx);
       if (ent && ent.entityType === 'ASSET' && ctx.nodes.has(ent.id) && ent.id !== lastEnt) selected = ent.id;
       lastEnt = ent?.id ?? null;
@@ -297,12 +310,12 @@ export function init(tbCtx: any) {
       cardsEl.innerHTML = `<div class="dbb-banner err">Could not load: ${esc(e.message ?? e)}</div>`;
     }
   };
-  search.oninput = () => ctx && drawTree();
+  search.oninput = () => ctx && !denied && drawTree();
   const onChanged = () => void load(true);
   window.addEventListener(CHANGED_EVENT, onChanged);
   // Card values come from the WebSocket live cache (D-021): redraw on pushes (at most every 2 s) and every
   // 60 s; REST polling every 10 s if the socket is down.
-  const stopRedraw = scheduleRedraw(() => ctx && void drawCards(), () => 10000);
+  const stopRedraw = scheduleRedraw(() => ctx && !denied && void drawCards(), () => 10000);
   (tbCtx as any).__dbbReload = () => void load();
   (tbCtx as any).__dbbCleanup = () => {
     stopRedraw();

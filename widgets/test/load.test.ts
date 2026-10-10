@@ -1,6 +1,6 @@
 // D-022: first-load call counts and the assignment snapshot.
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { FakeTB, ithena, asUser } from './fake-tb';
+import { FakeTB, ithena, asUser, ROOT, PUN } from './fake-tb';
 import * as scope from '../src/core/scope';
 import * as store from '../src/core/store';
 import * as api from '../src/core/api';
@@ -31,15 +31,15 @@ function grow(sites: number, per: number) {
 }
 
 describe('first load (D-022)', () => {
-  it('user context costs 8 calls whatever the size of the tree', async () => {
+  it('user context costs 9 calls whatever the size of the tree (D-050: + the role store)', async () => {
     await ctxFor('Admin', ['root']);
     const small = tb.calls.length;
     grow(30, 10);
     tb.calls = [];
     const ctx = await ctxFor('Admin', ['root']);
     expect(scope.allDevices(ctx).length).toBe(4 + 300);
-    expect(small).toBe(8);
-    expect(tb.calls.length).toBe(8);
+    expect(small).toBe(9);
+    expect(tb.calls.length).toBe(9);
     expect(tb.calls.filter((c) => c === 'GET /api/relations/info')).toEqual([]);
   });
 
@@ -54,10 +54,14 @@ describe('first load (D-022)', () => {
   it('a location assignment ABOVE the user scope still applies (ancestors loaded with the context)', async () => {
     const admin = await ctxFor('Admin', ['root']);
     const org = await store.saveDashboard(admin, mk(admin, 'org'));
-    await store.apply(admin, org, { type: 'node', nodeId: 'root', profile: 'Compressor' });
+    await store.apply(admin, org, { type: 'node', nodeId: ROOT, profile: 'Compressor' });
     const viewer = await ctxFor('Viewer', ['pun'], 'u-v');
-    expect(viewer.rootsAreTop).toBe(false);
-    expect(viewer.assign!.aboveRoot.get('pun')!.map((a) => a.id)).toEqual(['root']);
+    expect(viewer.coversAll).toBe(false);
+    // D-050: the organisation above the Pune grant is a nav node of the tree (the path), nothing is above it
+    expect(viewer.rootIds).toEqual([ROOT]);
+    expect(viewer.nodes.get(ROOT)!.nav).toBe(true);
+    expect(viewer.nodes.get(ROOT)!.children).toEqual([PUN]);
+    expect(viewer.assign!.aboveRoot.get(ROOT)).toEqual([]);
     tb.calls = [];
     const r = await store.resolveForDevice(viewer, 'pc', 'Compressor');
     expect(r.dashboard?.name).toBe('org');
@@ -70,7 +74,7 @@ describe('first load (D-022)', () => {
     const admin = await ctxFor('Admin', ['root']);
     expect((await store.resolveForDevice(viewer, 'pc', 'Compressor')).level).toBe('default');
     const site = await store.saveDashboard(admin, mk(admin, 'site'));
-    await store.apply(admin, site, { type: 'node', nodeId: 'pun', profile: 'Compressor' });
+    await store.apply(admin, site, { type: 'node', nodeId: PUN, profile: 'Compressor' });
     tb.calls = [];
     const r = await store.resolveForDevice(viewer, 'pc', 'Compressor');
     expect(r.dashboard?.name).toBe('site');

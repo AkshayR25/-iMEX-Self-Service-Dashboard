@@ -304,8 +304,8 @@ test('Widget tab: title, type change, data sources, properties and caps', async 
   await t.source('nodeQuery');
   w = (await t.draft()).widgets[0];
   eq(w.binding.mode, 'nodeQuery', 'nodeQuery');
-  await t.page.selectOption('.dbb-right [data-s="node"]', 'ric');
-  eq((await t.draft()).widgets[0].binding.nodeId, 'ric', 'node picked');
+  await t.page.selectOption('.dbb-right [data-s="node"]', 'a0000000-0000-4000-8000-000000000002');
+  eq((await t.draft()).widgets[0].binding.nodeId, 'a0000000-0000-4000-8000-000000000002', 'node picked');
   await t.page.waitForTimeout(800);
   eq(await t.cardErrors(), [], 'nodeQuery renders');
   // type change to a single-key, single-machine type trims keys and binding

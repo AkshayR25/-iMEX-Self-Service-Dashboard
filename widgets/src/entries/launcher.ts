@@ -1,4 +1,4 @@
-// Navbar widget. For admins it shows one edit (pencil) icon; its menu holds every editing option:
+// Navbar widget. For a role that may build dashboards (D-050: dashboards.build) it shows one edit (pencil) icon; its menu holds every editing option:
 // the Dashboard Builder and, on the machine page, edit / customise / reset / thresholds / switch
 // dashboard (published by the renderer widget, see common.ts). The page itself shows no edit controls
 // (user decision 27 Sep 2026). Also exposes window.IMEX_DBB.open() for an existing custom header widget.
@@ -9,8 +9,8 @@
 //
 // Settings (widgets/widget-types.mjs):
 //   label            tooltip / aria-label of the edit icon
-//   adminOnly        show the icon to admins only (default true; D-017). `false` shows it to everyone.
-//   hideForRoles     comma-separated roles that never see the icon
+//   adminOnly        no longer used (D-050): the role's dashboards.build decides who gets the edit items
+//   hideForRoles     no longer used (D-050): a role whose Dashboards page is Hidden gets no icon
 //   overviewState    state id that shows standalone dashboards (default 'dashboard_overview', named
 //                    "Dashboard Overview", D-026); it holds the machine dashboard widget like the machine state
 //   dashboardList    (default true) every user gets the icon with "Dashboard list" (standalone dashboards,
@@ -20,19 +20,20 @@
 //   appName, homeState/homeLabel, listingState/listingLabel, machineState/machineLabel, stateTitles
 //                    navbar texts and the dashboard state ids its links open
 //   lightStyle       light icon button for light headers (icon-only mode)
-//   chatEnabled, chatEnabledRoles  enable the builder's Chat tab, optionally only for some roles
+//   chatEnabled      enable the builder's Chat tab (chatEnabledRoles: no longer used, D-050; everyone who may build may
+//                    chat)
 //   customerId       customer to show when a tenant admin opens the app (D-018)
 //
 // Edit menu (D-020): the items come from the renderer widget via window.__imexDbbActions / ACTIONS_EVENT
 // (see common.ts), because the renderer runs in another copy of the library. The launcher adds
 // "Dashboard list" (everyone, D-025) and "Dashboard Builder" (editors). The menu is appended to <body> so the navbar cell does not clip it.
 //
-// Admin checks here (icon visibility, open()) are UI-only; a customer user can still write attributes
-// through the REST API (D-012).
+// Role checks here (icon visibility, open(), the Dashboard list; D-050) are UI-only; a customer user can still write
+// attributes through the REST API (D-012).
 import { openBuilder, setBuilderPlacement, measureHeaderTop } from '../builder/builder';
 import * as store from '../core/store';
 import { CSS, ensureCss, esc, loadFont } from '../render/theme';
-import { userContext, userContextFor, stateEntity, notifyChanged, currentState, currentActions, ACTIONS_EVENT, EditAction, RSTATE_KEY, CHANGED_EVENT, liveLend, liveRelease } from './common';
+import { userContext, userPerms, userContextFor, stateEntity, notifyChanged, currentState, currentActions, ACTIONS_EVENT, EditAction, RSTATE_KEY, CHANGED_EVENT, liveLend, liveRelease, NO_ACCESS_HTML } from './common';
 import * as scope from '../core/scope';
 import { ensureKitCss, withBusy, kitToast, skeletonRows } from '../render/kit';
 
@@ -110,13 +111,6 @@ export function aboveBuilder(min: number): number {
   return z;
 }
 
-/** Splits a comma-separated role list into trimmed, lower-cased names (empty string -> []). */
-function roleList(s: string | undefined): string[] {
-  return (s ?? '')
-    .split(',')
-    .map((x) => x.trim().toLowerCase())
-    .filter(Boolean);
-}
 
 /**
  * Opens the full-screen Dashboard Builder. Also reachable as `window.IMEX_DBB.open(opts)` once init ran.
@@ -125,13 +119,13 @@ function roleList(s: string | undefined): string[] {
  * builder is `opts.deviceId`, else the current state's entity if it is a DEVICE.
  * When the builder closes with changes, fires CHANGED_EVENT so renderer and listing reload.
  *
- * @param tbCtx ThingsBoard widget context of the launcher (its settings drive adminOnly/chat).
+ * @param tbCtx ThingsBoard widget context of the launcher (its settings drive the chat).
  * @param opts.deviceId Machine to open; `opts.dashboardId` a stored dashboard to open directly;
  *   `opts.startNew` opens the "New dashboard" dialog (menu item New dashboard, D-029).
  * What loads (D-029): on a machine page that machine and the dashboard it shows; on the Dashboard Overview state
  * the overview shown there; on any other page (Map, Listing, ...) the start screen (New / Open / recent).
- * @throws Error('Only admins can build dashboards.') when adminOnly is on and the user isn't an admin
- *   (UI-only check, D-012), or when the user context can't be loaded.
+ * @throws Error("Your role can't build dashboards.") without dashboards.build (UI-only check, D-012, D-050), or when
+ *   the user context can't be loaded.
  */
 export async function open(tbCtx: any, opts: { deviceId?: string | null; dashboardId?: string | null; startNew?: boolean } = {}) {
   const cp = currentState(tbCtx).params ?? {};
@@ -139,9 +133,9 @@ export async function open(tbCtx: any, opts: { deviceId?: string | null; dashboa
   // a machine missing from the cached scope (added minutes ago) reloads the scope once instead of being dropped
   const ctx = await userContextFor(tbCtx, opts.deviceId ?? (ent?.entityType === 'DEVICE' ? ent.id : null), true);
   const settings = tbCtx?.settings ?? {};
-  if (settings.adminOnly !== false && !ctx.isAdmin) throw new Error('Only admins can build dashboards.');
-  const chatRoles = roleList(settings.chatEnabledRoles);
-  const chatEnabled = settings.chatEnabled !== false && (!chatRoles.length || chatRoles.includes(ctx.role.toLowerCase()));
+  // D-050: the role's dashboards.build (the settings adminOnly and chatEnabledRoles are no longer used)
+  if (!ctx.canBuild) throw new Error("Your role can't build dashboards.");
+  const chatEnabled = settings.chatEnabled !== false;
   registerPlacement(tbCtx);
   // On the Dashboard Overview state the builder opens the standalone dashboard shown there (D-026).
   const shown = !ent && typeof cp.dbbDashboardId === 'string' ? cp.dbbDashboardId : null;
@@ -222,14 +216,25 @@ export function init(tbCtx: any) {
   // menu), which then opens the builder, the Dashboard list and New dashboard through it.
   if (s.headless) {
     host.innerHTML = '';
-    const editorP = userContext(tbCtx).then((c) => s.adminOnly === false || c.isAdmin);
+    // D-050: isEditor() = the role's dashboards.build (the app's side menu and Dashboards page read it).
+    // D-052: asked when first needed, and from the role alone (userPerms): the headless launcher is on every page of the
+    // app, and loading the whole context here cost the tree's relation requests on every cold page load. The context
+    // loads when a Builder action needs it (open, the Dashboard list). A failed read answers false and is asked again.
+    let editorP: Promise<boolean> | null = null;
+    const isEditor = () =>
+      (editorP ??= userPerms(tbCtx)
+        .then((p) => p.can('dashboards.build'))
+        .catch(() => {
+          editorP = null;
+          return false;
+        }));
     (window as any).IMEX_DBB = {
       open: (o?: any) => open(tbCtx, o),
       newDashboard: () => open(tbCtx, { startNew: true }),
-      dashboardList: async () => dashboardList(tbCtx, await editorP.catch(() => false)),
+      dashboardList: async () => dashboardList(tbCtx, await isEditor()),
       // D-041: the same list drawn inside an element of the app's own Dashboards page (no pop-up)
-      dashboardPage: async (host: HTMLElement) => dashboardList(tbCtx, await editorP.catch(() => false), host),
-      isEditor: () => editorP.catch(() => false),
+      dashboardPage: async (host: HTMLElement) => dashboardList(tbCtx, await isEditor(), host),
+      isEditor,
       actions: () => currentActions(),
     };
     registerPlacement(tbCtx);
@@ -301,18 +306,17 @@ export function init(tbCtx: any) {
     (tbCtx as any).__dbbWatch = watch;
   } else host.innerHTML = `<div class="dbb-root dbb-launch ${s.lightStyle ? 'light' : ''}">${btnHtml}</div>`;
   const btn = host.querySelector('.dbb-launch-btn') as HTMLButtonElement;
-  // Admin-only by default (settings.adminOnly=false shows it to everyone). Also hidden for roles in
-  // settings.hideForRoles. Hidden until the role is known, so non-admins never see it flash.
+  // D-050: the edit items need the role's dashboards.build; a role whose Dashboards page is Hidden gets no icon (the
+  // settings adminOnly and hideForRoles are no longer used). Hidden until the role is known, so it never flashes.
   // NB: hiding is UI only; see DECISIONS D-012.
-  const hide = roleList(s.hideForRoles);
   btn.style.display = 'none';
   // D-025: everyone may open the "Dashboard list" (standalone dashboards); only editors get the edit items.
   // Non-editors see a list icon instead of the pencil. settings.dashboardList = false restores admin-only.
   let editor = false;
   void userContext(tbCtx)
     .then((c) => {
-      editor = s.adminOnly === false || c.isAdmin;
-      if (hide.includes(c.role.toLowerCase()) || (!editor && s.dashboardList === false)) return btn.remove();
+      editor = c.canBuild;
+      if (c.perms.page('dashboards') === 'hidden' || (!editor && s.dashboardList === false)) return btn.remove();
       if (!editor) {
         btn.innerHTML = svg(MENU_ICONS.list);
         btn.title = 'Dashboards';
@@ -566,6 +570,16 @@ export async function dashboardList(tbCtx: any, editor: boolean, host?: HTMLElem
   let all: Awaited<ReturnType<typeof store.listDashboards>>;
   try {
     ctx = await userContext(tbCtx);
+    // D-050: the Dashboards page of the app's roles; Hidden = no list
+    if (ctx.perms.page('dashboards') === 'hidden') {
+      if (host) {
+        host.innerHTML = NO_ACCESS_HTML;
+        return { destroy: () => void (host.innerHTML = '') };
+      }
+      const msg = "You don't have access to the dashboards. Ask your administrator if you need it.";
+      if (!kitToast(msg, 'warn')) throw new Error(msg);
+      return;
+    }
     // D-033: editors also see machine-type dashboards (e.g. one saved with "Don't apply now", which otherwise
     // could only be found through the builder's Open dialog); everyone else sees overviews only.
     all = (await store.listDashboards(ctx, store.LIST_REUSE_MS)).filter((d) => d.kind === 'standalone' || (editor && d.profile));

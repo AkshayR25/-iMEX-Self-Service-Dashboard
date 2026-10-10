@@ -1,0 +1,5273 @@
+{
+ "version": 1,
+ "about": "Shared test vectors of the access core (docs/ACCESS.md). Generated from tests/access-vectors.src.mjs; copy byte for byte. Sections parse, normalize, resolve, resolveUser, pickByName, rootKey run in every runtime; selection, labels, compact, snapshot are JS only. Trees: { nodes: { id: { type, name } }, rels: [[from, to]] } -> makeTree. Id lists in expectations are sorted; sites are sorted by path (code-unit order), then id; unresolved in grant order, names last. A case without exists uses the tree nodes as the existing ids. has / hasAll / sees: id -> expected answer.",
+ "ids": {
+  "ORG": "10c85640-c0be-11f1-add5-5db4ab3ed597",
+  "MUMBAI": "10aba680-c0be-11f1-add5-5db4ab3ed597",
+  "PUNE": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+  "RICH": "10d48b40-c0be-11f1-add5-5db4ab3ed597",
+  "BLR": "10b2ab60-c0be-11f1-add5-5db4ab3ed597",
+  "AUSTIN": "10b9d750-c0be-11f1-add5-5db4ab3ed597",
+  "WS3": "110e11d0-c0be-11f1-add5-5db4ab3ed597",
+  "D2": "10fd48f0-c0be-11f1-add5-5db4ab3ed597",
+  "C2": "110474e0-c0be-11f1-add5-5db4ab3ed597",
+  "B2": "10f3ac00-c0be-11f1-add5-5db4ab3ed597",
+  "D1": "11474a40-c0be-11f1-add5-5db4ab3ed597",
+  "C1": "113ff740-c0be-11f1-add5-5db4ab3ed597",
+  "WS1": "1155a220-c0be-11f1-add5-5db4ab3ed597",
+  "B1": "114e4f20-c0be-11f1-add5-5db4ab3ed597",
+  "WS2": "10e41ba0-c0be-11f1-add5-5db4ab3ed597",
+  "B3": "111564d0-c0be-11f1-add5-5db4ab3ed597",
+  "D3": "111c90c0-c0be-11f1-add5-5db4ab3ed597",
+  "C3": "112172c0-c0be-11f1-add5-5db4ab3ed597",
+  "B4": "11289eb0-c0be-11f1-add5-5db4ab3ed597",
+  "D4": "11319f60-c0be-11f1-add5-5db4ab3ed597",
+  "WS4": "1138cb50-c0be-11f1-add5-5db4ab3ed597",
+  "ALPHA": "9086bea0-bc3e-11f1-bc96-3707e46d85f8",
+  "NORTH": "909341c0-bc3e-11f1-bc96-3707e46d85f8",
+  "SOUTH": "90e9c630-bc3e-11f1-bc96-3707e46d85f8",
+  "IMM1": "90b03fa0-bc3e-11f1-bc96-3707e46d85f8",
+  "IMM2": "90cb1aa0-bc3e-11f1-bc96-3707e46d85f8",
+  "CMP1": "90d9c0a0-bc3e-11f1-bc96-3707e46d85f8",
+  "IMM3": "90f81e10-bc3e-11f1-bc96-3707e46d85f8",
+  "CNC1": "91076050-bc3e-11f1-bc96-3707e46d85f8",
+  "BETA": "911bf9c0-bc3e-11f1-bc96-3707e46d85f8",
+  "MAIN": "9125e4d0-bc3e-11f1-bc96-3707e46d85f8",
+  "BCNC": "91315680-bc3e-11f1-bc96-3707e46d85f8",
+  "BCMP": "913d3d60-bc3e-11f1-bc96-3707e46d85f8",
+  "GAMMA": "01144e50-bcb0-11f1-bc96-3707e46d85f8",
+  "CELL": "01373fa0-bcb0-11f1-bc96-3707e46d85f8",
+  "FAST": "01816800-bcb0-11f1-bc96-3707e46d85f8",
+  "NEWDEV": "aaaaaaaa-0000-4000-8000-000000000001",
+  "NEWSITE": "aaaaaaaa-0000-4000-8000-000000000002",
+  "GONE_DEV": "aaaaaaaa-0000-4000-8000-000000000003",
+  "GONE_SITE": "aaaaaaaa-0000-4000-8000-000000000004",
+  "ROOT": "aaaaaaaa-0000-4000-8000-000000000010",
+  "L1": "aaaaaaaa-0000-4000-8000-000000000011",
+  "L2": "aaaaaaaa-0000-4000-8000-000000000012",
+  "L3": "aaaaaaaa-0000-4000-8000-000000000013",
+  "L4": "aaaaaaaa-0000-4000-8000-000000000014",
+  "L5": "aaaaaaaa-0000-4000-8000-000000000015",
+  "L6": "aaaaaaaa-0000-4000-8000-000000000016",
+  "L7": "aaaaaaaa-0000-4000-8000-000000000017",
+  "L8": "aaaaaaaa-0000-4000-8000-000000000018",
+  "L9": "aaaaaaaa-0000-4000-8000-000000000019",
+  "L10": "aaaaaaaa-0000-4000-8000-000000000020",
+  "L11": "aaaaaaaa-0000-4000-8000-000000000021",
+  "L12": "aaaaaaaa-0000-4000-8000-000000000022",
+  "DEV12": "aaaaaaaa-0000-4000-8000-000000000023",
+  "DEV13": "aaaaaaaa-0000-4000-8000-000000000024",
+  "CYC_A": "aaaaaaaa-0000-4000-8000-000000000030",
+  "CYC_B": "aaaaaaaa-0000-4000-8000-000000000031",
+  "CYC_C": "aaaaaaaa-0000-4000-8000-000000000032",
+  "CYC_DEV": "aaaaaaaa-0000-4000-8000-000000000033",
+  "ORG2": "aaaaaaaa-0000-4000-8000-000000000040",
+  "SITE_X": "aaaaaaaa-0000-4000-8000-000000000041",
+  "SITE_Y": "aaaaaaaa-0000-4000-8000-000000000042",
+  "TWIN": "aaaaaaaa-0000-4000-8000-000000000043",
+  "XDEV": "aaaaaaaa-0000-4000-8000-000000000044"
+ },
+ "trees": {
+  "local": {
+   "nodes": {
+    "10c85640-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "ASSET",
+     "name": "ITHENA ORG"
+    },
+    "10aba680-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "ASSET",
+     "name": "Mumbai"
+    },
+    "10cfa940-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "ASSET",
+     "name": "Pune"
+    },
+    "10d48b40-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "ASSET",
+     "name": "Richmond"
+    },
+    "10b2ab60-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "ASSET",
+     "name": "Bangalore"
+    },
+    "10b9d750-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "ASSET",
+     "name": "Austin"
+    },
+    "110e11d0-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Weather Station 3"
+    },
+    "10fd48f0-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Dryer 2"
+    },
+    "110474e0-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Compressor 2"
+    },
+    "10f3ac00-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Blower 2"
+    },
+    "11474a40-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Dryer 1"
+    },
+    "113ff740-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Compressor 1"
+    },
+    "1155a220-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Weather Station 1"
+    },
+    "114e4f20-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Blower 1"
+    },
+    "10e41ba0-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Weather Station 2"
+    },
+    "111564d0-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Blower 3"
+    },
+    "111c90c0-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Dryer 3"
+    },
+    "112172c0-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Compressor 3"
+    },
+    "11289eb0-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Blower 4"
+    },
+    "11319f60-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Dryer 4"
+    },
+    "1138cb50-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Weather Station 4"
+    },
+    "9086bea0-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "ASSET",
+     "name": "POC Alpha Group"
+    },
+    "909341c0-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "ASSET",
+     "name": "POC Alpha Plant North"
+    },
+    "90e9c630-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "ASSET",
+     "name": "POC Alpha Plant South"
+    },
+    "90b03fa0-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "DEVICE",
+     "name": "POC Alpha IMM-01"
+    },
+    "90cb1aa0-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "DEVICE",
+     "name": "POC Alpha IMM-02"
+    },
+    "90d9c0a0-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "DEVICE",
+     "name": "POC Alpha CMP-01"
+    },
+    "90f81e10-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "DEVICE",
+     "name": "POC Alpha IMM-03"
+    },
+    "91076050-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "DEVICE",
+     "name": "POC Alpha CNC-01"
+    },
+    "911bf9c0-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "ASSET",
+     "name": "POC Beta Works"
+    },
+    "9125e4d0-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "ASSET",
+     "name": "POC Beta Main Site"
+    },
+    "91315680-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "DEVICE",
+     "name": "POC Beta CNC-01"
+    },
+    "913d3d60-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "DEVICE",
+     "name": "POC Beta CMP-01"
+    },
+    "01144e50-bcb0-11f1-bc96-3707e46d85f8": {
+     "type": "ASSET",
+     "name": "POC Gamma Lab"
+    },
+    "01373fa0-bcb0-11f1-bc96-3707e46d85f8": {
+     "type": "ASSET",
+     "name": "POC Gamma Test Cell"
+    },
+    "01816800-bcb0-11f1-bc96-3707e46d85f8": {
+     "type": "DEVICE",
+     "name": "POC Gamma FAST-01"
+    }
+   },
+   "rels": [
+    [
+     "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "10aba680-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "10cfa940-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "10d48b40-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "10b2ab60-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "10b9d750-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10aba680-c0be-11f1-add5-5db4ab3ed597",
+     "110e11d0-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10aba680-c0be-11f1-add5-5db4ab3ed597",
+     "10fd48f0-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10aba680-c0be-11f1-add5-5db4ab3ed597",
+     "110474e0-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10aba680-c0be-11f1-add5-5db4ab3ed597",
+     "10f3ac00-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "11474a40-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "113ff740-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "1155a220-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10d48b40-c0be-11f1-add5-5db4ab3ed597",
+     "114e4f20-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10d48b40-c0be-11f1-add5-5db4ab3ed597",
+     "10e41ba0-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10b2ab60-c0be-11f1-add5-5db4ab3ed597",
+     "111564d0-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10b2ab60-c0be-11f1-add5-5db4ab3ed597",
+     "111c90c0-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10b2ab60-c0be-11f1-add5-5db4ab3ed597",
+     "112172c0-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10b9d750-c0be-11f1-add5-5db4ab3ed597",
+     "11289eb0-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10b9d750-c0be-11f1-add5-5db4ab3ed597",
+     "11319f60-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10b9d750-c0be-11f1-add5-5db4ab3ed597",
+     "1138cb50-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "9086bea0-bc3e-11f1-bc96-3707e46d85f8",
+     "909341c0-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "9086bea0-bc3e-11f1-bc96-3707e46d85f8",
+     "90e9c630-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "909341c0-bc3e-11f1-bc96-3707e46d85f8",
+     "90b03fa0-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "909341c0-bc3e-11f1-bc96-3707e46d85f8",
+     "90cb1aa0-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "909341c0-bc3e-11f1-bc96-3707e46d85f8",
+     "90d9c0a0-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "90e9c630-bc3e-11f1-bc96-3707e46d85f8",
+     "90f81e10-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "90e9c630-bc3e-11f1-bc96-3707e46d85f8",
+     "91076050-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "911bf9c0-bc3e-11f1-bc96-3707e46d85f8",
+     "9125e4d0-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "9125e4d0-bc3e-11f1-bc96-3707e46d85f8",
+     "91315680-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "9125e4d0-bc3e-11f1-bc96-3707e46d85f8",
+     "913d3d60-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "01144e50-bcb0-11f1-bc96-3707e46d85f8",
+     "01373fa0-bcb0-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "01373fa0-bcb0-11f1-bc96-3707e46d85f8",
+     "01816800-bcb0-11f1-bc96-3707e46d85f8"
+    ]
+   ]
+  },
+  "localNew": {
+   "nodes": {
+    "10c85640-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "ASSET",
+     "name": "ITHENA ORG"
+    },
+    "10aba680-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "ASSET",
+     "name": "Mumbai"
+    },
+    "10cfa940-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "ASSET",
+     "name": "Pune"
+    },
+    "10d48b40-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "ASSET",
+     "name": "Richmond"
+    },
+    "10b2ab60-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "ASSET",
+     "name": "Bangalore"
+    },
+    "10b9d750-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "ASSET",
+     "name": "Austin"
+    },
+    "110e11d0-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Weather Station 3"
+    },
+    "10fd48f0-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Dryer 2"
+    },
+    "110474e0-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Compressor 2"
+    },
+    "10f3ac00-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Blower 2"
+    },
+    "11474a40-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Dryer 1"
+    },
+    "113ff740-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Compressor 1"
+    },
+    "1155a220-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Weather Station 1"
+    },
+    "114e4f20-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Blower 1"
+    },
+    "10e41ba0-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Weather Station 2"
+    },
+    "111564d0-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Blower 3"
+    },
+    "111c90c0-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Dryer 3"
+    },
+    "112172c0-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Compressor 3"
+    },
+    "11289eb0-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Blower 4"
+    },
+    "11319f60-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Dryer 4"
+    },
+    "1138cb50-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Weather Station 4"
+    },
+    "9086bea0-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "ASSET",
+     "name": "POC Alpha Group"
+    },
+    "909341c0-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "ASSET",
+     "name": "POC Alpha Plant North"
+    },
+    "90e9c630-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "ASSET",
+     "name": "POC Alpha Plant South"
+    },
+    "90b03fa0-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "DEVICE",
+     "name": "POC Alpha IMM-01"
+    },
+    "90cb1aa0-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "DEVICE",
+     "name": "POC Alpha IMM-02"
+    },
+    "90d9c0a0-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "DEVICE",
+     "name": "POC Alpha CMP-01"
+    },
+    "90f81e10-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "DEVICE",
+     "name": "POC Alpha IMM-03"
+    },
+    "91076050-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "DEVICE",
+     "name": "POC Alpha CNC-01"
+    },
+    "911bf9c0-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "ASSET",
+     "name": "POC Beta Works"
+    },
+    "9125e4d0-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "ASSET",
+     "name": "POC Beta Main Site"
+    },
+    "91315680-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "DEVICE",
+     "name": "POC Beta CNC-01"
+    },
+    "913d3d60-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "DEVICE",
+     "name": "POC Beta CMP-01"
+    },
+    "01144e50-bcb0-11f1-bc96-3707e46d85f8": {
+     "type": "ASSET",
+     "name": "POC Gamma Lab"
+    },
+    "01373fa0-bcb0-11f1-bc96-3707e46d85f8": {
+     "type": "ASSET",
+     "name": "POC Gamma Test Cell"
+    },
+    "01816800-bcb0-11f1-bc96-3707e46d85f8": {
+     "type": "DEVICE",
+     "name": "POC Gamma FAST-01"
+    },
+    "aaaaaaaa-0000-4000-8000-000000000001": {
+     "type": "DEVICE",
+     "name": "Access Probe 1"
+    }
+   },
+   "rels": [
+    [
+     "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "10aba680-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "10cfa940-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "10d48b40-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "10b2ab60-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "10b9d750-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10aba680-c0be-11f1-add5-5db4ab3ed597",
+     "110e11d0-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10aba680-c0be-11f1-add5-5db4ab3ed597",
+     "10fd48f0-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10aba680-c0be-11f1-add5-5db4ab3ed597",
+     "110474e0-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10aba680-c0be-11f1-add5-5db4ab3ed597",
+     "10f3ac00-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "11474a40-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "113ff740-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "1155a220-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10d48b40-c0be-11f1-add5-5db4ab3ed597",
+     "114e4f20-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10d48b40-c0be-11f1-add5-5db4ab3ed597",
+     "10e41ba0-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10b2ab60-c0be-11f1-add5-5db4ab3ed597",
+     "111564d0-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10b2ab60-c0be-11f1-add5-5db4ab3ed597",
+     "111c90c0-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10b2ab60-c0be-11f1-add5-5db4ab3ed597",
+     "112172c0-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10b9d750-c0be-11f1-add5-5db4ab3ed597",
+     "11289eb0-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10b9d750-c0be-11f1-add5-5db4ab3ed597",
+     "11319f60-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10b9d750-c0be-11f1-add5-5db4ab3ed597",
+     "1138cb50-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "9086bea0-bc3e-11f1-bc96-3707e46d85f8",
+     "909341c0-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "9086bea0-bc3e-11f1-bc96-3707e46d85f8",
+     "90e9c630-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "909341c0-bc3e-11f1-bc96-3707e46d85f8",
+     "90b03fa0-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "909341c0-bc3e-11f1-bc96-3707e46d85f8",
+     "90cb1aa0-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "909341c0-bc3e-11f1-bc96-3707e46d85f8",
+     "90d9c0a0-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "90e9c630-bc3e-11f1-bc96-3707e46d85f8",
+     "90f81e10-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "90e9c630-bc3e-11f1-bc96-3707e46d85f8",
+     "91076050-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "911bf9c0-bc3e-11f1-bc96-3707e46d85f8",
+     "9125e4d0-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "9125e4d0-bc3e-11f1-bc96-3707e46d85f8",
+     "91315680-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "9125e4d0-bc3e-11f1-bc96-3707e46d85f8",
+     "913d3d60-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "01144e50-bcb0-11f1-bc96-3707e46d85f8",
+     "01373fa0-bcb0-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "01373fa0-bcb0-11f1-bc96-3707e46d85f8",
+     "01816800-bcb0-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "aaaaaaaa-0000-4000-8000-000000000001"
+    ]
+   ]
+  },
+  "localRenamed": {
+   "nodes": {
+    "10c85640-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "ASSET",
+     "name": "ITHENA ORG"
+    },
+    "10aba680-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "ASSET",
+     "name": "Mumbai"
+    },
+    "10cfa940-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "ASSET",
+     "name": "Pune"
+    },
+    "10d48b40-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "ASSET",
+     "name": "Richmond"
+    },
+    "10b2ab60-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "ASSET",
+     "name": "Bangalore"
+    },
+    "10b9d750-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "ASSET",
+     "name": "Austin"
+    },
+    "110e11d0-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Weather Station 3"
+    },
+    "10fd48f0-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Dryer 2"
+    },
+    "110474e0-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Compressor 2"
+    },
+    "10f3ac00-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Blower 2"
+    },
+    "11474a40-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Dryer 1 (renamed)"
+    },
+    "113ff740-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Compressor 1"
+    },
+    "1155a220-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Weather Station 1"
+    },
+    "114e4f20-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Blower 1"
+    },
+    "10e41ba0-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Weather Station 2"
+    },
+    "111564d0-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Blower 3"
+    },
+    "111c90c0-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Dryer 3"
+    },
+    "112172c0-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Compressor 3"
+    },
+    "11289eb0-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Blower 4"
+    },
+    "11319f60-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Dryer 4"
+    },
+    "1138cb50-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Weather Station 4"
+    },
+    "9086bea0-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "ASSET",
+     "name": "POC Alpha Group"
+    },
+    "909341c0-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "ASSET",
+     "name": "POC Alpha Plant North"
+    },
+    "90e9c630-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "ASSET",
+     "name": "POC Alpha Plant South"
+    },
+    "90b03fa0-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "DEVICE",
+     "name": "POC Alpha IMM-01"
+    },
+    "90cb1aa0-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "DEVICE",
+     "name": "POC Alpha IMM-02"
+    },
+    "90d9c0a0-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "DEVICE",
+     "name": "POC Alpha CMP-01"
+    },
+    "90f81e10-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "DEVICE",
+     "name": "POC Alpha IMM-03"
+    },
+    "91076050-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "DEVICE",
+     "name": "POC Alpha CNC-01"
+    },
+    "911bf9c0-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "ASSET",
+     "name": "POC Beta Works"
+    },
+    "9125e4d0-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "ASSET",
+     "name": "POC Beta Main Site"
+    },
+    "91315680-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "DEVICE",
+     "name": "POC Beta CNC-01"
+    },
+    "913d3d60-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "DEVICE",
+     "name": "POC Beta CMP-01"
+    },
+    "01144e50-bcb0-11f1-bc96-3707e46d85f8": {
+     "type": "ASSET",
+     "name": "POC Gamma Lab"
+    },
+    "01373fa0-bcb0-11f1-bc96-3707e46d85f8": {
+     "type": "ASSET",
+     "name": "POC Gamma Test Cell"
+    },
+    "01816800-bcb0-11f1-bc96-3707e46d85f8": {
+     "type": "DEVICE",
+     "name": "POC Gamma FAST-01"
+    }
+   },
+   "rels": [
+    [
+     "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "10aba680-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "10cfa940-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "10d48b40-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "10b2ab60-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "10b9d750-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10aba680-c0be-11f1-add5-5db4ab3ed597",
+     "110e11d0-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10aba680-c0be-11f1-add5-5db4ab3ed597",
+     "10fd48f0-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10aba680-c0be-11f1-add5-5db4ab3ed597",
+     "110474e0-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10aba680-c0be-11f1-add5-5db4ab3ed597",
+     "10f3ac00-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "11474a40-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "113ff740-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "1155a220-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10d48b40-c0be-11f1-add5-5db4ab3ed597",
+     "114e4f20-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10d48b40-c0be-11f1-add5-5db4ab3ed597",
+     "10e41ba0-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10b2ab60-c0be-11f1-add5-5db4ab3ed597",
+     "111564d0-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10b2ab60-c0be-11f1-add5-5db4ab3ed597",
+     "111c90c0-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10b2ab60-c0be-11f1-add5-5db4ab3ed597",
+     "112172c0-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10b9d750-c0be-11f1-add5-5db4ab3ed597",
+     "11289eb0-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10b9d750-c0be-11f1-add5-5db4ab3ed597",
+     "11319f60-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10b9d750-c0be-11f1-add5-5db4ab3ed597",
+     "1138cb50-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "9086bea0-bc3e-11f1-bc96-3707e46d85f8",
+     "909341c0-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "9086bea0-bc3e-11f1-bc96-3707e46d85f8",
+     "90e9c630-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "909341c0-bc3e-11f1-bc96-3707e46d85f8",
+     "90b03fa0-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "909341c0-bc3e-11f1-bc96-3707e46d85f8",
+     "90cb1aa0-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "909341c0-bc3e-11f1-bc96-3707e46d85f8",
+     "90d9c0a0-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "90e9c630-bc3e-11f1-bc96-3707e46d85f8",
+     "90f81e10-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "90e9c630-bc3e-11f1-bc96-3707e46d85f8",
+     "91076050-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "911bf9c0-bc3e-11f1-bc96-3707e46d85f8",
+     "9125e4d0-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "9125e4d0-bc3e-11f1-bc96-3707e46d85f8",
+     "91315680-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "9125e4d0-bc3e-11f1-bc96-3707e46d85f8",
+     "913d3d60-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "01144e50-bcb0-11f1-bc96-3707e46d85f8",
+     "01373fa0-bcb0-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "01373fa0-bcb0-11f1-bc96-3707e46d85f8",
+     "01816800-bcb0-11f1-bc96-3707e46d85f8"
+    ]
+   ]
+  },
+  "localMoved": {
+   "nodes": {
+    "10c85640-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "ASSET",
+     "name": "ITHENA ORG"
+    },
+    "10aba680-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "ASSET",
+     "name": "Mumbai"
+    },
+    "10cfa940-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "ASSET",
+     "name": "Pune"
+    },
+    "10d48b40-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "ASSET",
+     "name": "Richmond"
+    },
+    "10b2ab60-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "ASSET",
+     "name": "Bangalore"
+    },
+    "10b9d750-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "ASSET",
+     "name": "Austin"
+    },
+    "110e11d0-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Weather Station 3"
+    },
+    "10fd48f0-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Dryer 2"
+    },
+    "110474e0-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Compressor 2"
+    },
+    "10f3ac00-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Blower 2"
+    },
+    "11474a40-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Dryer 1"
+    },
+    "113ff740-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Compressor 1"
+    },
+    "1155a220-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Weather Station 1"
+    },
+    "114e4f20-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Blower 1"
+    },
+    "10e41ba0-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Weather Station 2"
+    },
+    "111564d0-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Blower 3"
+    },
+    "111c90c0-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Dryer 3"
+    },
+    "112172c0-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Compressor 3"
+    },
+    "11289eb0-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Blower 4"
+    },
+    "11319f60-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Dryer 4"
+    },
+    "1138cb50-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Weather Station 4"
+    },
+    "9086bea0-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "ASSET",
+     "name": "POC Alpha Group"
+    },
+    "909341c0-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "ASSET",
+     "name": "POC Alpha Plant North"
+    },
+    "90e9c630-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "ASSET",
+     "name": "POC Alpha Plant South"
+    },
+    "90b03fa0-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "DEVICE",
+     "name": "POC Alpha IMM-01"
+    },
+    "90cb1aa0-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "DEVICE",
+     "name": "POC Alpha IMM-02"
+    },
+    "90d9c0a0-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "DEVICE",
+     "name": "POC Alpha CMP-01"
+    },
+    "90f81e10-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "DEVICE",
+     "name": "POC Alpha IMM-03"
+    },
+    "91076050-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "DEVICE",
+     "name": "POC Alpha CNC-01"
+    },
+    "911bf9c0-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "ASSET",
+     "name": "POC Beta Works"
+    },
+    "9125e4d0-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "ASSET",
+     "name": "POC Beta Main Site"
+    },
+    "91315680-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "DEVICE",
+     "name": "POC Beta CNC-01"
+    },
+    "913d3d60-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "DEVICE",
+     "name": "POC Beta CMP-01"
+    },
+    "01144e50-bcb0-11f1-bc96-3707e46d85f8": {
+     "type": "ASSET",
+     "name": "POC Gamma Lab"
+    },
+    "01373fa0-bcb0-11f1-bc96-3707e46d85f8": {
+     "type": "ASSET",
+     "name": "POC Gamma Test Cell"
+    },
+    "01816800-bcb0-11f1-bc96-3707e46d85f8": {
+     "type": "DEVICE",
+     "name": "POC Gamma FAST-01"
+    }
+   },
+   "rels": [
+    [
+     "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "10aba680-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "10cfa940-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "10d48b40-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "10b2ab60-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "10b9d750-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10aba680-c0be-11f1-add5-5db4ab3ed597",
+     "110e11d0-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10aba680-c0be-11f1-add5-5db4ab3ed597",
+     "10fd48f0-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10aba680-c0be-11f1-add5-5db4ab3ed597",
+     "110474e0-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10aba680-c0be-11f1-add5-5db4ab3ed597",
+     "10f3ac00-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "11474a40-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "1155a220-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10d48b40-c0be-11f1-add5-5db4ab3ed597",
+     "114e4f20-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10d48b40-c0be-11f1-add5-5db4ab3ed597",
+     "10e41ba0-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10b2ab60-c0be-11f1-add5-5db4ab3ed597",
+     "111564d0-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10b2ab60-c0be-11f1-add5-5db4ab3ed597",
+     "111c90c0-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10b2ab60-c0be-11f1-add5-5db4ab3ed597",
+     "112172c0-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10b9d750-c0be-11f1-add5-5db4ab3ed597",
+     "11289eb0-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10b9d750-c0be-11f1-add5-5db4ab3ed597",
+     "11319f60-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10b9d750-c0be-11f1-add5-5db4ab3ed597",
+     "1138cb50-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "9086bea0-bc3e-11f1-bc96-3707e46d85f8",
+     "909341c0-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "9086bea0-bc3e-11f1-bc96-3707e46d85f8",
+     "90e9c630-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "909341c0-bc3e-11f1-bc96-3707e46d85f8",
+     "90b03fa0-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "909341c0-bc3e-11f1-bc96-3707e46d85f8",
+     "90cb1aa0-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "909341c0-bc3e-11f1-bc96-3707e46d85f8",
+     "90d9c0a0-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "90e9c630-bc3e-11f1-bc96-3707e46d85f8",
+     "90f81e10-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "90e9c630-bc3e-11f1-bc96-3707e46d85f8",
+     "91076050-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "911bf9c0-bc3e-11f1-bc96-3707e46d85f8",
+     "9125e4d0-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "9125e4d0-bc3e-11f1-bc96-3707e46d85f8",
+     "91315680-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "9125e4d0-bc3e-11f1-bc96-3707e46d85f8",
+     "913d3d60-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "01144e50-bcb0-11f1-bc96-3707e46d85f8",
+     "01373fa0-bcb0-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "01373fa0-bcb0-11f1-bc96-3707e46d85f8",
+     "01816800-bcb0-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "10aba680-c0be-11f1-add5-5db4ab3ed597",
+     "113ff740-c0be-11f1-add5-5db4ab3ed597"
+    ]
+   ]
+  },
+  "localEmptySite": {
+   "nodes": {
+    "10c85640-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "ASSET",
+     "name": "ITHENA ORG"
+    },
+    "10aba680-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "ASSET",
+     "name": "Mumbai"
+    },
+    "10cfa940-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "ASSET",
+     "name": "Pune"
+    },
+    "10d48b40-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "ASSET",
+     "name": "Richmond"
+    },
+    "10b2ab60-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "ASSET",
+     "name": "Bangalore"
+    },
+    "10b9d750-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "ASSET",
+     "name": "Austin"
+    },
+    "110e11d0-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Weather Station 3"
+    },
+    "10fd48f0-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Dryer 2"
+    },
+    "110474e0-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Compressor 2"
+    },
+    "10f3ac00-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Blower 2"
+    },
+    "11474a40-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Dryer 1"
+    },
+    "113ff740-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Compressor 1"
+    },
+    "1155a220-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Weather Station 1"
+    },
+    "114e4f20-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Blower 1"
+    },
+    "10e41ba0-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Weather Station 2"
+    },
+    "111564d0-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Blower 3"
+    },
+    "111c90c0-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Dryer 3"
+    },
+    "112172c0-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Compressor 3"
+    },
+    "11289eb0-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Blower 4"
+    },
+    "11319f60-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Dryer 4"
+    },
+    "1138cb50-c0be-11f1-add5-5db4ab3ed597": {
+     "type": "DEVICE",
+     "name": "Weather Station 4"
+    },
+    "9086bea0-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "ASSET",
+     "name": "POC Alpha Group"
+    },
+    "909341c0-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "ASSET",
+     "name": "POC Alpha Plant North"
+    },
+    "90e9c630-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "ASSET",
+     "name": "POC Alpha Plant South"
+    },
+    "90b03fa0-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "DEVICE",
+     "name": "POC Alpha IMM-01"
+    },
+    "90cb1aa0-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "DEVICE",
+     "name": "POC Alpha IMM-02"
+    },
+    "90d9c0a0-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "DEVICE",
+     "name": "POC Alpha CMP-01"
+    },
+    "90f81e10-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "DEVICE",
+     "name": "POC Alpha IMM-03"
+    },
+    "91076050-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "DEVICE",
+     "name": "POC Alpha CNC-01"
+    },
+    "911bf9c0-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "ASSET",
+     "name": "POC Beta Works"
+    },
+    "9125e4d0-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "ASSET",
+     "name": "POC Beta Main Site"
+    },
+    "91315680-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "DEVICE",
+     "name": "POC Beta CNC-01"
+    },
+    "913d3d60-bc3e-11f1-bc96-3707e46d85f8": {
+     "type": "DEVICE",
+     "name": "POC Beta CMP-01"
+    },
+    "01144e50-bcb0-11f1-bc96-3707e46d85f8": {
+     "type": "ASSET",
+     "name": "POC Gamma Lab"
+    },
+    "01373fa0-bcb0-11f1-bc96-3707e46d85f8": {
+     "type": "ASSET",
+     "name": "POC Gamma Test Cell"
+    },
+    "01816800-bcb0-11f1-bc96-3707e46d85f8": {
+     "type": "DEVICE",
+     "name": "POC Gamma FAST-01"
+    },
+    "aaaaaaaa-0000-4000-8000-000000000002": {
+     "type": "ASSET",
+     "name": "New Site"
+    }
+   },
+   "rels": [
+    [
+     "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "10aba680-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "10cfa940-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "10d48b40-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "10b2ab60-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "10b9d750-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10aba680-c0be-11f1-add5-5db4ab3ed597",
+     "110e11d0-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10aba680-c0be-11f1-add5-5db4ab3ed597",
+     "10fd48f0-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10aba680-c0be-11f1-add5-5db4ab3ed597",
+     "110474e0-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10aba680-c0be-11f1-add5-5db4ab3ed597",
+     "10f3ac00-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "11474a40-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "113ff740-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "1155a220-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10d48b40-c0be-11f1-add5-5db4ab3ed597",
+     "114e4f20-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10d48b40-c0be-11f1-add5-5db4ab3ed597",
+     "10e41ba0-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10b2ab60-c0be-11f1-add5-5db4ab3ed597",
+     "111564d0-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10b2ab60-c0be-11f1-add5-5db4ab3ed597",
+     "111c90c0-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10b2ab60-c0be-11f1-add5-5db4ab3ed597",
+     "112172c0-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10b9d750-c0be-11f1-add5-5db4ab3ed597",
+     "11289eb0-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10b9d750-c0be-11f1-add5-5db4ab3ed597",
+     "11319f60-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "10b9d750-c0be-11f1-add5-5db4ab3ed597",
+     "1138cb50-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    [
+     "9086bea0-bc3e-11f1-bc96-3707e46d85f8",
+     "909341c0-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "9086bea0-bc3e-11f1-bc96-3707e46d85f8",
+     "90e9c630-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "909341c0-bc3e-11f1-bc96-3707e46d85f8",
+     "90b03fa0-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "909341c0-bc3e-11f1-bc96-3707e46d85f8",
+     "90cb1aa0-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "909341c0-bc3e-11f1-bc96-3707e46d85f8",
+     "90d9c0a0-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "90e9c630-bc3e-11f1-bc96-3707e46d85f8",
+     "90f81e10-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "90e9c630-bc3e-11f1-bc96-3707e46d85f8",
+     "91076050-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "911bf9c0-bc3e-11f1-bc96-3707e46d85f8",
+     "9125e4d0-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "9125e4d0-bc3e-11f1-bc96-3707e46d85f8",
+     "91315680-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "9125e4d0-bc3e-11f1-bc96-3707e46d85f8",
+     "913d3d60-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "01144e50-bcb0-11f1-bc96-3707e46d85f8",
+     "01373fa0-bcb0-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "01373fa0-bcb0-11f1-bc96-3707e46d85f8",
+     "01816800-bcb0-11f1-bc96-3707e46d85f8"
+    ],
+    [
+     "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "aaaaaaaa-0000-4000-8000-000000000002"
+    ]
+   ]
+  },
+  "deep": {
+   "nodes": {
+    "aaaaaaaa-0000-4000-8000-000000000010": {
+     "type": "ASSET",
+     "name": "Deep root"
+    },
+    "aaaaaaaa-0000-4000-8000-000000000023": {
+     "type": "DEVICE",
+     "name": "Depth 12 machine"
+    },
+    "aaaaaaaa-0000-4000-8000-000000000024": {
+     "type": "DEVICE",
+     "name": "Depth 13 machine"
+    },
+    "aaaaaaaa-0000-4000-8000-000000000011": {
+     "type": "ASSET",
+     "name": "Level 1"
+    },
+    "aaaaaaaa-0000-4000-8000-000000000012": {
+     "type": "ASSET",
+     "name": "Level 2"
+    },
+    "aaaaaaaa-0000-4000-8000-000000000013": {
+     "type": "ASSET",
+     "name": "Level 3"
+    },
+    "aaaaaaaa-0000-4000-8000-000000000014": {
+     "type": "ASSET",
+     "name": "Level 4"
+    },
+    "aaaaaaaa-0000-4000-8000-000000000015": {
+     "type": "ASSET",
+     "name": "Level 5"
+    },
+    "aaaaaaaa-0000-4000-8000-000000000016": {
+     "type": "ASSET",
+     "name": "Level 6"
+    },
+    "aaaaaaaa-0000-4000-8000-000000000017": {
+     "type": "ASSET",
+     "name": "Level 7"
+    },
+    "aaaaaaaa-0000-4000-8000-000000000018": {
+     "type": "ASSET",
+     "name": "Level 8"
+    },
+    "aaaaaaaa-0000-4000-8000-000000000019": {
+     "type": "ASSET",
+     "name": "Level 9"
+    },
+    "aaaaaaaa-0000-4000-8000-000000000020": {
+     "type": "ASSET",
+     "name": "Level 10"
+    },
+    "aaaaaaaa-0000-4000-8000-000000000021": {
+     "type": "ASSET",
+     "name": "Level 11"
+    },
+    "aaaaaaaa-0000-4000-8000-000000000022": {
+     "type": "ASSET",
+     "name": "Level 12"
+    }
+   },
+   "rels": [
+    [
+     "aaaaaaaa-0000-4000-8000-000000000010",
+     "aaaaaaaa-0000-4000-8000-000000000011"
+    ],
+    [
+     "aaaaaaaa-0000-4000-8000-000000000011",
+     "aaaaaaaa-0000-4000-8000-000000000012"
+    ],
+    [
+     "aaaaaaaa-0000-4000-8000-000000000012",
+     "aaaaaaaa-0000-4000-8000-000000000013"
+    ],
+    [
+     "aaaaaaaa-0000-4000-8000-000000000013",
+     "aaaaaaaa-0000-4000-8000-000000000014"
+    ],
+    [
+     "aaaaaaaa-0000-4000-8000-000000000014",
+     "aaaaaaaa-0000-4000-8000-000000000015"
+    ],
+    [
+     "aaaaaaaa-0000-4000-8000-000000000015",
+     "aaaaaaaa-0000-4000-8000-000000000016"
+    ],
+    [
+     "aaaaaaaa-0000-4000-8000-000000000016",
+     "aaaaaaaa-0000-4000-8000-000000000017"
+    ],
+    [
+     "aaaaaaaa-0000-4000-8000-000000000017",
+     "aaaaaaaa-0000-4000-8000-000000000018"
+    ],
+    [
+     "aaaaaaaa-0000-4000-8000-000000000018",
+     "aaaaaaaa-0000-4000-8000-000000000019"
+    ],
+    [
+     "aaaaaaaa-0000-4000-8000-000000000019",
+     "aaaaaaaa-0000-4000-8000-000000000020"
+    ],
+    [
+     "aaaaaaaa-0000-4000-8000-000000000020",
+     "aaaaaaaa-0000-4000-8000-000000000021"
+    ],
+    [
+     "aaaaaaaa-0000-4000-8000-000000000021",
+     "aaaaaaaa-0000-4000-8000-000000000022"
+    ],
+    [
+     "aaaaaaaa-0000-4000-8000-000000000021",
+     "aaaaaaaa-0000-4000-8000-000000000023"
+    ],
+    [
+     "aaaaaaaa-0000-4000-8000-000000000022",
+     "aaaaaaaa-0000-4000-8000-000000000024"
+    ]
+   ]
+  },
+  "cycle": {
+   "nodes": {
+    "aaaaaaaa-0000-4000-8000-000000000030": {
+     "type": "ASSET",
+     "name": "Cycle A"
+    },
+    "aaaaaaaa-0000-4000-8000-000000000031": {
+     "type": "ASSET",
+     "name": "Cycle B"
+    },
+    "aaaaaaaa-0000-4000-8000-000000000032": {
+     "type": "ASSET",
+     "name": "Cycle C"
+    },
+    "aaaaaaaa-0000-4000-8000-000000000033": {
+     "type": "DEVICE",
+     "name": "Cycle machine"
+    }
+   },
+   "rels": [
+    [
+     "aaaaaaaa-0000-4000-8000-000000000030",
+     "aaaaaaaa-0000-4000-8000-000000000031"
+    ],
+    [
+     "aaaaaaaa-0000-4000-8000-000000000031",
+     "aaaaaaaa-0000-4000-8000-000000000032"
+    ],
+    [
+     "aaaaaaaa-0000-4000-8000-000000000032",
+     "aaaaaaaa-0000-4000-8000-000000000030"
+    ],
+    [
+     "aaaaaaaa-0000-4000-8000-000000000031",
+     "aaaaaaaa-0000-4000-8000-000000000033"
+    ]
+   ]
+  },
+  "twin": {
+   "nodes": {
+    "aaaaaaaa-0000-4000-8000-000000000040": {
+     "type": "ASSET",
+     "name": "Twin Org"
+    },
+    "aaaaaaaa-0000-4000-8000-000000000041": {
+     "type": "ASSET",
+     "name": "Site X"
+    },
+    "aaaaaaaa-0000-4000-8000-000000000042": {
+     "type": "ASSET",
+     "name": "Site Y"
+    },
+    "aaaaaaaa-0000-4000-8000-000000000043": {
+     "type": "DEVICE",
+     "name": "Twin machine"
+    },
+    "aaaaaaaa-0000-4000-8000-000000000044": {
+     "type": "DEVICE",
+     "name": "X machine"
+    }
+   },
+   "rels": [
+    [
+     "aaaaaaaa-0000-4000-8000-000000000040",
+     "aaaaaaaa-0000-4000-8000-000000000041"
+    ],
+    [
+     "aaaaaaaa-0000-4000-8000-000000000040",
+     "aaaaaaaa-0000-4000-8000-000000000042"
+    ],
+    [
+     "aaaaaaaa-0000-4000-8000-000000000041",
+     "aaaaaaaa-0000-4000-8000-000000000043"
+    ],
+    [
+     "aaaaaaaa-0000-4000-8000-000000000042",
+     "aaaaaaaa-0000-4000-8000-000000000043"
+    ],
+    [
+     "aaaaaaaa-0000-4000-8000-000000000041",
+     "aaaaaaaa-0000-4000-8000-000000000044"
+    ]
+   ]
+  }
+ },
+ "parse": [
+  {
+   "name": "absent imexAccess, absent selectedNodes: legacy, no access",
+   "expect": {
+    "source": "legacy",
+    "grants": [],
+    "legacyNames": [],
+    "warnings": []
+   }
+  },
+  {
+   "name": "imexAccess object",
+   "imexAccess": {
+    "v": 1,
+    "grants": [
+     {
+      "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+      "type": "ASSET",
+      "mode": "all"
+     },
+     {
+      "id": "114e4f20-c0be-11f1-add5-5db4ab3ed597",
+      "type": "DEVICE",
+      "mode": "fixed"
+     }
+    ],
+    "at": 1791205976606,
+    "by": "migration"
+   },
+   "expect": {
+    "source": "imexAccess",
+    "grants": [
+     {
+      "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+      "type": "ASSET",
+      "mode": "all"
+     },
+     {
+      "id": "114e4f20-c0be-11f1-add5-5db4ab3ed597",
+      "type": "DEVICE",
+      "mode": "fixed"
+     }
+    ],
+    "legacyNames": [],
+    "warnings": []
+   }
+  },
+  {
+   "name": "imexAccess as a JSON string",
+   "imexAccess": "{\"v\":1,\"grants\":[{\"id\":\"10cfa940-c0be-11f1-add5-5db4ab3ed597\",\"type\":\"ASSET\",\"mode\":\"all\"},{\"id\":\"114e4f20-c0be-11f1-add5-5db4ab3ed597\",\"type\":\"DEVICE\",\"mode\":\"fixed\"}]}",
+   "expect": {
+    "source": "imexAccess",
+    "grants": [
+     {
+      "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+      "type": "ASSET",
+      "mode": "all"
+     },
+     {
+      "id": "114e4f20-c0be-11f1-add5-5db4ab3ed597",
+      "type": "DEVICE",
+      "mode": "fixed"
+     }
+    ],
+    "legacyNames": [],
+    "warnings": []
+   }
+  },
+  {
+   "name": "grants [] = no access (how access is removed)",
+   "imexAccess": {
+    "v": 1,
+    "grants": []
+   },
+   "selectedNodes": [
+    {
+     "entityId": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "entityType": "ASSET"
+    }
+   ],
+   "expect": {
+    "source": "imexAccess",
+    "grants": [],
+    "legacyNames": [],
+    "warnings": []
+   }
+  },
+  {
+   "name": "unparseable string: invalid, no access, never the legacy value",
+   "imexAccess": "{v:1",
+   "selectedNodes": [
+    "10cfa940-c0be-11f1-add5-5db4ab3ed597"
+   ],
+   "expect": {
+    "source": "invalid",
+    "grants": [],
+    "legacyNames": [],
+    "warnings": [
+     "access.unreadable"
+    ]
+   }
+  },
+  {
+   "name": "empty string is present and unparseable",
+   "imexAccess": "",
+   "expect": {
+    "source": "invalid",
+    "grants": [],
+    "legacyNames": [],
+    "warnings": [
+     "access.unreadable"
+    ]
+   }
+  },
+  {
+   "name": "another version",
+   "imexAccess": {
+    "v": 2,
+    "grants": [
+     {
+      "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+      "type": "ASSET",
+      "mode": "all"
+     }
+    ]
+   },
+   "expect": {
+    "source": "invalid",
+    "grants": [],
+    "legacyNames": [],
+    "warnings": [
+     "access.version"
+    ]
+   }
+  },
+  {
+   "name": "version as a string",
+   "imexAccess": {
+    "v": "1",
+    "grants": [
+     {
+      "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+      "type": "ASSET",
+      "mode": "all"
+     }
+    ]
+   },
+   "expect": {
+    "source": "invalid",
+    "grants": [],
+    "legacyNames": [],
+    "warnings": [
+     "access.version"
+    ]
+   }
+  },
+  {
+   "name": "grants not an array",
+   "imexAccess": {
+    "v": 1,
+    "grants": {
+     "a": 1
+    }
+   },
+   "expect": {
+    "source": "invalid",
+    "grants": [],
+    "legacyNames": [],
+    "warnings": [
+     "access.version"
+    ]
+   }
+  },
+  {
+   "name": "an array instead of the object",
+   "imexAccess": [
+    {
+     "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ],
+   "expect": {
+    "source": "invalid",
+    "grants": [],
+    "legacyNames": [],
+    "warnings": [
+     "access.version"
+    ]
+   }
+  },
+  {
+   "name": "a number",
+   "imexAccess": 5,
+   "expect": {
+    "source": "invalid",
+    "grants": [],
+    "legacyNames": [],
+    "warnings": [
+     "access.version"
+    ]
+   }
+  },
+  {
+   "name": "the JSON string \"null\"",
+   "imexAccess": "null",
+   "expect": {
+    "source": "invalid",
+    "grants": [],
+    "legacyNames": [],
+    "warnings": [
+     "access.version"
+    ]
+   }
+  },
+  {
+   "name": "bad grants dropped with their warnings, in the order met",
+   "imexAccess": {
+    "v": 1,
+    "grants": [
+     {
+      "id": "pune",
+      "type": "ASSET",
+      "mode": "all"
+     },
+     {
+      "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+      "type": "CUSTOMER",
+      "mode": "all"
+     },
+     {
+      "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+      "type": "ASSET",
+      "mode": "some"
+     },
+     {
+      "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+      "type": "ASSET",
+      "mode": "fixed"
+     },
+     "x",
+     null,
+     {
+      "id": "11474a40-c0be-11f1-add5-5db4ab3ed597",
+      "type": "DEVICE",
+      "mode": "fixed"
+     }
+    ]
+   },
+   "expect": {
+    "source": "imexAccess",
+    "grants": [
+     {
+      "id": "11474a40-c0be-11f1-add5-5db4ab3ed597",
+      "type": "DEVICE",
+      "mode": "fixed"
+     }
+    ],
+    "legacyNames": [],
+    "warnings": [
+     "grant.id",
+     "grant.type",
+     "grant.mode",
+     "grant.assetFixed"
+    ]
+   }
+  },
+  {
+   "name": "ids are lower-cased",
+   "imexAccess": {
+    "v": 1,
+    "grants": [
+     {
+      "id": "10CFA940-C0BE-11F1-ADD5-5DB4AB3ED597",
+      "type": "ASSET",
+      "mode": "all"
+     }
+    ]
+   },
+   "expect": {
+    "source": "imexAccess",
+    "grants": [
+     {
+      "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+      "type": "ASSET",
+      "mode": "all"
+     }
+    ],
+    "legacyNames": [],
+    "warnings": []
+   }
+  },
+  {
+   "name": "the same id twice: once, all wins over fixed",
+   "imexAccess": {
+    "v": 1,
+    "grants": [
+     {
+      "id": "11474a40-c0be-11f1-add5-5db4ab3ed597",
+      "type": "DEVICE",
+      "mode": "fixed"
+     },
+     {
+      "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+      "type": "ASSET",
+      "mode": "all"
+     },
+     {
+      "id": "11474a40-c0be-11f1-add5-5db4ab3ed597",
+      "type": "DEVICE",
+      "mode": "all"
+     },
+     {
+      "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+      "type": "ASSET",
+      "mode": "all"
+     }
+    ]
+   },
+   "expect": {
+    "source": "imexAccess",
+    "grants": [
+     {
+      "id": "11474a40-c0be-11f1-add5-5db4ab3ed597",
+      "type": "DEVICE",
+      "mode": "all"
+     },
+     {
+      "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+      "type": "ASSET",
+      "mode": "all"
+     }
+    ],
+    "legacyNames": [],
+    "warnings": []
+   }
+  },
+  {
+   "name": "DEVICE all is kept as given (normalize writes fixed)",
+   "imexAccess": {
+    "v": 1,
+    "grants": [
+     {
+      "id": "114e4f20-c0be-11f1-add5-5db4ab3ed597",
+      "type": "DEVICE",
+      "mode": "all"
+     }
+    ]
+   },
+   "expect": {
+    "source": "imexAccess",
+    "grants": [
+     {
+      "id": "114e4f20-c0be-11f1-add5-5db4ab3ed597",
+      "type": "DEVICE",
+      "mode": "all"
+     }
+    ],
+    "legacyNames": [],
+    "warnings": []
+   }
+  },
+  {
+   "name": "legacy: the Ithena picker shape (one entry per site)",
+   "selectedNodes": [
+    {
+     "ID": "ITHENA ORG_Austin",
+     "categoryId": "ITHENA ORG",
+     "name": "Austin",
+     "entityId": "10b9d750-c0be-11f1-add5-5db4ab3ed597",
+     "expanded": true,
+     "entityType": "ASSET",
+     "selected": true
+    },
+    {
+     "ID": "ITHENA ORG_Pune",
+     "categoryId": "ITHENA ORG",
+     "name": "Pune",
+     "entityId": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "expanded": true,
+     "entityType": "ASSET",
+     "selected": true
+    }
+   ],
+   "expect": {
+    "source": "legacy",
+    "grants": [
+     {
+      "id": "10b9d750-c0be-11f1-add5-5db4ab3ed597",
+      "type": "ASSET",
+      "mode": "all"
+     },
+     {
+      "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+      "type": "ASSET",
+      "mode": "all"
+     }
+    ],
+    "legacyNames": [],
+    "warnings": []
+   }
+  },
+  {
+   "name": "legacy: a bare uuid",
+   "selectedNodes": [
+    "9086bea0-bc3e-11f1-bc96-3707e46d85f8"
+   ],
+   "expect": {
+    "source": "legacy",
+    "grants": [
+     {
+      "id": "9086bea0-bc3e-11f1-bc96-3707e46d85f8",
+      "type": "ASSET",
+      "mode": "all"
+     }
+    ],
+    "legacyNames": [],
+    "warnings": []
+   }
+  },
+  {
+   "name": "legacy: one bare uuid, not in a list",
+   "selectedNodes": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+   "expect": {
+    "source": "legacy",
+    "grants": [
+     {
+      "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+      "type": "ASSET",
+      "mode": "all"
+     }
+    ],
+    "legacyNames": [],
+    "warnings": []
+   }
+  },
+  {
+   "name": "legacy: {id, entityType}",
+   "selectedNodes": [
+    {
+     "id": "909341c0-bc3e-11f1-bc96-3707e46d85f8",
+     "entityType": "ASSET"
+    }
+   ],
+   "expect": {
+    "source": "legacy",
+    "grants": [
+     {
+      "id": "909341c0-bc3e-11f1-bc96-3707e46d85f8",
+      "type": "ASSET",
+      "mode": "all"
+     }
+    ],
+    "legacyNames": [],
+    "warnings": []
+   }
+  },
+  {
+   "name": "legacy: {id: {id, entityType}} nested",
+   "selectedNodes": [
+    {
+     "id": {
+      "id": "911bf9c0-bc3e-11f1-bc96-3707e46d85f8",
+      "entityType": "ASSET"
+     }
+    }
+   ],
+   "expect": {
+    "source": "legacy",
+    "grants": [
+     {
+      "id": "911bf9c0-bc3e-11f1-bc96-3707e46d85f8",
+      "type": "ASSET",
+      "mode": "all"
+     }
+    ],
+    "legacyNames": [],
+    "warnings": []
+   }
+  },
+  {
+   "name": "legacy: {entityId: {id, entityType}}, one object",
+   "selectedNodes": {
+    "entityId": {
+     "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "entityType": "ASSET"
+    }
+   },
+   "expect": {
+    "source": "legacy",
+    "grants": [
+     {
+      "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+      "type": "ASSET",
+      "mode": "all"
+     }
+    ],
+    "legacyNames": [],
+    "warnings": []
+   }
+  },
+  {
+   "name": "legacy: mixed, a DEVICE entry is a fixed machine",
+   "selectedNodes": [
+    {
+     "id": "909341c0-bc3e-11f1-bc96-3707e46d85f8",
+     "entityType": "ASSET"
+    },
+    {
+     "id": {
+      "id": "91076050-bc3e-11f1-bc96-3707e46d85f8",
+      "entityType": "DEVICE"
+     },
+     "name": "POC Alpha CNC-01"
+    },
+    {
+     "entityId": "114e4f20-c0be-11f1-add5-5db4ab3ed597",
+     "entityType": "DEVICE"
+    }
+   ],
+   "expect": {
+    "source": "legacy",
+    "grants": [
+     {
+      "id": "909341c0-bc3e-11f1-bc96-3707e46d85f8",
+      "type": "ASSET",
+      "mode": "all"
+     },
+     {
+      "id": "91076050-bc3e-11f1-bc96-3707e46d85f8",
+      "type": "DEVICE",
+      "mode": "fixed"
+     },
+     {
+      "id": "114e4f20-c0be-11f1-add5-5db4ab3ed597",
+      "type": "DEVICE",
+      "mode": "fixed"
+     }
+    ],
+    "legacyNames": [],
+    "warnings": []
+   }
+  },
+  {
+   "name": "legacy: a name",
+   "selectedNodes": [
+    "POC Alpha Plant South"
+   ],
+   "expect": {
+    "source": "legacy",
+    "grants": [],
+    "legacyNames": [
+     "POC Alpha Plant South"
+    ],
+    "warnings": []
+   }
+  },
+  {
+   "name": "legacy: {name, ID} without an id, names once each",
+   "selectedNodes": [
+    {
+     "name": "Pune",
+     "ID": "ITHENA ORG_Pune"
+    },
+    "Pune"
+   ],
+   "expect": {
+    "source": "legacy",
+    "grants": [],
+    "legacyNames": [
+     "Pune"
+    ],
+    "warnings": []
+   }
+  },
+  {
+   "name": "legacy: the whole list as a JSON string",
+   "selectedNodes": "[{\"id\":\"909341c0-bc3e-11f1-bc96-3707e46d85f8\",\"entityType\":\"ASSET\"},\"90e9c630-bc3e-11f1-bc96-3707e46d85f8\"]",
+   "expect": {
+    "source": "legacy",
+    "grants": [
+     {
+      "id": "909341c0-bc3e-11f1-bc96-3707e46d85f8",
+      "type": "ASSET",
+      "mode": "all"
+     },
+     {
+      "id": "90e9c630-bc3e-11f1-bc96-3707e46d85f8",
+      "type": "ASSET",
+      "mode": "all"
+     }
+    ],
+    "legacyNames": [],
+    "warnings": []
+   }
+  },
+  {
+   "name": "legacy: entries as JSON strings",
+   "selectedNodes": [
+    "{\"id\":\"10cfa940-c0be-11f1-add5-5db4ab3ed597\",\"entityType\":\"ASSET\"}",
+    "{\"entityId\":\"10fd48f0-c0be-11f1-add5-5db4ab3ed597\",\"entityType\":\"DEVICE\"}"
+   ],
+   "expect": {
+    "source": "legacy",
+    "grants": [
+     {
+      "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+      "type": "ASSET",
+      "mode": "all"
+     },
+     {
+      "id": "10fd48f0-c0be-11f1-add5-5db4ab3ed597",
+      "type": "DEVICE",
+      "mode": "fixed"
+     }
+    ],
+    "legacyNames": [],
+    "warnings": []
+   }
+  },
+  {
+   "name": "legacy: unreadable JSON string",
+   "selectedNodes": "[{bad",
+   "expect": {
+    "source": "legacy",
+    "grants": [],
+    "legacyNames": [],
+    "warnings": [
+     "legacy.unreadable"
+    ]
+   }
+  },
+  {
+   "name": "legacy: entries that are nothing",
+   "selectedNodes": [
+    42,
+    {},
+    "",
+    {
+     "id": "not-a-uuid"
+    },
+    "10cfa940-c0be-11f1-add5-5db4ab3ed597"
+   ],
+   "expect": {
+    "source": "legacy",
+    "grants": [
+     {
+      "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+      "type": "ASSET",
+      "mode": "all"
+     }
+    ],
+    "legacyNames": [],
+    "warnings": [
+     "legacy.entry"
+    ]
+   }
+  },
+  {
+   "name": "legacy: an empty list",
+   "selectedNodes": [],
+   "expect": {
+    "source": "legacy",
+    "grants": [],
+    "legacyNames": [],
+    "warnings": []
+   }
+  },
+  {
+   "name": "legacy: the same site twice",
+   "selectedNodes": [
+    "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+    {
+     "entityId": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "entityType": "ASSET"
+    }
+   ],
+   "expect": {
+    "source": "legacy",
+    "grants": [
+     {
+      "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+      "type": "ASSET",
+      "mode": "all"
+     }
+    ],
+    "legacyNames": [],
+    "warnings": []
+   }
+  }
+ ],
+ "normalize": [
+  {
+   "name": "sorted: ASSET before DEVICE, then by id",
+   "grants": [
+    {
+     "id": "11474a40-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "mode": "fixed"
+    },
+    {
+     "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    },
+    {
+     "id": "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ],
+   "expect": [
+    {
+     "id": "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    },
+    {
+     "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    },
+    {
+     "id": "11474a40-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "mode": "fixed"
+    }
+   ]
+  },
+  {
+   "name": "with the tree: grants inside an all grant go",
+   "tree": "local",
+   "grants": [
+    {
+     "id": "11474a40-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "mode": "fixed"
+    },
+    {
+     "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    },
+    {
+     "id": "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ],
+   "expect": [
+    {
+     "id": "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ]
+  },
+  {
+   "name": "with the tree: grants side by side stay",
+   "tree": "local",
+   "grants": [
+    {
+     "id": "114e4f20-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "mode": "fixed"
+    },
+    {
+     "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ],
+   "expect": [
+    {
+     "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    },
+    {
+     "id": "114e4f20-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "mode": "fixed"
+    }
+   ]
+  },
+  {
+   "name": "DEVICE all is written fixed",
+   "grants": [
+    {
+     "id": "114e4f20-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "mode": "all"
+    }
+   ],
+   "expect": [
+    {
+     "id": "114e4f20-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "mode": "fixed"
+    }
+   ]
+  },
+  {
+   "name": "invalid dropped, duplicates merged",
+   "grants": [
+    {
+     "id": "x",
+     "type": "ASSET",
+     "mode": "all"
+    },
+    {
+     "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "fixed"
+    },
+    {
+     "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    },
+    {
+     "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ],
+   "expect": [
+    {
+     "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ]
+  },
+  {
+   "name": "a device with two parents inside one all grant",
+   "tree": "twin",
+   "grants": [
+    {
+     "id": "aaaaaaaa-0000-4000-8000-000000000043",
+     "type": "DEVICE",
+     "mode": "fixed"
+    },
+    {
+     "id": "aaaaaaaa-0000-4000-8000-000000000042",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ],
+   "expect": [
+    {
+     "id": "aaaaaaaa-0000-4000-8000-000000000042",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ]
+  },
+  {
+   "name": "nothing",
+   "grants": [],
+   "expect": []
+  }
+ ],
+ "resolve": [
+  {
+   "name": "all on Pune: its 3 machines; the org is a path only",
+   "tree": "local",
+   "grants": [
+    {
+     "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ],
+   "expect": {
+    "devices": [
+     "113ff740-c0be-11f1-add5-5db4ab3ed597",
+     "11474a40-c0be-11f1-add5-5db4ab3ed597",
+     "1155a220-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    "assets": [
+     "10cfa940-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    "nav": [
+     "10c85640-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    "allRoots": [
+     "10cfa940-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    "unresolved": [],
+    "dropped": [],
+    "coversAll": false,
+    "sites": [
+     {
+      "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+      "name": "Pune",
+      "path": [
+       "ITHENA ORG",
+       "Pune"
+      ],
+      "deviceIds": [
+       "113ff740-c0be-11f1-add5-5db4ab3ed597",
+       "11474a40-c0be-11f1-add5-5db4ab3ed597",
+       "1155a220-c0be-11f1-add5-5db4ab3ed597"
+      ],
+      "full": true
+     }
+    ],
+    "has": {
+     "11474a40-c0be-11f1-add5-5db4ab3ed597": true,
+     "113ff740-c0be-11f1-add5-5db4ab3ed597": true,
+     "1155a220-c0be-11f1-add5-5db4ab3ed597": true,
+     "114e4f20-c0be-11f1-add5-5db4ab3ed597": false
+    },
+    "hasAll": {
+     "10cfa940-c0be-11f1-add5-5db4ab3ed597": true,
+     "11474a40-c0be-11f1-add5-5db4ab3ed597": true,
+     "10c85640-c0be-11f1-add5-5db4ab3ed597": false,
+     "10aba680-c0be-11f1-add5-5db4ab3ed597": false
+    },
+    "sees": {
+     "10c85640-c0be-11f1-add5-5db4ab3ed597": true,
+     "10cfa940-c0be-11f1-add5-5db4ab3ed597": true,
+     "10aba680-c0be-11f1-add5-5db4ab3ed597": false,
+     "11474a40-c0be-11f1-add5-5db4ab3ed597": true,
+     "114e4f20-c0be-11f1-add5-5db4ab3ed597": false
+    }
+   }
+  },
+  {
+   "name": "all on the org root: the whole organisation, 15 machines",
+   "tree": "local",
+   "grants": [
+    {
+     "id": "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ],
+   "expect": {
+    "devices": [
+     "10e41ba0-c0be-11f1-add5-5db4ab3ed597",
+     "10f3ac00-c0be-11f1-add5-5db4ab3ed597",
+     "10fd48f0-c0be-11f1-add5-5db4ab3ed597",
+     "110474e0-c0be-11f1-add5-5db4ab3ed597",
+     "110e11d0-c0be-11f1-add5-5db4ab3ed597",
+     "111564d0-c0be-11f1-add5-5db4ab3ed597",
+     "111c90c0-c0be-11f1-add5-5db4ab3ed597",
+     "112172c0-c0be-11f1-add5-5db4ab3ed597",
+     "11289eb0-c0be-11f1-add5-5db4ab3ed597",
+     "11319f60-c0be-11f1-add5-5db4ab3ed597",
+     "1138cb50-c0be-11f1-add5-5db4ab3ed597",
+     "113ff740-c0be-11f1-add5-5db4ab3ed597",
+     "11474a40-c0be-11f1-add5-5db4ab3ed597",
+     "114e4f20-c0be-11f1-add5-5db4ab3ed597",
+     "1155a220-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    "assets": [
+     "10aba680-c0be-11f1-add5-5db4ab3ed597",
+     "10b2ab60-c0be-11f1-add5-5db4ab3ed597",
+     "10b9d750-c0be-11f1-add5-5db4ab3ed597",
+     "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "10d48b40-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    "nav": [],
+    "allRoots": [
+     "10c85640-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    "unresolved": [],
+    "dropped": [],
+    "coversAll": true,
+    "sites": [
+     {
+      "id": "10b9d750-c0be-11f1-add5-5db4ab3ed597",
+      "name": "Austin",
+      "path": [
+       "ITHENA ORG",
+       "Austin"
+      ],
+      "deviceIds": [
+       "11289eb0-c0be-11f1-add5-5db4ab3ed597",
+       "11319f60-c0be-11f1-add5-5db4ab3ed597",
+       "1138cb50-c0be-11f1-add5-5db4ab3ed597"
+      ],
+      "full": true
+     },
+     {
+      "id": "10b2ab60-c0be-11f1-add5-5db4ab3ed597",
+      "name": "Bangalore",
+      "path": [
+       "ITHENA ORG",
+       "Bangalore"
+      ],
+      "deviceIds": [
+       "111564d0-c0be-11f1-add5-5db4ab3ed597",
+       "111c90c0-c0be-11f1-add5-5db4ab3ed597",
+       "112172c0-c0be-11f1-add5-5db4ab3ed597"
+      ],
+      "full": true
+     },
+     {
+      "id": "10aba680-c0be-11f1-add5-5db4ab3ed597",
+      "name": "Mumbai",
+      "path": [
+       "ITHENA ORG",
+       "Mumbai"
+      ],
+      "deviceIds": [
+       "10f3ac00-c0be-11f1-add5-5db4ab3ed597",
+       "10fd48f0-c0be-11f1-add5-5db4ab3ed597",
+       "110474e0-c0be-11f1-add5-5db4ab3ed597",
+       "110e11d0-c0be-11f1-add5-5db4ab3ed597"
+      ],
+      "full": true
+     },
+     {
+      "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+      "name": "Pune",
+      "path": [
+       "ITHENA ORG",
+       "Pune"
+      ],
+      "deviceIds": [
+       "113ff740-c0be-11f1-add5-5db4ab3ed597",
+       "11474a40-c0be-11f1-add5-5db4ab3ed597",
+       "1155a220-c0be-11f1-add5-5db4ab3ed597"
+      ],
+      "full": true
+     },
+     {
+      "id": "10d48b40-c0be-11f1-add5-5db4ab3ed597",
+      "name": "Richmond",
+      "path": [
+       "ITHENA ORG",
+       "Richmond"
+      ],
+      "deviceIds": [
+       "10e41ba0-c0be-11f1-add5-5db4ab3ed597",
+       "114e4f20-c0be-11f1-add5-5db4ab3ed597"
+      ],
+      "full": true
+     }
+    ],
+    "has": {
+     "114e4f20-c0be-11f1-add5-5db4ab3ed597": true,
+     "90b03fa0-bc3e-11f1-bc96-3707e46d85f8": false
+    },
+    "hasAll": {
+     "10c85640-c0be-11f1-add5-5db4ab3ed597": true,
+     "10cfa940-c0be-11f1-add5-5db4ab3ed597": true,
+     "11289eb0-c0be-11f1-add5-5db4ab3ed597": true,
+     "9086bea0-bc3e-11f1-bc96-3707e46d85f8": false
+    },
+    "sees": {
+     "10c85640-c0be-11f1-add5-5db4ab3ed597": true,
+     "9086bea0-bc3e-11f1-bc96-3707e46d85f8": false
+    }
+   }
+  },
+  {
+   "name": "fixed Dryer 1 + Compressor 1: 2 machines, Pune and the org as the path",
+   "tree": "local",
+   "grants": [
+    {
+     "id": "11474a40-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "mode": "fixed"
+    },
+    {
+     "id": "113ff740-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "mode": "fixed"
+    }
+   ],
+   "expect": {
+    "devices": [
+     "113ff740-c0be-11f1-add5-5db4ab3ed597",
+     "11474a40-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    "assets": [],
+    "nav": [
+     "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "10cfa940-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    "allRoots": [],
+    "unresolved": [],
+    "dropped": [],
+    "coversAll": false,
+    "sites": [
+     {
+      "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+      "name": "Pune",
+      "path": [
+       "ITHENA ORG",
+       "Pune"
+      ],
+      "deviceIds": [
+       "113ff740-c0be-11f1-add5-5db4ab3ed597",
+       "11474a40-c0be-11f1-add5-5db4ab3ed597"
+      ],
+      "full": false
+     }
+    ],
+    "has": {
+     "11474a40-c0be-11f1-add5-5db4ab3ed597": true,
+     "113ff740-c0be-11f1-add5-5db4ab3ed597": true,
+     "1155a220-c0be-11f1-add5-5db4ab3ed597": false
+    },
+    "hasAll": {
+     "10cfa940-c0be-11f1-add5-5db4ab3ed597": false,
+     "11474a40-c0be-11f1-add5-5db4ab3ed597": false
+    },
+    "sees": {
+     "10cfa940-c0be-11f1-add5-5db4ab3ed597": true,
+     "10c85640-c0be-11f1-add5-5db4ab3ed597": true,
+     "1155a220-c0be-11f1-add5-5db4ab3ed597": false,
+     "10aba680-c0be-11f1-add5-5db4ab3ed597": false
+    }
+   }
+  },
+  {
+   "name": "a new machine under Pune: in the all grant",
+   "tree": "localNew",
+   "grants": [
+    {
+     "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ],
+   "expect": {
+    "devices": [
+     "113ff740-c0be-11f1-add5-5db4ab3ed597",
+     "11474a40-c0be-11f1-add5-5db4ab3ed597",
+     "1155a220-c0be-11f1-add5-5db4ab3ed597",
+     "aaaaaaaa-0000-4000-8000-000000000001"
+    ],
+    "assets": [
+     "10cfa940-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    "nav": [
+     "10c85640-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    "allRoots": [
+     "10cfa940-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    "unresolved": [],
+    "dropped": [],
+    "coversAll": false,
+    "sites": [
+     {
+      "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+      "name": "Pune",
+      "path": [
+       "ITHENA ORG",
+       "Pune"
+      ],
+      "deviceIds": [
+       "113ff740-c0be-11f1-add5-5db4ab3ed597",
+       "11474a40-c0be-11f1-add5-5db4ab3ed597",
+       "1155a220-c0be-11f1-add5-5db4ab3ed597",
+       "aaaaaaaa-0000-4000-8000-000000000001"
+      ],
+      "full": true
+     }
+    ],
+    "has": {
+     "aaaaaaaa-0000-4000-8000-000000000001": true
+    }
+   }
+  },
+  {
+   "name": "a new machine under Pune: not in the fixed grant",
+   "tree": "localNew",
+   "grants": [
+    {
+     "id": "11474a40-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "mode": "fixed"
+    },
+    {
+     "id": "113ff740-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "mode": "fixed"
+    }
+   ],
+   "expect": {
+    "devices": [
+     "113ff740-c0be-11f1-add5-5db4ab3ed597",
+     "11474a40-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    "assets": [],
+    "nav": [
+     "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "10cfa940-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    "allRoots": [],
+    "unresolved": [],
+    "dropped": [],
+    "coversAll": false,
+    "sites": [
+     {
+      "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+      "name": "Pune",
+      "path": [
+       "ITHENA ORG",
+       "Pune"
+      ],
+      "deviceIds": [
+       "113ff740-c0be-11f1-add5-5db4ab3ed597",
+       "11474a40-c0be-11f1-add5-5db4ab3ed597"
+      ],
+      "full": false
+     }
+    ],
+    "has": {
+     "aaaaaaaa-0000-4000-8000-000000000001": false
+    },
+    "sees": {
+     "aaaaaaaa-0000-4000-8000-000000000001": false
+    }
+   }
+  },
+  {
+   "name": "a renamed machine: still granted, the new name in the site path",
+   "tree": "localRenamed",
+   "grants": [
+    {
+     "id": "11474a40-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "mode": "fixed"
+    }
+   ],
+   "expect": {
+    "devices": [
+     "11474a40-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    "assets": [],
+    "nav": [
+     "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "10cfa940-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    "allRoots": [],
+    "unresolved": [],
+    "dropped": [],
+    "coversAll": false,
+    "sites": [
+     {
+      "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+      "name": "Pune",
+      "path": [
+       "ITHENA ORG",
+       "Pune"
+      ],
+      "deviceIds": [
+       "11474a40-c0be-11f1-add5-5db4ab3ed597"
+      ],
+      "full": false
+     }
+    ],
+    "has": {
+     "11474a40-c0be-11f1-add5-5db4ab3ed597": true
+    }
+   }
+  },
+  {
+   "name": "a moved fixed machine: still granted, with its new path",
+   "tree": "localMoved",
+   "grants": [
+    {
+     "id": "11474a40-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "mode": "fixed"
+    },
+    {
+     "id": "113ff740-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "mode": "fixed"
+    }
+   ],
+   "expect": {
+    "devices": [
+     "113ff740-c0be-11f1-add5-5db4ab3ed597",
+     "11474a40-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    "assets": [],
+    "nav": [
+     "10aba680-c0be-11f1-add5-5db4ab3ed597",
+     "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "10cfa940-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    "allRoots": [],
+    "unresolved": [],
+    "dropped": [],
+    "coversAll": false,
+    "sites": [
+     {
+      "id": "10aba680-c0be-11f1-add5-5db4ab3ed597",
+      "name": "Mumbai",
+      "path": [
+       "ITHENA ORG",
+       "Mumbai"
+      ],
+      "deviceIds": [
+       "113ff740-c0be-11f1-add5-5db4ab3ed597"
+      ],
+      "full": false
+     },
+     {
+      "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+      "name": "Pune",
+      "path": [
+       "ITHENA ORG",
+       "Pune"
+      ],
+      "deviceIds": [
+       "11474a40-c0be-11f1-add5-5db4ab3ed597"
+      ],
+      "full": false
+     }
+    ],
+    "has": {
+     "113ff740-c0be-11f1-add5-5db4ab3ed597": true
+    }
+   }
+  },
+  {
+   "name": "a deleted fixed machine: unresolved gone, the rest stays",
+   "tree": "local",
+   "grants": [
+    {
+     "id": "11474a40-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "mode": "fixed"
+    },
+    {
+     "id": "aaaaaaaa-0000-4000-8000-000000000003",
+     "type": "DEVICE",
+     "mode": "fixed"
+    }
+   ],
+   "expect": {
+    "devices": [
+     "11474a40-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    "assets": [],
+    "nav": [
+     "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "10cfa940-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    "allRoots": [],
+    "unresolved": [
+     {
+      "id": "aaaaaaaa-0000-4000-8000-000000000003",
+      "type": "DEVICE",
+      "reason": "gone"
+     }
+    ],
+    "dropped": [],
+    "coversAll": false,
+    "sites": [
+     {
+      "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+      "name": "Pune",
+      "path": [
+       "ITHENA ORG",
+       "Pune"
+      ],
+      "deviceIds": [
+       "11474a40-c0be-11f1-add5-5db4ab3ed597"
+      ],
+      "full": false
+     }
+    ],
+    "has": {
+     "aaaaaaaa-0000-4000-8000-000000000003": false
+    }
+   }
+  },
+  {
+   "name": "a deleted site: unresolved gone, nothing granted",
+   "tree": "local",
+   "grants": [
+    {
+     "id": "aaaaaaaa-0000-4000-8000-000000000004",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ],
+   "expect": {
+    "devices": [],
+    "assets": [],
+    "nav": [],
+    "allRoots": [],
+    "unresolved": [
+     {
+      "id": "aaaaaaaa-0000-4000-8000-000000000004",
+      "type": "ASSET",
+      "reason": "gone"
+     }
+    ],
+    "dropped": [],
+    "coversAll": false,
+    "sites": []
+   }
+  },
+  {
+   "name": "exists is the list given (not the tree): a grant the user can no longer read is gone",
+   "tree": "local",
+   "grants": [
+    {
+     "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    },
+    {
+     "id": "114e4f20-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "mode": "fixed"
+    }
+   ],
+   "exists": [
+    "114e4f20-c0be-11f1-add5-5db4ab3ed597"
+   ],
+   "expect": {
+    "devices": [
+     "114e4f20-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    "assets": [],
+    "nav": [
+     "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "10d48b40-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    "allRoots": [],
+    "unresolved": [
+     {
+      "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+      "type": "ASSET",
+      "reason": "gone"
+     }
+    ],
+    "dropped": [],
+    "coversAll": false,
+    "sites": [
+     {
+      "id": "10d48b40-c0be-11f1-add5-5db4ab3ed597",
+      "name": "Richmond",
+      "path": [
+       "ITHENA ORG",
+       "Richmond"
+      ],
+      "deviceIds": [
+       "114e4f20-c0be-11f1-add5-5db4ab3ed597"
+      ],
+      "full": false
+     }
+    ]
+   }
+  },
+  {
+   "name": "another customer's location (Beta for an Alpha user): dropped",
+   "tree": "local",
+   "grants": [
+    {
+     "id": "9086bea0-bc3e-11f1-bc96-3707e46d85f8",
+     "type": "ASSET",
+     "mode": "all"
+    },
+    {
+     "id": "911bf9c0-bc3e-11f1-bc96-3707e46d85f8",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ],
+   "notOwned": [
+    "911bf9c0-bc3e-11f1-bc96-3707e46d85f8",
+    "9125e4d0-bc3e-11f1-bc96-3707e46d85f8",
+    "91315680-bc3e-11f1-bc96-3707e46d85f8",
+    "913d3d60-bc3e-11f1-bc96-3707e46d85f8",
+    "10c85640-c0be-11f1-add5-5db4ab3ed597"
+   ],
+   "expect": {
+    "devices": [
+     "90b03fa0-bc3e-11f1-bc96-3707e46d85f8",
+     "90cb1aa0-bc3e-11f1-bc96-3707e46d85f8",
+     "90d9c0a0-bc3e-11f1-bc96-3707e46d85f8",
+     "90f81e10-bc3e-11f1-bc96-3707e46d85f8",
+     "91076050-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    "assets": [
+     "9086bea0-bc3e-11f1-bc96-3707e46d85f8",
+     "909341c0-bc3e-11f1-bc96-3707e46d85f8",
+     "90e9c630-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    "nav": [],
+    "allRoots": [
+     "9086bea0-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    "unresolved": [],
+    "dropped": [
+     "911bf9c0-bc3e-11f1-bc96-3707e46d85f8",
+     "9125e4d0-bc3e-11f1-bc96-3707e46d85f8",
+     "91315680-bc3e-11f1-bc96-3707e46d85f8",
+     "913d3d60-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    "coversAll": true,
+    "sites": [
+     {
+      "id": "909341c0-bc3e-11f1-bc96-3707e46d85f8",
+      "name": "POC Alpha Plant North",
+      "path": [
+       "POC Alpha Group",
+       "POC Alpha Plant North"
+      ],
+      "deviceIds": [
+       "90b03fa0-bc3e-11f1-bc96-3707e46d85f8",
+       "90cb1aa0-bc3e-11f1-bc96-3707e46d85f8",
+       "90d9c0a0-bc3e-11f1-bc96-3707e46d85f8"
+      ],
+      "full": true
+     },
+     {
+      "id": "90e9c630-bc3e-11f1-bc96-3707e46d85f8",
+      "name": "POC Alpha Plant South",
+      "path": [
+       "POC Alpha Group",
+       "POC Alpha Plant South"
+      ],
+      "deviceIds": [
+       "90f81e10-bc3e-11f1-bc96-3707e46d85f8",
+       "91076050-bc3e-11f1-bc96-3707e46d85f8"
+      ],
+      "full": true
+     }
+    ],
+    "has": {
+     "91315680-bc3e-11f1-bc96-3707e46d85f8": false
+    },
+    "sees": {
+     "911bf9c0-bc3e-11f1-bc96-3707e46d85f8": false
+    }
+   }
+  },
+  {
+   "name": "only another customer's location: nothing (the migration writes grants [])",
+   "tree": "local",
+   "grants": [
+    {
+     "id": "911bf9c0-bc3e-11f1-bc96-3707e46d85f8",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ],
+   "notOwned": [
+    "911bf9c0-bc3e-11f1-bc96-3707e46d85f8",
+    "9125e4d0-bc3e-11f1-bc96-3707e46d85f8",
+    "91315680-bc3e-11f1-bc96-3707e46d85f8",
+    "913d3d60-bc3e-11f1-bc96-3707e46d85f8"
+   ],
+   "expect": {
+    "devices": [],
+    "assets": [],
+    "nav": [],
+    "allRoots": [],
+    "unresolved": [],
+    "dropped": [
+     "911bf9c0-bc3e-11f1-bc96-3707e46d85f8",
+     "9125e4d0-bc3e-11f1-bc96-3707e46d85f8",
+     "91315680-bc3e-11f1-bc96-3707e46d85f8",
+     "913d3d60-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    "coversAll": false,
+    "sites": []
+   }
+  },
+  {
+   "name": "Alpha all + a machine of another tree: not the whole organisation",
+   "tree": "local",
+   "grants": [
+    {
+     "id": "9086bea0-bc3e-11f1-bc96-3707e46d85f8",
+     "type": "ASSET",
+     "mode": "all"
+    },
+    {
+     "id": "91315680-bc3e-11f1-bc96-3707e46d85f8",
+     "type": "DEVICE",
+     "mode": "fixed"
+    }
+   ],
+   "expect": {
+    "devices": [
+     "90b03fa0-bc3e-11f1-bc96-3707e46d85f8",
+     "90cb1aa0-bc3e-11f1-bc96-3707e46d85f8",
+     "90d9c0a0-bc3e-11f1-bc96-3707e46d85f8",
+     "90f81e10-bc3e-11f1-bc96-3707e46d85f8",
+     "91076050-bc3e-11f1-bc96-3707e46d85f8",
+     "91315680-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    "assets": [
+     "9086bea0-bc3e-11f1-bc96-3707e46d85f8",
+     "909341c0-bc3e-11f1-bc96-3707e46d85f8",
+     "90e9c630-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    "nav": [
+     "911bf9c0-bc3e-11f1-bc96-3707e46d85f8",
+     "9125e4d0-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    "allRoots": [
+     "9086bea0-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    "unresolved": [],
+    "dropped": [],
+    "coversAll": false,
+    "sites": [
+     {
+      "id": "909341c0-bc3e-11f1-bc96-3707e46d85f8",
+      "name": "POC Alpha Plant North",
+      "path": [
+       "POC Alpha Group",
+       "POC Alpha Plant North"
+      ],
+      "deviceIds": [
+       "90b03fa0-bc3e-11f1-bc96-3707e46d85f8",
+       "90cb1aa0-bc3e-11f1-bc96-3707e46d85f8",
+       "90d9c0a0-bc3e-11f1-bc96-3707e46d85f8"
+      ],
+      "full": true
+     },
+     {
+      "id": "90e9c630-bc3e-11f1-bc96-3707e46d85f8",
+      "name": "POC Alpha Plant South",
+      "path": [
+       "POC Alpha Group",
+       "POC Alpha Plant South"
+      ],
+      "deviceIds": [
+       "90f81e10-bc3e-11f1-bc96-3707e46d85f8",
+       "91076050-bc3e-11f1-bc96-3707e46d85f8"
+      ],
+      "full": true
+     },
+     {
+      "id": "9125e4d0-bc3e-11f1-bc96-3707e46d85f8",
+      "name": "POC Beta Main Site",
+      "path": [
+       "POC Beta Works",
+       "POC Beta Main Site"
+      ],
+      "deviceIds": [
+       "91315680-bc3e-11f1-bc96-3707e46d85f8"
+      ],
+      "full": false
+     }
+    ]
+   }
+  },
+  {
+   "name": "the customer's tops given: one plant is not the organisation",
+   "tree": "local",
+   "grants": [
+    {
+     "id": "909341c0-bc3e-11f1-bc96-3707e46d85f8",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ],
+   "tops": [
+    "9086bea0-bc3e-11f1-bc96-3707e46d85f8"
+   ],
+   "expect": {
+    "devices": [
+     "90b03fa0-bc3e-11f1-bc96-3707e46d85f8",
+     "90cb1aa0-bc3e-11f1-bc96-3707e46d85f8",
+     "90d9c0a0-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    "assets": [
+     "909341c0-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    "nav": [
+     "9086bea0-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    "allRoots": [
+     "909341c0-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    "unresolved": [],
+    "dropped": [],
+    "coversAll": false,
+    "sites": [
+     {
+      "id": "909341c0-bc3e-11f1-bc96-3707e46d85f8",
+      "name": "POC Alpha Plant North",
+      "path": [
+       "POC Alpha Group",
+       "POC Alpha Plant North"
+      ],
+      "deviceIds": [
+       "90b03fa0-bc3e-11f1-bc96-3707e46d85f8",
+       "90cb1aa0-bc3e-11f1-bc96-3707e46d85f8",
+       "90d9c0a0-bc3e-11f1-bc96-3707e46d85f8"
+      ],
+      "full": true
+     }
+    ]
+   }
+  },
+  {
+   "name": "the customer's tops given: two orgs, one held",
+   "tree": "local",
+   "grants": [
+    {
+     "id": "9086bea0-bc3e-11f1-bc96-3707e46d85f8",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ],
+   "tops": [
+    "9086bea0-bc3e-11f1-bc96-3707e46d85f8",
+    "911bf9c0-bc3e-11f1-bc96-3707e46d85f8"
+   ],
+   "expect": {
+    "devices": [
+     "90b03fa0-bc3e-11f1-bc96-3707e46d85f8",
+     "90cb1aa0-bc3e-11f1-bc96-3707e46d85f8",
+     "90d9c0a0-bc3e-11f1-bc96-3707e46d85f8",
+     "90f81e10-bc3e-11f1-bc96-3707e46d85f8",
+     "91076050-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    "assets": [
+     "9086bea0-bc3e-11f1-bc96-3707e46d85f8",
+     "909341c0-bc3e-11f1-bc96-3707e46d85f8",
+     "90e9c630-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    "nav": [],
+    "allRoots": [
+     "9086bea0-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    "unresolved": [],
+    "dropped": [],
+    "coversAll": false,
+    "sites": [
+     {
+      "id": "909341c0-bc3e-11f1-bc96-3707e46d85f8",
+      "name": "POC Alpha Plant North",
+      "path": [
+       "POC Alpha Group",
+       "POC Alpha Plant North"
+      ],
+      "deviceIds": [
+       "90b03fa0-bc3e-11f1-bc96-3707e46d85f8",
+       "90cb1aa0-bc3e-11f1-bc96-3707e46d85f8",
+       "90d9c0a0-bc3e-11f1-bc96-3707e46d85f8"
+      ],
+      "full": true
+     },
+     {
+      "id": "90e9c630-bc3e-11f1-bc96-3707e46d85f8",
+      "name": "POC Alpha Plant South",
+      "path": [
+       "POC Alpha Group",
+       "POC Alpha Plant South"
+      ],
+      "deviceIds": [
+       "90f81e10-bc3e-11f1-bc96-3707e46d85f8",
+       "91076050-bc3e-11f1-bc96-3707e46d85f8"
+      ],
+      "full": true
+     }
+    ]
+   }
+  },
+  {
+   "name": "nested grants (org + Pune + Dryer 1): the same as the org",
+   "tree": "local",
+   "grants": [
+    {
+     "id": "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    },
+    {
+     "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    },
+    {
+     "id": "11474a40-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "mode": "fixed"
+    }
+   ],
+   "expect": {
+    "devices": [
+     "10e41ba0-c0be-11f1-add5-5db4ab3ed597",
+     "10f3ac00-c0be-11f1-add5-5db4ab3ed597",
+     "10fd48f0-c0be-11f1-add5-5db4ab3ed597",
+     "110474e0-c0be-11f1-add5-5db4ab3ed597",
+     "110e11d0-c0be-11f1-add5-5db4ab3ed597",
+     "111564d0-c0be-11f1-add5-5db4ab3ed597",
+     "111c90c0-c0be-11f1-add5-5db4ab3ed597",
+     "112172c0-c0be-11f1-add5-5db4ab3ed597",
+     "11289eb0-c0be-11f1-add5-5db4ab3ed597",
+     "11319f60-c0be-11f1-add5-5db4ab3ed597",
+     "1138cb50-c0be-11f1-add5-5db4ab3ed597",
+     "113ff740-c0be-11f1-add5-5db4ab3ed597",
+     "11474a40-c0be-11f1-add5-5db4ab3ed597",
+     "114e4f20-c0be-11f1-add5-5db4ab3ed597",
+     "1155a220-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    "assets": [
+     "10aba680-c0be-11f1-add5-5db4ab3ed597",
+     "10b2ab60-c0be-11f1-add5-5db4ab3ed597",
+     "10b9d750-c0be-11f1-add5-5db4ab3ed597",
+     "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "10d48b40-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    "nav": [],
+    "allRoots": [
+     "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "10cfa940-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    "unresolved": [],
+    "dropped": [],
+    "coversAll": true,
+    "sites": [
+     {
+      "id": "10b9d750-c0be-11f1-add5-5db4ab3ed597",
+      "name": "Austin",
+      "path": [
+       "ITHENA ORG",
+       "Austin"
+      ],
+      "deviceIds": [
+       "11289eb0-c0be-11f1-add5-5db4ab3ed597",
+       "11319f60-c0be-11f1-add5-5db4ab3ed597",
+       "1138cb50-c0be-11f1-add5-5db4ab3ed597"
+      ],
+      "full": true
+     },
+     {
+      "id": "10b2ab60-c0be-11f1-add5-5db4ab3ed597",
+      "name": "Bangalore",
+      "path": [
+       "ITHENA ORG",
+       "Bangalore"
+      ],
+      "deviceIds": [
+       "111564d0-c0be-11f1-add5-5db4ab3ed597",
+       "111c90c0-c0be-11f1-add5-5db4ab3ed597",
+       "112172c0-c0be-11f1-add5-5db4ab3ed597"
+      ],
+      "full": true
+     },
+     {
+      "id": "10aba680-c0be-11f1-add5-5db4ab3ed597",
+      "name": "Mumbai",
+      "path": [
+       "ITHENA ORG",
+       "Mumbai"
+      ],
+      "deviceIds": [
+       "10f3ac00-c0be-11f1-add5-5db4ab3ed597",
+       "10fd48f0-c0be-11f1-add5-5db4ab3ed597",
+       "110474e0-c0be-11f1-add5-5db4ab3ed597",
+       "110e11d0-c0be-11f1-add5-5db4ab3ed597"
+      ],
+      "full": true
+     },
+     {
+      "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+      "name": "Pune",
+      "path": [
+       "ITHENA ORG",
+       "Pune"
+      ],
+      "deviceIds": [
+       "113ff740-c0be-11f1-add5-5db4ab3ed597",
+       "11474a40-c0be-11f1-add5-5db4ab3ed597",
+       "1155a220-c0be-11f1-add5-5db4ab3ed597"
+      ],
+      "full": true
+     },
+     {
+      "id": "10d48b40-c0be-11f1-add5-5db4ab3ed597",
+      "name": "Richmond",
+      "path": [
+       "ITHENA ORG",
+       "Richmond"
+      ],
+      "deviceIds": [
+       "10e41ba0-c0be-11f1-add5-5db4ab3ed597",
+       "114e4f20-c0be-11f1-add5-5db4ab3ed597"
+      ],
+      "full": true
+     }
+    ]
+   }
+  },
+  {
+   "name": "DEVICE all reads as fixed",
+   "tree": "local",
+   "grants": [
+    {
+     "id": "114e4f20-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "mode": "all"
+    }
+   ],
+   "expect": {
+    "devices": [
+     "114e4f20-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    "assets": [],
+    "nav": [
+     "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "10d48b40-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    "allRoots": [],
+    "unresolved": [],
+    "dropped": [],
+    "coversAll": false,
+    "sites": [
+     {
+      "id": "10d48b40-c0be-11f1-add5-5db4ab3ed597",
+      "name": "Richmond",
+      "path": [
+       "ITHENA ORG",
+       "Richmond"
+      ],
+      "deviceIds": [
+       "114e4f20-c0be-11f1-add5-5db4ab3ed597"
+      ],
+      "full": false
+     }
+    ],
+    "hasAll": {
+     "114e4f20-c0be-11f1-add5-5db4ab3ed597": false
+    }
+   }
+  },
+  {
+   "name": "an ASSET grant on a machine id: that machine (the tree knows the type)",
+   "tree": "local",
+   "grants": [
+    {
+     "id": "114e4f20-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ],
+   "expect": {
+    "devices": [
+     "114e4f20-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    "assets": [],
+    "nav": [
+     "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "10d48b40-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    "allRoots": [],
+    "unresolved": [],
+    "dropped": [],
+    "coversAll": false,
+    "sites": [
+     {
+      "id": "10d48b40-c0be-11f1-add5-5db4ab3ed597",
+      "name": "Richmond",
+      "path": [
+       "ITHENA ORG",
+       "Richmond"
+      ],
+      "deviceIds": [
+       "114e4f20-c0be-11f1-add5-5db4ab3ed597"
+      ],
+      "full": false
+     }
+    ],
+    "has": {
+     "114e4f20-c0be-11f1-add5-5db4ab3ed597": true
+    },
+    "hasAll": {
+     "114e4f20-c0be-11f1-add5-5db4ab3ed597": false
+    }
+   }
+  },
+  {
+   "name": "no grants: nothing",
+   "tree": "local",
+   "grants": [],
+   "expect": {
+    "devices": [],
+    "assets": [],
+    "nav": [],
+    "allRoots": [],
+    "unresolved": [],
+    "dropped": [],
+    "coversAll": false,
+    "sites": [],
+    "has": {
+     "11474a40-c0be-11f1-add5-5db4ab3ed597": false
+    },
+    "hasAll": {
+     "10c85640-c0be-11f1-add5-5db4ab3ed597": false
+    },
+    "sees": {
+     "10c85640-c0be-11f1-add5-5db4ab3ed597": false
+    }
+   }
+  },
+  {
+   "name": "invalid grants are ignored here too (ASSET fixed)",
+   "tree": "local",
+   "grants": [
+    {
+     "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "fixed"
+    }
+   ],
+   "expect": {
+    "devices": [],
+    "assets": [],
+    "nav": [],
+    "allRoots": [],
+    "unresolved": [],
+    "dropped": [],
+    "coversAll": false,
+    "sites": []
+   }
+  },
+  {
+   "name": "depth: a machine 12 levels down is in, 13 is cut",
+   "tree": "deep",
+   "grants": [
+    {
+     "id": "aaaaaaaa-0000-4000-8000-000000000010",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ],
+   "expect": {
+    "devices": [
+     "aaaaaaaa-0000-4000-8000-000000000023"
+    ],
+    "assets": [
+     "aaaaaaaa-0000-4000-8000-000000000010",
+     "aaaaaaaa-0000-4000-8000-000000000011",
+     "aaaaaaaa-0000-4000-8000-000000000012",
+     "aaaaaaaa-0000-4000-8000-000000000013",
+     "aaaaaaaa-0000-4000-8000-000000000014",
+     "aaaaaaaa-0000-4000-8000-000000000015",
+     "aaaaaaaa-0000-4000-8000-000000000016",
+     "aaaaaaaa-0000-4000-8000-000000000017",
+     "aaaaaaaa-0000-4000-8000-000000000018",
+     "aaaaaaaa-0000-4000-8000-000000000019",
+     "aaaaaaaa-0000-4000-8000-000000000020",
+     "aaaaaaaa-0000-4000-8000-000000000021",
+     "aaaaaaaa-0000-4000-8000-000000000022"
+    ],
+    "nav": [],
+    "allRoots": [
+     "aaaaaaaa-0000-4000-8000-000000000010"
+    ],
+    "unresolved": [],
+    "dropped": [],
+    "coversAll": true,
+    "sites": [
+     {
+      "id": "aaaaaaaa-0000-4000-8000-000000000021",
+      "name": "Level 11",
+      "path": [
+       "Deep root",
+       "Level 1",
+       "Level 2",
+       "Level 3",
+       "Level 4",
+       "Level 5",
+       "Level 6",
+       "Level 7",
+       "Level 8",
+       "Level 9",
+       "Level 10",
+       "Level 11"
+      ],
+      "deviceIds": [
+       "aaaaaaaa-0000-4000-8000-000000000023"
+      ],
+      "full": true
+     }
+    ],
+    "has": {
+     "aaaaaaaa-0000-4000-8000-000000000023": true,
+     "aaaaaaaa-0000-4000-8000-000000000024": false
+    },
+    "hasAll": {
+     "aaaaaaaa-0000-4000-8000-000000000022": true,
+     "aaaaaaaa-0000-4000-8000-000000000024": false
+    }
+   }
+  },
+  {
+   "name": "depth: maxDepth 2",
+   "tree": "deep",
+   "grants": [
+    {
+     "id": "aaaaaaaa-0000-4000-8000-000000000010",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ],
+   "maxDepth": 2,
+   "expect": {
+    "devices": [],
+    "assets": [
+     "aaaaaaaa-0000-4000-8000-000000000010",
+     "aaaaaaaa-0000-4000-8000-000000000011",
+     "aaaaaaaa-0000-4000-8000-000000000012"
+    ],
+    "nav": [],
+    "allRoots": [
+     "aaaaaaaa-0000-4000-8000-000000000010"
+    ],
+    "unresolved": [],
+    "dropped": [],
+    "coversAll": true,
+    "sites": []
+   }
+  },
+  {
+   "name": "a cycle: every node once, the walk ends",
+   "tree": "cycle",
+   "grants": [
+    {
+     "id": "aaaaaaaa-0000-4000-8000-000000000030",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ],
+   "expect": {
+    "devices": [
+     "aaaaaaaa-0000-4000-8000-000000000033"
+    ],
+    "assets": [
+     "aaaaaaaa-0000-4000-8000-000000000030",
+     "aaaaaaaa-0000-4000-8000-000000000031",
+     "aaaaaaaa-0000-4000-8000-000000000032"
+    ],
+    "nav": [],
+    "allRoots": [
+     "aaaaaaaa-0000-4000-8000-000000000030"
+    ],
+    "unresolved": [],
+    "dropped": [],
+    "coversAll": false,
+    "sites": [
+     {
+      "id": "aaaaaaaa-0000-4000-8000-000000000031",
+      "name": "Cycle B",
+      "path": [
+       "Cycle C",
+       "Cycle A",
+       "Cycle B"
+      ],
+      "deviceIds": [
+       "aaaaaaaa-0000-4000-8000-000000000033"
+      ],
+      "full": true
+     }
+    ]
+   }
+  },
+  {
+   "name": "a machine with two parents, fixed: both sites list it",
+   "tree": "twin",
+   "grants": [
+    {
+     "id": "aaaaaaaa-0000-4000-8000-000000000043",
+     "type": "DEVICE",
+     "mode": "fixed"
+    }
+   ],
+   "expect": {
+    "devices": [
+     "aaaaaaaa-0000-4000-8000-000000000043"
+    ],
+    "assets": [],
+    "nav": [
+     "aaaaaaaa-0000-4000-8000-000000000040",
+     "aaaaaaaa-0000-4000-8000-000000000041",
+     "aaaaaaaa-0000-4000-8000-000000000042"
+    ],
+    "allRoots": [],
+    "unresolved": [],
+    "dropped": [],
+    "coversAll": false,
+    "sites": [
+     {
+      "id": "aaaaaaaa-0000-4000-8000-000000000041",
+      "name": "Site X",
+      "path": [
+       "Twin Org",
+       "Site X"
+      ],
+      "deviceIds": [
+       "aaaaaaaa-0000-4000-8000-000000000043"
+      ],
+      "full": false
+     },
+     {
+      "id": "aaaaaaaa-0000-4000-8000-000000000042",
+      "name": "Site Y",
+      "path": [
+       "Twin Org",
+       "Site Y"
+      ],
+      "deviceIds": [
+       "aaaaaaaa-0000-4000-8000-000000000043"
+      ],
+      "full": false
+     }
+    ]
+   }
+  },
+  {
+   "name": "a machine with two parents under one all site: the other site is not shown",
+   "tree": "twin",
+   "grants": [
+    {
+     "id": "aaaaaaaa-0000-4000-8000-000000000041",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ],
+   "expect": {
+    "devices": [
+     "aaaaaaaa-0000-4000-8000-000000000043",
+     "aaaaaaaa-0000-4000-8000-000000000044"
+    ],
+    "assets": [
+     "aaaaaaaa-0000-4000-8000-000000000041"
+    ],
+    "nav": [
+     "aaaaaaaa-0000-4000-8000-000000000040"
+    ],
+    "allRoots": [
+     "aaaaaaaa-0000-4000-8000-000000000041"
+    ],
+    "unresolved": [],
+    "dropped": [],
+    "coversAll": false,
+    "sites": [
+     {
+      "id": "aaaaaaaa-0000-4000-8000-000000000041",
+      "name": "Site X",
+      "path": [
+       "Twin Org",
+       "Site X"
+      ],
+      "deviceIds": [
+       "aaaaaaaa-0000-4000-8000-000000000043",
+       "aaaaaaaa-0000-4000-8000-000000000044"
+      ],
+      "full": true
+     }
+    ],
+    "sees": {
+     "aaaaaaaa-0000-4000-8000-000000000042": false
+    }
+   }
+  },
+  {
+   "name": "names given (from the existence check) win over the tree",
+   "tree": "local",
+   "grants": [
+    {
+     "id": "11474a40-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "mode": "fixed"
+    }
+   ],
+   "names": {
+    "10cfa940-c0be-11f1-add5-5db4ab3ed597": "Pune Plant"
+   },
+   "expect": {
+    "devices": [
+     "11474a40-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    "assets": [],
+    "nav": [
+     "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "10cfa940-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    "allRoots": [],
+    "unresolved": [],
+    "dropped": [],
+    "coversAll": false,
+    "sites": [
+     {
+      "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+      "name": "Pune Plant",
+      "path": [
+       "ITHENA ORG",
+       "Pune Plant"
+      ],
+      "deviceIds": [
+       "11474a40-c0be-11f1-add5-5db4ab3ed597"
+      ],
+      "full": false
+     }
+    ]
+   }
+  }
+ ],
+ "resolveUser": [
+  {
+   "name": "tenant admin: unrestricted, imexAccess not read",
+   "user": {
+    "authority": "TENANT_ADMIN"
+   },
+   "tree": "local",
+   "imexAccess": {
+    "v": 1,
+    "grants": []
+   },
+   "expect": {
+    "unrestricted": true,
+    "source": "unrestricted",
+    "devices": [],
+    "assets": [],
+    "nav": [],
+    "allRoots": [],
+    "unresolved": [],
+    "dropped": [],
+    "coversAll": true,
+    "sites": [],
+    "has": {
+     "114e4f20-c0be-11f1-add5-5db4ab3ed597": true,
+     "90b03fa0-bc3e-11f1-bc96-3707e46d85f8": true
+    },
+    "hasAll": {
+     "10c85640-c0be-11f1-add5-5db4ab3ed597": true
+    },
+    "sees": {
+     "911bf9c0-bc3e-11f1-bc96-3707e46d85f8": true
+    },
+    "warnings": []
+   }
+  },
+  {
+   "name": "customer user with nothing: no machines (fail closed)",
+   "user": {
+    "authority": "CUSTOMER_USER"
+   },
+   "tree": "local",
+   "expect": {
+    "unrestricted": false,
+    "source": "legacy",
+    "devices": [],
+    "assets": [],
+    "nav": [],
+    "allRoots": [],
+    "unresolved": [],
+    "dropped": [],
+    "coversAll": false,
+    "sites": [],
+    "has": {
+     "11474a40-c0be-11f1-add5-5db4ab3ed597": false
+    },
+    "warnings": []
+   }
+  },
+  {
+   "name": "legacy selectedNodes (Vera Viewer: Pune)",
+   "user": {
+    "authority": "CUSTOMER_USER"
+   },
+   "tree": "local",
+   "selectedNodes": [
+    {
+     "ID": "ITHENA ORG_Pune",
+     "categoryId": "ITHENA ORG",
+     "name": "Pune",
+     "entityId": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "expanded": true,
+     "entityType": "ASSET",
+     "selected": true
+    }
+   ],
+   "expect": {
+    "unrestricted": false,
+    "source": "legacy",
+    "devices": [
+     "113ff740-c0be-11f1-add5-5db4ab3ed597",
+     "11474a40-c0be-11f1-add5-5db4ab3ed597",
+     "1155a220-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    "assets": [
+     "10cfa940-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    "nav": [
+     "10c85640-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    "allRoots": [
+     "10cfa940-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    "unresolved": [],
+    "dropped": [],
+    "coversAll": false,
+    "sites": [
+     {
+      "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+      "name": "Pune",
+      "path": [
+       "ITHENA ORG",
+       "Pune"
+      ],
+      "deviceIds": [
+       "113ff740-c0be-11f1-add5-5db4ab3ed597",
+       "11474a40-c0be-11f1-add5-5db4ab3ed597",
+       "1155a220-c0be-11f1-add5-5db4ab3ed597"
+      ],
+      "full": true
+     }
+    ],
+    "warnings": []
+   }
+  },
+  {
+   "name": "imexAccess wins over selectedNodes",
+   "user": {
+    "authority": "CUSTOMER_USER"
+   },
+   "tree": "local",
+   "imexAccess": {
+    "v": 1,
+    "grants": [
+     {
+      "id": "114e4f20-c0be-11f1-add5-5db4ab3ed597",
+      "type": "DEVICE",
+      "mode": "fixed"
+     }
+    ]
+   },
+   "selectedNodes": [
+    "10cfa940-c0be-11f1-add5-5db4ab3ed597"
+   ],
+   "expect": {
+    "unrestricted": false,
+    "source": "imexAccess",
+    "devices": [
+     "114e4f20-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    "assets": [],
+    "nav": [
+     "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "10d48b40-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    "allRoots": [],
+    "unresolved": [],
+    "dropped": [],
+    "coversAll": false,
+    "sites": [
+     {
+      "id": "10d48b40-c0be-11f1-add5-5db4ab3ed597",
+      "name": "Richmond",
+      "path": [
+       "ITHENA ORG",
+       "Richmond"
+      ],
+      "deviceIds": [
+       "114e4f20-c0be-11f1-add5-5db4ab3ed597"
+      ],
+      "full": false
+     }
+    ],
+    "warnings": []
+   }
+  },
+  {
+   "name": "invalid imexAccess: no machines even with selectedNodes",
+   "user": {
+    "authority": "CUSTOMER_USER"
+   },
+   "tree": "local",
+   "imexAccess": {
+    "v": 9
+   },
+   "selectedNodes": [
+    "10cfa940-c0be-11f1-add5-5db4ab3ed597"
+   ],
+   "expect": {
+    "unrestricted": false,
+    "source": "invalid",
+    "devices": [],
+    "assets": [],
+    "nav": [],
+    "allRoots": [],
+    "unresolved": [],
+    "dropped": [],
+    "coversAll": false,
+    "sites": [],
+    "warnings": [
+     "access.version"
+    ]
+   }
+  },
+  {
+   "name": "legacy name found as an asset by name",
+   "user": {
+    "authority": "CUSTOMER_USER"
+   },
+   "tree": "local",
+   "selectedNodes": [
+    "POC Alpha Plant South"
+   ],
+   "byName": {
+    "POC Alpha Plant South": [
+     {
+      "id": "90e9c630-bc3e-11f1-bc96-3707e46d85f8",
+      "type": "ASSET",
+      "via": "name"
+     }
+    ]
+   },
+   "expect": {
+    "unrestricted": false,
+    "source": "legacy",
+    "devices": [
+     "90f81e10-bc3e-11f1-bc96-3707e46d85f8",
+     "91076050-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    "assets": [
+     "90e9c630-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    "nav": [
+     "9086bea0-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    "allRoots": [
+     "90e9c630-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    "unresolved": [],
+    "dropped": [],
+    "coversAll": false,
+    "sites": [
+     {
+      "id": "90e9c630-bc3e-11f1-bc96-3707e46d85f8",
+      "name": "POC Alpha Plant South",
+      "path": [
+       "POC Alpha Group",
+       "POC Alpha Plant South"
+      ],
+      "deviceIds": [
+       "90f81e10-bc3e-11f1-bc96-3707e46d85f8",
+       "91076050-bc3e-11f1-bc96-3707e46d85f8"
+      ],
+      "full": true
+     }
+    ],
+    "warnings": []
+   }
+  },
+  {
+   "name": "legacy name not unique: unresolved",
+   "user": {
+    "authority": "CUSTOMER_USER"
+   },
+   "tree": "local",
+   "selectedNodes": [
+    "Plant"
+   ],
+   "byName": {
+    "Plant": [
+     {
+      "id": "909341c0-bc3e-11f1-bc96-3707e46d85f8",
+      "type": "ASSET",
+      "via": "name"
+     },
+     {
+      "id": "90e9c630-bc3e-11f1-bc96-3707e46d85f8",
+      "type": "ASSET",
+      "via": "name"
+     }
+    ]
+   },
+   "expect": {
+    "unrestricted": false,
+    "source": "legacy",
+    "devices": [],
+    "assets": [],
+    "nav": [],
+    "allRoots": [],
+    "unresolved": [
+     {
+      "id": null,
+      "type": null,
+      "name": "Plant",
+      "reason": "name"
+     }
+    ],
+    "dropped": [],
+    "coversAll": false,
+    "sites": [],
+    "warnings": []
+   }
+  },
+  {
+   "name": "legacy name not found at all: unresolved; a bare uuid of a machine is that machine (the tree knows the type)",
+   "user": {
+    "authority": "CUSTOMER_USER"
+   },
+   "tree": "local",
+   "selectedNodes": [
+    "Nowhere",
+    "114e4f20-c0be-11f1-add5-5db4ab3ed597"
+   ],
+   "expect": {
+    "unrestricted": false,
+    "source": "legacy",
+    "devices": [
+     "114e4f20-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    "assets": [],
+    "nav": [
+     "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "10d48b40-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    "allRoots": [],
+    "unresolved": [
+     {
+      "id": null,
+      "type": null,
+      "name": "Nowhere",
+      "reason": "name"
+     }
+    ],
+    "dropped": [],
+    "coversAll": false,
+    "sites": [
+     {
+      "id": "10d48b40-c0be-11f1-add5-5db4ab3ed597",
+      "name": "Richmond",
+      "path": [
+       "ITHENA ORG",
+       "Richmond"
+      ],
+      "deviceIds": [
+       "114e4f20-c0be-11f1-add5-5db4ab3ed597"
+      ],
+      "full": false
+     }
+    ],
+    "has": {
+     "114e4f20-c0be-11f1-add5-5db4ab3ed597": true
+    },
+    "hasAll": {
+     "114e4f20-c0be-11f1-add5-5db4ab3ed597": false
+    },
+    "warnings": []
+   }
+  },
+  {
+   "name": "legacy name: a machine by name when no asset has it",
+   "user": {
+    "authority": "CUSTOMER_USER"
+   },
+   "tree": "local",
+   "selectedNodes": [
+    "Blower 1"
+   ],
+   "byName": {
+    "Blower 1": [
+     {
+      "id": "114e4f20-c0be-11f1-add5-5db4ab3ed597",
+      "type": "DEVICE",
+      "via": "name"
+     },
+     {
+      "id": "10d48b40-c0be-11f1-add5-5db4ab3ed597",
+      "type": "ASSET",
+      "via": "label"
+     }
+    ]
+   },
+   "expect": {
+    "unrestricted": false,
+    "source": "legacy",
+    "devices": [
+     "114e4f20-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    "assets": [],
+    "nav": [
+     "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "10d48b40-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    "allRoots": [],
+    "unresolved": [],
+    "dropped": [],
+    "coversAll": false,
+    "sites": [
+     {
+      "id": "10d48b40-c0be-11f1-add5-5db4ab3ed597",
+      "name": "Richmond",
+      "path": [
+       "ITHENA ORG",
+       "Richmond"
+      ],
+      "deviceIds": [
+       "114e4f20-c0be-11f1-add5-5db4ab3ed597"
+      ],
+      "full": false
+     }
+    ],
+    "warnings": []
+   }
+  },
+  {
+   "name": "legacy cross-customer (POC Alpha CrossCustomer): dropped, nothing left",
+   "user": {
+    "authority": "CUSTOMER_USER"
+   },
+   "tree": "local",
+   "selectedNodes": [
+    {
+     "id": "911bf9c0-bc3e-11f1-bc96-3707e46d85f8",
+     "entityType": "ASSET"
+    }
+   ],
+   "notOwned": [
+    "911bf9c0-bc3e-11f1-bc96-3707e46d85f8",
+    "9125e4d0-bc3e-11f1-bc96-3707e46d85f8",
+    "91315680-bc3e-11f1-bc96-3707e46d85f8",
+    "913d3d60-bc3e-11f1-bc96-3707e46d85f8"
+   ],
+   "expect": {
+    "unrestricted": false,
+    "source": "legacy",
+    "devices": [],
+    "assets": [],
+    "nav": [],
+    "allRoots": [],
+    "unresolved": [],
+    "dropped": [
+     "911bf9c0-bc3e-11f1-bc96-3707e46d85f8",
+     "9125e4d0-bc3e-11f1-bc96-3707e46d85f8",
+     "91315680-bc3e-11f1-bc96-3707e46d85f8",
+     "913d3d60-bc3e-11f1-bc96-3707e46d85f8"
+    ],
+    "coversAll": false,
+    "sites": [],
+    "warnings": []
+   }
+  },
+  {
+   "name": "warnings of parse come along",
+   "user": {
+    "authority": "CUSTOMER_USER"
+   },
+   "tree": "local",
+   "imexAccess": {
+    "v": 1,
+    "grants": [
+     {
+      "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+      "type": "ASSET",
+      "mode": "fixed"
+     },
+     {
+      "id": "11474a40-c0be-11f1-add5-5db4ab3ed597",
+      "type": "DEVICE",
+      "mode": "fixed"
+     }
+    ]
+   },
+   "expect": {
+    "unrestricted": false,
+    "source": "imexAccess",
+    "devices": [
+     "11474a40-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    "assets": [],
+    "nav": [
+     "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "10cfa940-c0be-11f1-add5-5db4ab3ed597"
+    ],
+    "allRoots": [],
+    "unresolved": [],
+    "dropped": [],
+    "coversAll": false,
+    "sites": [
+     {
+      "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+      "name": "Pune",
+      "path": [
+       "ITHENA ORG",
+       "Pune"
+      ],
+      "deviceIds": [
+       "11474a40-c0be-11f1-add5-5db4ab3ed597"
+      ],
+      "full": false
+     }
+    ],
+    "warnings": [
+     "grant.assetFixed"
+    ]
+   }
+  }
+ ],
+ "pickByName": [
+  {
+   "name": "an asset by name",
+   "cands": [
+    {
+     "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "via": "name"
+    }
+   ],
+   "expect": {
+    "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+    "type": "ASSET"
+   }
+  },
+  {
+   "name": "asset by name before device by name",
+   "cands": [
+    {
+     "id": "114e4f20-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "via": "name"
+    },
+    {
+     "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "via": "name"
+    }
+   ],
+   "expect": {
+    "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+    "type": "ASSET"
+   }
+  },
+  {
+   "name": "by name before by label",
+   "cands": [
+    {
+     "id": "10d48b40-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "via": "label"
+    },
+    {
+     "id": "114e4f20-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "via": "name"
+    }
+   ],
+   "expect": {
+    "id": "114e4f20-c0be-11f1-add5-5db4ab3ed597",
+    "type": "DEVICE"
+   }
+  },
+  {
+   "name": "two assets by name: none (not unique)",
+   "cands": [
+    {
+     "id": "909341c0-bc3e-11f1-bc96-3707e46d85f8",
+     "type": "ASSET",
+     "via": "name"
+    },
+    {
+     "id": "90e9c630-bc3e-11f1-bc96-3707e46d85f8",
+     "type": "ASSET",
+     "via": "name"
+    },
+    {
+     "id": "114e4f20-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "via": "name"
+    }
+   ],
+   "expect": null
+  },
+  {
+   "name": "the same id twice is one",
+   "cands": [
+    {
+     "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "via": "name"
+    },
+    {
+     "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "via": "name"
+    }
+   ],
+   "expect": {
+    "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+    "type": "ASSET"
+   }
+  },
+  {
+   "name": "label only",
+   "cands": [
+    {
+     "id": "11474a40-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "via": "label"
+    }
+   ],
+   "expect": {
+    "id": "11474a40-c0be-11f1-add5-5db4ab3ed597",
+    "type": "DEVICE"
+   }
+  },
+  {
+   "name": "nothing",
+   "cands": [],
+   "expect": null
+  }
+ ],
+ "rootKey": [
+  {
+   "name": "normalized order, every grant id",
+   "userId": "14009de0-c0be-11f1-add5-5db4ab3ed597",
+   "grants": [
+    {
+     "id": "11474a40-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "mode": "fixed"
+    },
+    {
+     "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ],
+   "expect": "imex-dbb-rel:14009de0-c0be-11f1-add5-5db4ab3ed597:10cfa940-c0be-11f1-add5-5db4ab3ed597,11474a40-c0be-11f1-add5-5db4ab3ed597"
+  },
+  {
+   "name": "no grants",
+   "userId": "u1",
+   "grants": [],
+   "expect": "imex-dbb-rel:u1:"
+  }
+ ],
+ "selection": [
+  {
+   "name": "the node ticked: Pune all",
+   "tree": "local",
+   "selected": [
+    "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+    "11474a40-c0be-11f1-add5-5db4ab3ed597",
+    "113ff740-c0be-11f1-add5-5db4ab3ed597",
+    "1155a220-c0be-11f1-add5-5db4ab3ed597"
+   ],
+   "hints": {
+    "10cfa940-c0be-11f1-add5-5db4ab3ed597": "all"
+   },
+   "expect": [
+    {
+     "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ]
+  },
+  {
+   "name": "every machine ticked one by one (switch off): 3 fixed",
+   "tree": "local",
+   "selected": [
+    "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+    "11474a40-c0be-11f1-add5-5db4ab3ed597",
+    "113ff740-c0be-11f1-add5-5db4ab3ed597",
+    "1155a220-c0be-11f1-add5-5db4ab3ed597"
+   ],
+   "hints": {},
+   "expect": [
+    {
+     "id": "113ff740-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "mode": "fixed"
+    },
+    {
+     "id": "11474a40-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "mode": "fixed"
+    },
+    {
+     "id": "1155a220-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "mode": "fixed"
+    }
+   ]
+  },
+  {
+   "name": "some machines: fixed",
+   "tree": "local",
+   "selected": [
+    "11474a40-c0be-11f1-add5-5db4ab3ed597"
+   ],
+   "hints": {},
+   "expect": [
+    {
+     "id": "11474a40-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "mode": "fixed"
+    }
+   ]
+  },
+  {
+   "name": "an empty site ticked: all (there is nothing to fix)",
+   "tree": "localEmptySite",
+   "selected": [
+    "aaaaaaaa-0000-4000-8000-000000000002"
+   ],
+   "hints": {},
+   "expect": [
+    {
+     "id": "aaaaaaaa-0000-4000-8000-000000000002",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ]
+  },
+  {
+   "name": "the org ticked: one grant on the org",
+   "tree": "local",
+   "selected": [
+    "10c85640-c0be-11f1-add5-5db4ab3ed597",
+    "10aba680-c0be-11f1-add5-5db4ab3ed597",
+    "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+    "10d48b40-c0be-11f1-add5-5db4ab3ed597",
+    "10b2ab60-c0be-11f1-add5-5db4ab3ed597",
+    "10b9d750-c0be-11f1-add5-5db4ab3ed597",
+    "110e11d0-c0be-11f1-add5-5db4ab3ed597",
+    "10fd48f0-c0be-11f1-add5-5db4ab3ed597",
+    "110474e0-c0be-11f1-add5-5db4ab3ed597",
+    "10f3ac00-c0be-11f1-add5-5db4ab3ed597",
+    "11474a40-c0be-11f1-add5-5db4ab3ed597",
+    "113ff740-c0be-11f1-add5-5db4ab3ed597",
+    "1155a220-c0be-11f1-add5-5db4ab3ed597",
+    "114e4f20-c0be-11f1-add5-5db4ab3ed597",
+    "10e41ba0-c0be-11f1-add5-5db4ab3ed597",
+    "111564d0-c0be-11f1-add5-5db4ab3ed597",
+    "111c90c0-c0be-11f1-add5-5db4ab3ed597",
+    "112172c0-c0be-11f1-add5-5db4ab3ed597",
+    "11289eb0-c0be-11f1-add5-5db4ab3ed597",
+    "11319f60-c0be-11f1-add5-5db4ab3ed597",
+    "1138cb50-c0be-11f1-add5-5db4ab3ed597"
+   ],
+   "hints": {
+    "10c85640-c0be-11f1-add5-5db4ab3ed597": "all"
+   },
+   "expect": [
+    {
+     "id": "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ]
+  },
+  {
+   "name": "every site ticked as a node, not the org: one grant per site",
+   "tree": "local",
+   "selected": [
+    "10c85640-c0be-11f1-add5-5db4ab3ed597",
+    "10aba680-c0be-11f1-add5-5db4ab3ed597",
+    "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+    "10d48b40-c0be-11f1-add5-5db4ab3ed597",
+    "10b2ab60-c0be-11f1-add5-5db4ab3ed597",
+    "10b9d750-c0be-11f1-add5-5db4ab3ed597",
+    "110e11d0-c0be-11f1-add5-5db4ab3ed597",
+    "10fd48f0-c0be-11f1-add5-5db4ab3ed597",
+    "110474e0-c0be-11f1-add5-5db4ab3ed597",
+    "10f3ac00-c0be-11f1-add5-5db4ab3ed597",
+    "11474a40-c0be-11f1-add5-5db4ab3ed597",
+    "113ff740-c0be-11f1-add5-5db4ab3ed597",
+    "1155a220-c0be-11f1-add5-5db4ab3ed597",
+    "114e4f20-c0be-11f1-add5-5db4ab3ed597",
+    "10e41ba0-c0be-11f1-add5-5db4ab3ed597",
+    "111564d0-c0be-11f1-add5-5db4ab3ed597",
+    "111c90c0-c0be-11f1-add5-5db4ab3ed597",
+    "112172c0-c0be-11f1-add5-5db4ab3ed597",
+    "11289eb0-c0be-11f1-add5-5db4ab3ed597",
+    "11319f60-c0be-11f1-add5-5db4ab3ed597",
+    "1138cb50-c0be-11f1-add5-5db4ab3ed597"
+   ],
+   "hints": {
+    "10aba680-c0be-11f1-add5-5db4ab3ed597": "all",
+    "10cfa940-c0be-11f1-add5-5db4ab3ed597": "all",
+    "10d48b40-c0be-11f1-add5-5db4ab3ed597": "all",
+    "10b2ab60-c0be-11f1-add5-5db4ab3ed597": "all",
+    "10b9d750-c0be-11f1-add5-5db4ab3ed597": "all"
+   },
+   "expect": [
+    {
+     "id": "10aba680-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    },
+    {
+     "id": "10b2ab60-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    },
+    {
+     "id": "10b9d750-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    },
+    {
+     "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    },
+    {
+     "id": "10d48b40-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ]
+  },
+  {
+   "name": "a site node and a machine elsewhere",
+   "tree": "local",
+   "selected": [
+    "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+    "11474a40-c0be-11f1-add5-5db4ab3ed597",
+    "113ff740-c0be-11f1-add5-5db4ab3ed597",
+    "1155a220-c0be-11f1-add5-5db4ab3ed597",
+    "114e4f20-c0be-11f1-add5-5db4ab3ed597"
+   ],
+   "hints": {
+    "10cfa940-c0be-11f1-add5-5db4ab3ed597": "all"
+   },
+   "expect": [
+    {
+     "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    },
+    {
+     "id": "114e4f20-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "mode": "fixed"
+    }
+   ]
+  },
+  {
+   "name": "a hint on a node that is not fully ticked is ignored",
+   "tree": "local",
+   "selected": [
+    "11474a40-c0be-11f1-add5-5db4ab3ed597"
+   ],
+   "hints": {
+    "10cfa940-c0be-11f1-add5-5db4ab3ed597": "all"
+   },
+   "expect": [
+    {
+     "id": "11474a40-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "mode": "fixed"
+    }
+   ]
+  },
+  {
+   "name": "nothing",
+   "tree": "local",
+   "selected": [],
+   "hints": {},
+   "expect": []
+  }
+ ],
+ "labels": [
+  {
+   "name": "a site, all",
+   "tree": "local",
+   "grants": [
+    {
+     "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ],
+   "expect": [
+    {
+     "text": "Pune · all equipment, including new",
+     "tip": "3 machines today: Compressor 1, Dryer 1, Weather Station 1. Machines added later are included.",
+     "kind": "all"
+    }
+   ]
+  },
+  {
+   "name": "the org, all",
+   "tree": "local",
+   "grants": [
+    {
+     "id": "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ],
+   "expect": [
+    {
+     "text": "ITHENA ORG · all sites and equipment, including new",
+     "tip": "5 sites, 15 machines today",
+     "kind": "all"
+    }
+   ]
+  },
+  {
+   "name": "an empty site, all",
+   "tree": "localEmptySite",
+   "grants": [
+    {
+     "id": "aaaaaaaa-0000-4000-8000-000000000002",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ],
+   "expect": [
+    {
+     "text": "New Site · all equipment, including new (none yet)",
+     "tip": "",
+     "kind": "all"
+    }
+   ]
+  },
+  {
+   "name": "fixed machines of one site",
+   "tree": "local",
+   "grants": [
+    {
+     "id": "11474a40-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "mode": "fixed"
+    },
+    {
+     "id": "113ff740-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "mode": "fixed"
+    }
+   ],
+   "expect": [
+    {
+     "text": "Pune · 2 machines (fixed)",
+     "tip": "Compressor 1, Dryer 1. Machines added later are not included.",
+     "kind": "fixed"
+    }
+   ]
+  },
+  {
+   "name": "one fixed machine",
+   "tree": "local",
+   "grants": [
+    {
+     "id": "114e4f20-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "mode": "fixed"
+    }
+   ],
+   "expect": [
+    {
+     "text": "Richmond · 1 machine (fixed)",
+     "tip": "Blower 1. Machines added later are not included.",
+     "kind": "fixed"
+    }
+   ]
+  },
+  {
+   "name": "gone",
+   "tree": "local",
+   "grants": [
+    {
+     "id": "aaaaaaaa-0000-4000-8000-000000000004",
+     "type": "ASSET",
+     "mode": "all"
+    },
+    {
+     "id": "aaaaaaaa-0000-4000-8000-000000000003",
+     "type": "DEVICE",
+     "mode": "fixed"
+    },
+    {
+     "id": "11474a40-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "mode": "fixed"
+    }
+   ],
+   "expect": [
+    {
+     "text": "Pune · 1 machine (fixed)",
+     "tip": "Dryer 1. Machines added later are not included.",
+     "kind": "fixed"
+    },
+    {
+     "text": "1 location no longer exists",
+     "tip": "It will be removed when you save.",
+     "kind": "warn"
+    },
+    {
+     "text": "1 machine no longer exists",
+     "tip": "It will be removed when you save.",
+     "kind": "warn"
+    }
+   ]
+  },
+  {
+   "name": "outside the editor's access (kept)",
+   "tree": "local",
+   "grants": [
+    {
+     "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    },
+    {
+     "id": "114e4f20-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "mode": "fixed"
+    }
+   ],
+   "editor": {
+    "grants": [
+     {
+      "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+      "type": "ASSET",
+      "mode": "all"
+     }
+    ]
+   },
+   "expect": [
+    {
+     "text": "Pune · all equipment, including new",
+     "tip": "3 machines today: Compressor 1, Dryer 1, Weather Station 1. Machines added later are included.",
+     "kind": "all"
+    },
+    {
+     "text": "+1 location outside your access (kept)",
+     "tip": "Blower 1",
+     "kind": "muted"
+    }
+   ]
+  },
+  {
+   "name": "no grants",
+   "tree": "local",
+   "grants": [],
+   "expect": [
+    {
+     "text": "No access: this user will see no machines",
+     "tip": "",
+     "kind": "muted"
+    }
+   ]
+  }
+ ],
+ "compact": [
+  {
+   "name": "one site",
+   "tree": "local",
+   "grants": [
+    {
+     "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ],
+   "expect": "Pune · all"
+  },
+  {
+   "name": "fixed of one site",
+   "tree": "local",
+   "grants": [
+    {
+     "id": "11474a40-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "mode": "fixed"
+    },
+    {
+     "id": "113ff740-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "mode": "fixed"
+    }
+   ],
+   "expect": "Pune · 2 fixed"
+  },
+  {
+   "name": "two sites",
+   "tree": "local",
+   "grants": [
+    {
+     "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    },
+    {
+     "id": "10aba680-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ],
+   "expect": "2 sites · all"
+  },
+  {
+   "name": "the whole organisation",
+   "tree": "local",
+   "grants": [
+    {
+     "id": "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ],
+   "withAccess": true,
+   "expect": "Whole organisation"
+  },
+  {
+   "name": "a site and a machine elsewhere",
+   "tree": "local",
+   "grants": [
+    {
+     "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    },
+    {
+     "id": "114e4f20-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "mode": "fixed"
+    }
+   ],
+   "expect": "Pune · all, Richmond · 1 fixed"
+  },
+  {
+   "name": "machines of two sites",
+   "tree": "local",
+   "grants": [
+    {
+     "id": "11474a40-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "mode": "fixed"
+    },
+    {
+     "id": "114e4f20-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "mode": "fixed"
+    }
+   ],
+   "expect": "2 machines · fixed"
+  },
+  {
+   "name": "nothing",
+   "tree": "local",
+   "grants": [],
+   "expect": "No access"
+  },
+  {
+   "name": "only gone grants",
+   "tree": "local",
+   "grants": [
+    {
+     "id": "aaaaaaaa-0000-4000-8000-000000000004",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ],
+   "expect": "No access"
+  }
+ ],
+ "snapshot": [
+  {
+   "name": "a site",
+   "tree": "local",
+   "grants": [
+    {
+     "id": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ],
+   "expect": {
+    "selectedNodes": [
+     {
+      "ID": "ITHENA ORG_Pune",
+      "categoryId": "ITHENA ORG",
+      "name": "Pune",
+      "entityId": "10cfa940-c0be-11f1-add5-5db4ab3ed597",
+      "entityType": "ASSET",
+      "expanded": true,
+      "selected": true
+     }
+    ],
+    "area": "ITHENA ORG, Pune, Compressor 1, Dryer 1, Weather Station 1"
+   }
+  },
+  {
+   "name": "a fixed machine",
+   "tree": "local",
+   "grants": [
+    {
+     "id": "11474a40-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "mode": "fixed"
+    }
+   ],
+   "expect": {
+    "selectedNodes": [
+     {
+      "ID": "ITHENA ORG_Pune_Dryer 1",
+      "categoryId": "ITHENA ORG_Pune",
+      "name": "Dryer 1",
+      "entityId": "11474a40-c0be-11f1-add5-5db4ab3ed597",
+      "entityType": "DEVICE",
+      "expanded": true,
+      "selected": true
+     }
+    ],
+    "area": "ITHENA ORG, Pune, Dryer 1"
+   }
+  },
+  {
+   "name": "the org: one entry (a legacy reader keeps seeing new machines), every name in the area",
+   "tree": "local",
+   "grants": [
+    {
+     "id": "10c85640-c0be-11f1-add5-5db4ab3ed597",
+     "type": "ASSET",
+     "mode": "all"
+    }
+   ],
+   "expect": {
+    "selectedNodes": [
+     {
+      "ID": "ITHENA ORG",
+      "categoryId": "",
+      "name": "ITHENA ORG",
+      "entityId": "10c85640-c0be-11f1-add5-5db4ab3ed597",
+      "entityType": "ASSET",
+      "expanded": true,
+      "selected": true
+     }
+    ],
+    "area": "ITHENA ORG, Austin, Bangalore, Mumbai, Pune, Richmond, Blower 4, Dryer 4, Weather Station 4, Blower 3, Compressor 3, Dryer 3, Blower 2, Compressor 2, Dryer 2, Weather Station 3, Compressor 1, Dryer 1, Weather Station 1, Blower 1, Weather Station 2"
+   }
+  },
+  {
+   "name": "gone grants are left out",
+   "tree": "local",
+   "grants": [
+    {
+     "id": "aaaaaaaa-0000-4000-8000-000000000004",
+     "type": "ASSET",
+     "mode": "all"
+    },
+    {
+     "id": "114e4f20-c0be-11f1-add5-5db4ab3ed597",
+     "type": "DEVICE",
+     "mode": "fixed"
+    }
+   ],
+   "expect": {
+    "selectedNodes": [
+     {
+      "ID": "ITHENA ORG_Richmond_Blower 1",
+      "categoryId": "ITHENA ORG_Richmond",
+      "name": "Blower 1",
+      "entityId": "114e4f20-c0be-11f1-add5-5db4ab3ed597",
+      "entityType": "DEVICE",
+      "expanded": true,
+      "selected": true
+     }
+    ],
+    "area": "ITHENA ORG, Richmond, Blower 1"
+   }
+  },
+  {
+   "name": "nothing",
+   "tree": "local",
+   "grants": [],
+   "expect": {
+    "selectedNodes": [],
+    "area": ""
+   }
+  }
+ ]
+}
