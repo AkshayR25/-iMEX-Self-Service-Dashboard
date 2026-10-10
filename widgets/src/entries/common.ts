@@ -332,9 +332,11 @@ export const ACTIONS_EVENT = 'imex-dbb:actions';
  * Side effects: writes `window.__imexDbbActions` and dispatches ACTIONS_EVENT.
  * Clearing only takes effect if `owner` still owns the slot, so a destroyed widget can't wipe the
  * actions of a newer one. Admin-only filtering is done by the caller (UI only, D-012).
+ * D-054: on a phone (html.imx-mobile) nothing is published: dashboards are view-only there.
  */
 export function publishActions(owner: string, a: Omit<EditActions, 'owner'> | null) {
   const w = window as any;
+  if (a && isMobileApp()) a = null;
   if (a) w.__imexDbbActions = { ...a, owner };
   else if (w.__imexDbbActions?.owner === owner) w.__imexDbbActions = null;
   window.dispatchEvent(new CustomEvent(ACTIONS_EVENT));
@@ -342,11 +344,16 @@ export function publishActions(owner: string, a: Omit<EditActions, 'owner'> | nu
 
 /**
  * Actions currently published for the edit menu, or null. Ignores actions whose publishing element
- * is no longer in the DOM (the widget left the page without clearing them).
+ * is no longer in the DOM (the widget left the page without clearing them), and every action on a phone (D-054).
  */
 export function currentActions(): EditActions | null {
   const a = (window as any).__imexDbbActions as EditActions | null | undefined;
-  return a && a.el?.isConnected ? a : null;
+  return a && a.el?.isConnected && !isMobileApp() ? a : null;
+}
+
+/** D-054: the app runs in its phone mode (`html.imx-mobile`, set by the side menu's headless mode): no edit actions. */
+export function isMobileApp(): boolean {
+  return typeof document !== 'undefined' && document.documentElement.classList.contains('imx-mobile');
 }
 
 /**

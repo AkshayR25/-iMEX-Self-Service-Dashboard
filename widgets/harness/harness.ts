@@ -37,6 +37,8 @@ tb.telemetry.set('pw', { temperature: gen(29, 4) });
 const BENCH = new URLSearchParams(location.search).has('bench');
 // ?shell=1: the page pretends to have the app's side menu (the renderer then shows the machine name as its title, D-038)
 if (new URLSearchParams(location.search).has('shell')) document.documentElement.classList.add('imx-menu-shift');
+// ?mobile=1: the app's phone mode (html.imx-mobile, set by the side menu's headless mode on phones, D-054)
+if (new URLSearchParams(location.search).has('mobile')) document.documentElement.classList.add('imx-mobile');
 if (BENCH) {
   const KEYS = ['dischargePressure', 'dischargeTemp', 'powerKw', 'runStatus'];
   const devs = ['rc', 'pc'];

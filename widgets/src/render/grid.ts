@@ -38,6 +38,21 @@ export const GAP = 10;
  * every widget gets twice the share of the width, so 1-column tiles stay readable on small screens.
  */
 export const COMPACT_COL_W = 58;
+/**
+ * D-054: read-only grids narrower than this (px) use the phone layout (`phoneLayout`): two columns, the host gets
+ * the class `dbb-phone`. Never in the editor.
+ */
+export const PHONE_W = 600;
+/** Columns of the phone layout. */
+export const PHONE_COLS = 2;
+/**
+ * D-054: least rows a widget gets on a phone (its stored height is kept when larger). Charts, lists and tables need
+ * room for axes and rows; value tiles two rows for title, value and the line under it. Types not listed keep their height.
+ */
+export const PHONE_MIN_H: Record<string, number> = {
+  value: 2, kpi: 3, gauge: 2, progress: 2, multivalue: 2, summary: 2,
+  line: 3, area: 3, bar: 3, donut: 3, timeline: 3, heatmap: 3, table: 3, alarms: 3,
+};
 
 /** Options for `Grid`. All callbacks are optional; a read-only grid needs none. */
 export interface GridOptions {
@@ -143,6 +158,41 @@ export function compactLayout<T extends Rect & { id: string }>(items: T[]): T[] 
 }
 
 /**
+ * D-054: the layout shown on a phone (read-only grid narrower than PHONE_W), on PHONE_COLS (2) columns. Pure; the
+ * returned array keeps the input order.
+ * - Width: a widget of 7 or more of the 12 columns takes the full width (2), any other half (1).
+ * - Height: the stored height, at least PHONE_MIN_H of its type. A multi-value card with more than 3 values gets 3 rows;
+ *   at half width, where each name sits above its value (GRID_CSS), enough rows for every value (about 66 px each: a name on up to two lines and the value).
+ * - Packing in reading order (y, then x): a full-width widget gets a row band of its own; two half widgets that follow
+ *   each other share a band, side by side, both as tall as the taller one; a half widget without a partner (the next
+ *   one is full width, or it is the last) is drawn full width instead of leaving a hole. So there are no overlaps and
+ *   no holes, and the order on the phone is the order on the desktop.
+ */
+export function phoneLayout<T extends Rect & { id: string; type?: string; keys?: unknown[] }>(items: T[]): T[] {
+  const minH = (it: T) => Math.max(PHONE_MIN_H[it.type ?? ''] ?? 1, it.type === 'multivalue' && (it.keys?.length ?? 0) > 3 ? 3 : 0);
+  const out = items.map((i) => ({ ...i, w: i.w >= 7 ? PHONE_COLS : 1, h: Math.max(1, i.h, minH(i)) }));
+  // half-width multi-value cards stack name over value: rows for the values plus the title (row = ROW_H + GAP = 74 px)
+  for (const o of out) if (o.type === 'multivalue' && o.w === 1) o.h = Math.max(o.h, Math.ceil(((o.keys?.length ?? 0) * 66 + 56) / (ROW_H + GAP)));
+  const order = [...out].sort((a, b) => a.y - b.y || a.x - b.x);
+  let row = 0;
+  for (let k = 0; k < order.length; k++) {
+    const it = order[k];
+    const next = order[k + 1];
+    if (it.w === 1 && next && next.w === 1) {
+      const h = Math.max(it.h, next.h);
+      Object.assign(it, { x: 0, y: row, h });
+      Object.assign(next, { x: 1, y: row, h });
+      row += h;
+      k++;
+      continue;
+    }
+    Object.assign(it, { x: 0, y: row, w: PHONE_COLS });
+    row += it.h;
+  }
+  return out;
+}
+
+/**
  * Grid component. Owns one absolutely positioned box per widget inside `host` and the
  * `WidgetHandle` returned by `renderWidget` for each (used to refresh and destroy them).
  *
@@ -159,9 +209,9 @@ export class Grid {
   private widgets: Widget[] = [];
   /** Current column width in px. */
   private colW = 0;
-  /** Columns shown: GRID_COLS, or half of them when a read-only grid is narrow (see COMPACT_COL_W). */
+  /** Columns shown: GRID_COLS, half of them when a read-only grid is narrow (see COMPACT_COL_W), PHONE_COLS on a phone (D-054). */
   private cols = GRID_COLS;
-  /** Positions as shown (differ from the stored ones only in compact mode), by widget id. */
+  /** Positions and sizes as shown (differ from the stored ones only in compact and phone mode), by widget id. */
   private view = new Map<string, Rect>();
   /** D-053: the widgets' bindings when last drawn; a change redraws the text widgets. */
   private bindSig = '';
@@ -239,7 +289,7 @@ export class Grid {
       let box = this.boxes.get(w.id);
       const sig = JSON.stringify({ ...w, x: 0, y: 0, w: 0, h: 0 });
       // Size is tracked separately (on the box's data attributes) because charts must redraw at the new size.
-      const sizeChanged = box && (box.dataset.w !== String(this.rect(w).w) || box.dataset.h !== String(w.h));
+      const sizeChanged = box && (box.dataset.w !== String(this.rect(w).w) || box.dataset.h !== String(this.rect(w).h));
       if (!box) {
         box = this.makeBox(w);
         this.boxes.set(w.id, box);
@@ -252,7 +302,7 @@ export class Grid {
         this.handles.set(w.id, renderWidget(inner, w, env));
       }
       box.dataset.w = String(this.rect(w).w);
-      box.dataset.h = String(w.h);
+      box.dataset.h = String(this.rect(w).h);
     }
     this.setHeight();
     this.paintSelection();
@@ -260,14 +310,17 @@ export class Grid {
 
   /** Host min-height from the lowest widget as shown: at least 4 rows; in edit mode 3 extra empty rows give room to drop below the last widget. */
   private setHeight() {
-    const rows = Math.max(4, ...this.widgets.map((w) => this.rect(w).y + w.h)) + (this.opts.editable ? 3 : 0);
+    const rows = Math.max(4, ...this.widgets.map((w) => this.rect(w).y + this.rect(w).h)) + (this.opts.editable ? 3 : 0);
     this.host.style.minHeight = `${rows * (ROW_H + GAP)}px`;
   }
 
-  /** Fills `view` with the positions to show (the compact layout on a narrow read-only grid). */
+  /** Fills `view` with the positions to show (the compact layout on a narrow read-only grid, the phone layout on a phone). */
   private computeView() {
-    const shown = this.cols < GRID_COLS ? compactLayout(this.widgets) : this.widgets;
+    const phone = this.cols === PHONE_COLS;
+    const shown = phone ? phoneLayout(this.widgets) : this.cols < GRID_COLS ? compactLayout(this.widgets) : this.widgets;
     this.view = new Map(shown.map((w) => [w.id, { x: w.x, y: w.y, w: w.w, h: w.h }]));
+    // D-054: tile styles for the phone (Summary as 2×2, values that shrink to their box, titles on two lines): GRID_CSS
+    this.host.classList.toggle('dbb-phone', phone);
   }
 
   /** A widget's position as shown. */
@@ -290,11 +343,14 @@ export class Grid {
   /**
    * Recomputes the column width from the host width. With `reflow` (ResizeObserver path) and a
    * real width change, repositions every box and refreshes widgets so charts redraw at the new size.
+   * Read-only only: narrower than PHONE_W the phone layout (D-054), else a column narrower than COMPACT_COL_W
+   * the compact one (D-040). The editor always shows the 12 columns.
    */
   private layout(reflow: boolean) {
     const W = this.host.clientWidth;
     const full = (W - GAP * (GRID_COLS + 1)) / GRID_COLS;
-    const cols = !this.opts.editable && W > 0 && full < COMPACT_COL_W ? GRID_COLS / 2 : GRID_COLS;
+    const ro = !this.opts.editable && W > 0;
+    const cols = ro && W < PHONE_W ? PHONE_COLS : ro && full < COMPACT_COL_W ? GRID_COLS / 2 : GRID_COLS;
     const colW = (W - GAP * (cols + 1)) / cols;
     const modeChanged = cols !== this.cols;
     // Ignore sub-pixel jitter (e.g. a scrollbar flickering) to avoid redraw loops.
@@ -305,7 +361,10 @@ export class Grid {
       if (modeChanged) this.computeView();
       for (const w of this.widgets) {
         const b = this.boxes.get(w.id);
-        if (b) this.place(b, w);
+        if (!b) continue;
+        this.place(b, w);
+        b.dataset.w = String(this.rect(w).w);
+        b.dataset.h = String(this.rect(w).h);
       }
       if (modeChanged) this.setHeight();
       for (const h of this.handles.values()) void h.refresh();
@@ -472,4 +531,15 @@ export const GRID_CSS = `
 .dbb-gtools button:hover{color:var(--accent);border-color:var(--accent)}
 .dbb-gtools svg{width:14px;height:14px}
 .dbb-ghost{position:absolute;border:2px dashed var(--accent);border-radius:var(--radius);background:color-mix(in srgb,var(--accent) 7%,transparent);pointer-events:none}
+.dbb-phone .dbb-gi{container-type:inline-size}
+.dbb-phone .dbb-card-t{white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-height:1.25;overflow-wrap:anywhere}
+.dbb-phone .dbb-value{max-width:100%}
+.dbb-phone .dbb-value .v{font-size:min(var(--card-value-size,30px),15cqi);max-width:100%}
+.dbb-phone .dbb-value .v,.dbb-phone .dbb-value .u{display:inline-block}
+.dbb-phone .dbb-value .s{max-width:100%}
+.dbb-phone .dbb-sum{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 12px;align-content:center}
+.dbb-phone .dbb-sum .v{font-size:min(18px,8.5cqi);max-width:100%}
+.dbb-phone .dbb-sum .v .dbb-muted{font-size:.78em}
+.dbb-phone .dbb-mv-row .v{flex:none}
+@container (max-width:220px){.dbb-phone .dbb-mv-row{flex-wrap:wrap;row-gap:1px}.dbb-phone .dbb-mv-row .k{flex:1 1 calc(100% - 30px);min-width:0;white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-height:1.25}.dbb-phone .dbb-mv-row .v{margin-left:16px}}
 `;

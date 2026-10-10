@@ -1177,6 +1177,134 @@ test('machine page: edit menu opens the builder on the shown dashboard; viewers 
   eq(await t.b(() => window.__imexDbbActions?.items ?? null), null, 'no edit actions for a viewer');
 });
 
+// ------------------------------------------------------------------ D-054 phone layout
+
+/** The machine page's dashboard of the local app, in the harness's keys: KPI + Summary, tiles, gauges, multi-value, chart. */
+const PHONE_DASH = () => {
+  const now = Date.now();
+  const k = (id, type, title, x, y, w, h, keys) => ({ id, type, title, x, y, w, h, binding: { mode: 'current' }, keys, settings: {} });
+  return {
+    schemaVersion: 1, id: 'ph1', name: 'Phone board', kind: 'device', profile: 'Compressor', version: 1, ownerId: 'u1', ownerName: 'A', updatedBy: 'u1', updatedAt: now, timeRange: '1h', copiedFrom: null,
+    widgets: [
+      k('kpi', 'kpi', '1st Stage Discharge Air Temperature', 0, 0, 4, 2, ['dischargeTemp']),
+      k('sum', 'summary', '1st Stage Discharge Air Temperature', 4, 0, 8, 2, ['dischargeTemp']),
+      k('hours', 'value', 'Compressor Loaded Hours', 0, 2, 2, 2, ['powerKw']),
+      k('g1', 'gauge', '2nd Stage Suction Air Temperature', 2, 2, 4, 3, ['dischargeTemp']),
+      k('g2', 'gauge', '2nd Stage Discharge Air Temperature', 6, 2, 4, 3, ['dischargePressure']),
+      k('mv', 'multivalue', 'Multi-value card', 0, 5, 4, 3, ['dischargeTemp', 'dischargePressure', 'runStatus']),
+      k('st', 'value', 'Alert Status', 4, 5, 2, 4, ['runStatus']),
+      k('line', 'line', '1st Stage Discharge Air Temperature', 0, 9, 8, 4, ['dischargeTemp']),
+      k('inlet', 'gauge', 'Inlet Air Temperature', 8, 9, 4, 4, ['dischargeTemp']),
+    ],
+  };
+};
+/** Boxes of the machine page as drawn, overlaps, and text that is clipped or leaves its card. */
+const phoneProbe = () => {
+  const host = document.querySelector('.dbb-rgrid');
+  const hr = host.getBoundingClientRect();
+  const boxes = [...host.querySelectorAll('.dbb-gbox')].map((b) => {
+    const r = b.getBoundingClientRect();
+    return { id: b.dataset.id, l: Math.round(r.left - hr.left), t: Math.round(r.top - hr.top), w: Math.round(r.width), h: Math.round(r.height) };
+  });
+  const over = [];
+  for (const a of boxes) for (const b of boxes) if (a.id < b.id && a.l < b.l + b.w - 1 && b.l < a.l + a.w - 1 && a.t < b.t + b.h - 1 && b.t < a.t + a.h - 1) over.push(a.id + '/' + b.id);
+  const clipped = [];
+  for (const card of host.querySelectorAll('.dbb-card')) {
+    const cr = card.getBoundingClientRect();
+    const id = card.closest('.dbb-gbox').dataset.id;
+    for (const el of card.querySelectorAll('.dbb-card-t,.dbb-value .v,.dbb-value .u,.dbb-sum .v,.dbb-sum .k,.dbb-mv-row .v')) {
+      const r = el.getBoundingClientRect();
+      if (!r.width) continue;
+      if (r.right > cr.right + 1 || r.left < cr.left - 1 || r.bottom > cr.bottom + 1) clipped.push(`${id} ${el.className}: out`);
+      else if (el.scrollWidth > el.clientWidth + 1) clipped.push(`${id} ${el.className}: cut "${el.textContent.trim()}"`);
+    }
+  }
+  const sum = [...host.querySelectorAll('.dbb-gbox[data-id="sum"] .dbb-sum > div')].map((c) => {
+    const r = c.getBoundingClientRect();
+    return [Math.round(r.left), Math.round(r.top)];
+  });
+  return { phone: host.classList.contains('dbb-phone'), hostW: Math.round(hr.width), boxes, over, clipped, sum, // the harness's own navbar is wider than a phone (the app has no navbar there), so the renderer is checked, not the page
+    xOverflow: (() => { const r = document.querySelector('.dbb-rend'); return r.scrollWidth > r.clientWidth + 1 || boxes.some((b) => b.l + b.w > hr.width + 1); })() };
+};
+
+for (const width of [390, 430]) {
+  test(`phone layout at ${width} px (D-054): 2 columns, reading order, no overlaps, Summary 2×2, no clipped text`, async (t) => {
+    await t.page.close();
+    const s = await open('dev=pc&shell=1&mobile=1');
+    Object.assign(t, s);
+    await t.page.setViewportSize({ width, height: 844 });
+    await t.b((d) => {
+      const now = Date.now();
+      window.__tb.setAttrs('ASSET', 'store', { dbb_d_ph1: d });
+      window.__tb.setAttrs('DEVICE', 'pc', { dbb_assign: { dashboardId: 'ph1', mode: 'linked', by: 'u1', at: now } });
+      window.__tb.setAttrs('ASSET', 'store', { dbb_assign_rev: 'v' + now });
+      window.dispatchEvent(new CustomEvent('imex-dbb:changed'));
+    }, PHONE_DASH());
+    await t.page.waitForFunction(() => document.querySelectorAll('.dbb-rgrid .dbb-gbox').length === 9 && document.querySelector('.dbb-gbox[data-id="sum"] .dbb-sum'), null, { timeout: 6000 });
+    await t.page.waitForTimeout(900);
+    const p = await t.b(phoneProbe);
+    await t.page.screenshot({ path: join(tmpdir(), `e2e-phone-${width}.png`), fullPage: true });
+    ok(p.phone, 'grid in phone mode');
+    ok(!p.xOverflow, 'nothing sticks out sideways');
+    const lefts = [...new Set(p.boxes.map((b) => b.l))].sort((a, b) => a - b);
+    eq(lefts.length, 2, `two columns (lefts ${lefts})`);
+    eq(p.over, [], 'no overlaps');
+    const by = Object.fromEntries(p.boxes.map((b) => [b.id, b]));
+    const full = by.line.w;
+    ok(full > p.hostW - 30, `chart full width (${full} of ${p.hostW})`);
+    ok(Math.abs(by.sum.w - full) <= 1, 'Summary (8 of 12) full width');
+    ok(by.g1.w < full / 2 + 1 && by.g2.w < full / 2 + 1, 'gauges half width');
+    eq(by.g1.t, by.hours.t, 'Loaded hours and the first gauge share a row');
+    ok(by.hours.l < by.g1.l, 'left to right');
+    // reading order: y, then x
+    const order = [...p.boxes].sort((a, b) => a.t - b.t || a.l - b.l).map((b) => b.id);
+    eq(order, ['kpi', 'sum', 'hours', 'g1', 'g2', 'mv', 'st', 'line', 'inlet'], 'reading order');
+    ok(by.line.h >= 3 * 64 + 2 * 10, 'chart at least 3 rows');
+    // Summary MIN / AVG / MAX / NOW as 2 x 2
+    eq(new Set(p.sum.map((c) => c[0])).size, 2, `Summary in 2 columns ${JSON.stringify(p.sum)}`);
+    eq(new Set(p.sum.map((c) => c[1])).size, 2, 'Summary in 2 rows');
+    eq(p.clipped, [], 'no clipped or overflowing text');
+    // phone mode: no title in the header (the app's shell bar shows the machine), no edit actions
+    ok(!(await t.page.$('.dbb-rhead .dbb-rtitle')), 'no machine title under html.imx-mobile');
+    eq(await t.b(() => window.__imexDbbActions ?? null), null, 'no edit actions under html.imx-mobile');
+    const head = await t.b(() => {
+      const h = document.querySelector('.dbb-rhead');
+      return { sw: h.scrollWidth, cw: h.clientWidth };
+    });
+    ok(head.sw <= head.cw + 1, `header fits (${head.sw} > ${head.cw})`);
+    // back to a desktop width: the stored 12-column layout again
+    await t.page.setViewportSize({ width: 1400, height: 900 });
+    await t.page.waitForTimeout(500);
+    const d = await t.b(phoneProbe);
+    ok(!d.phone, 'desktop: no phone mode');
+    eq(d.over, [], 'desktop: no overlaps');
+    const dby = Object.fromEntries(d.boxes.map((b) => [b.id, b]));
+    eq(dby.kpi.t, dby.sum.t, 'desktop: KPI and Summary side by side again');
+    eq(dby.hours.t, dby.g2.t, 'desktop: tiles in one row again');
+  });
+}
+
+test('phone layout (D-054): never in the editor; without html.imx-mobile the title and edit actions stay', async (t) => {
+  await t.page.close();
+  let s = await open('dev=pc&shell=1');
+  Object.assign(t, s);
+  await t.page.setViewportSize({ width: 390, height: 844 });
+  await t.page.waitForFunction(() => window.__imexDbbActions?.items?.length > 0, null, { timeout: 5000 });
+  await t.page.waitForTimeout(600);
+  ok(await t.page.$('.dbb-rgrid.dbb-phone'), 'phone layout by width alone');
+  ok(await t.page.$('.dbb-rhead .dbb-rtitle'), 'title kept without html.imx-mobile (D-038)');
+  await t.page.close();
+  // the editor in a phone-sized window keeps the 12 columns
+  s = await open('page=builder&dev=pc');
+  Object.assign(t, s);
+  await t.addWidget('value');
+  await t.addWidget('value');
+  await t.page.setViewportSize({ width: 520, height: 844 });
+  await t.page.waitForTimeout(500);
+  ok(!(await t.page.$('.dbb-phone')), 'no phone mode in the editor');
+  eq((await t.draft()).widgets.map((w) => w.w), [3, 3], 'stored widths unchanged');
+});
+
 // ------------------------------------------------------------------ D-029
 
 /** Canvas cards whose content is cut off (the body or an inner scrolling/clipping element overflows). */

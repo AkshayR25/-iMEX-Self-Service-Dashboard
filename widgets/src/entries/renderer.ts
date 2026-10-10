@@ -67,6 +67,9 @@ const R_CSS = `
 .dbb-upd.fresh .d{background:#0ca30c}
 .dbb-upd.old .d{background:#e8a317}
 @media (max-width:720px){.dbb-tw .k span{display:none}}
+@media (max-width:600px){.dbb-rend .dbb-rhead{flex-wrap:wrap;row-gap:6px}.dbb-rend .dbb-rhead .dbb-crumb{flex:1 1 100%}}
+html.imx-mobile .dbb-rend .dbb-rhead{flex-wrap:wrap;row-gap:6px;padding:8px 12px}
+html.imx-mobile .dbb-rend .dbb-rhead .dbb-crumb{flex:1 1 100%}
 .dbb-rtools{margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .dbb-rtools select{font:inherit;font-size:12px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink)}
 .dbb-rbody{flex:1;overflow:auto;min-height:0;padding:4px 6px}
@@ -269,8 +272,9 @@ export function init(tbCtx: any) {
     // D-038: the title is back. It was left out on 28 Sep 2026 because the app's navbar showed the machine; with
     // the side menu there is no navbar, and nothing on the page said which machine or dashboard is open. An app
     // that still has its navbar (no side menu on the page) keeps the line without the title.
+    // D-054: on a phone (html.imx-mobile, set by the side menu's headless mode) the app's shell bar shows the machine.
     const where = scope.ancestors(ctx, deviceId).reverse().map((a) => a.label).join(' › ');
-    const sideMenu = !!document.querySelector('#imx-menu-root') || document.documentElement.classList.contains('imx-menu-shift');
+    const sideMenu = (!!document.querySelector('#imx-menu-root') || document.documentElement.classList.contains('imx-menu-shift')) && !document.documentElement.classList.contains('imx-mobile');
     head.innerHTML = `
       ${sideMenu ? `<div class="dbb-rtitle" title="${esc(node.label)} (${esc(node.profile)})">${esc(node.label)}</div>` : ''}
       <div class="dbb-crumb" title="${esc(where)}${dash ? ` · Dashboard: ${esc(dash.name)}` : ''}">${esc(where)}${dash ? `<span class="dbb-crumb-d"> · ${esc(dash.name)}</span>` : ''}</div>
